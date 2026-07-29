@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Calendário</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>AGENDA</small>
+    <h1>📅 Calendário</h1>
+    <p>Visualize suas atividades em formato mensal ou semanal</p>
+  </div>
+  <button class="btn btn-primary" onclick="quickAdd()">＋ Nova atividade</button>
+</div>
+
+<div class="cal-toolbar">
+  <button onclick="changePeriod(-1)" title="Anterior">◀</button>
+  <h2 id="calTitle">Janeiro 2026</h2>
+  <button onclick="changePeriod(1)" title="Próximo">▶</button>
+  <button onclick="goToday()" class="active" data-i18n="calendar.today">Hoje</button>
+  <div class="cal-view-toggle">
+    <button id="btnMonth" class="active" onclick="setView('month')" data-i18n="calendar.month">Mês</button>
+    <button id="btnWeek" onclick="setView('week')" data-i18n="calendar.week">Semana</button>
+  </div>
+</div>
+
+<div class="filters">
+  <select id="filterCategory" onchange="render()">
+    <option value="all">Todas categorias</option>
+  </select>
+  <select id="filterStatus" onchange="render()">
+    <option value="all">Todos os status</option>
+    <option value="pending">⏳ Pendente</option>
+    <option value="analyzing">🔍 Analisando</option>
+    <option value="finished">✅ Finalizado</option>
+    <option value="notdone">❌ Não realizado</option>
+  </select>
+</div>
+
+<!-- MENSAL -->
+<div id="monthView">
+  <div class="cal-grid" id="calGrid"></div>
+</div>
+
+<!-- SEMANAL -->
+<div id="weekView" style="display:none">
+  <div class="cal-week-grid" id="calWeekGrid"></div>
+</div>
+
+<!-- MODAL: Detalhes do dia -->
+<div class="modal-overlay hidden" id="dayModal" onclick="if(event.target===this)closeDayModal()">
+  <div class="modal">
+    <h2 id="dayModalTitle">Atividades do dia</h2>
+    <div id="dayModalList"></div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeDayModal()">Fechar</button>
+      <button class="btn btn-primary" onclick="quickAddForDay()">＋ Adicionar</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(async function() {
+  await page.i18nReady();
+  page.applyI18n(document.body);
+  populateCategories();
+  render();
+})();
+
+let view = 'month';
+let cursor = new Date(); // navegação
+
+function populateCategories() {
+  const settings = page.getDB().settings;
+  const cats = settings.categories || ['Geral'];
+  const filterCat = document.getElementById('filterCategory');
+  filterCat.innerHTML = '<option value="all">' + page.t('kanban.allCategories', 'Todas categorias') + '</option>';
+  cats.forEach(c => {
+    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  });
+}
+
+function setView(v) {
+  view = v;
+  document.getElementById('btnMonth').classList.toggle('active', v === 'month');
+  document.getElementById('btnWeek').classList.toggle('active', v === 'week');
+  document.getElementById('monthView').style.display = v === 'month' ? '' : 'none';
+  document.getElementById('weekView').style.display = v === 'week' ? '' : 'none';
+  render();
+}
+
+function changePeriod(delta) {
+  if (view === 'month') {
+    cursor.setMonth(cursor.getMonth() + delta);
+  } else {
+    cursor.setDate(cursor.getDate() + delta * 7);
+  }
+  render();
+}
+
+function goToday() {
+  cursor = new Date();
+  render();
+}
+
+function getMonthName(month) {
+  const lang = page.getLanguage();
+  const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
+  return new Date(2026, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+}
+
+function getWeekStart(d) {
+  const day = d.getDay();
+  const start = new Date(d);
+  start.setDate(d.getDate() - day);
+  start.setHours(0,0,0,0);
+  return start;
+}
+
+function render() {
+  const lang = page.getLanguage();
+  const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
+
+  if (view === 'month') {
+    document.getElementById('calTitle').textContent = getMonthName(cursor.getMonth());
+    renderMonth(locale);
+  } else {
+    const ws = getWeekStart(cursor);
+    const we = new Date(ws);
+    we.setDate(ws.getDate() + 6);
+    const fmt = { day: '2-digit', month: 'short' };
+    document.getElementById('calTitle').textContent =
+      ws.toLocaleDateString(locale, fmt) + ' — ' + we.toLocaleDateString(locale, fmt);
+    renderWeek(locale, ws);
+  }
+}
+
+function renderMonth(locale) {
+  const data = page.getDB();
+  const tasks = data.tasks || [];
+  const filterCat = document.getElementById('filterCategory').value;
+  const filterStatus = document.getElementById('filterStatus').value;
+  const today = core.today();
+  const todayDate = new Date();
+  todayDate.setHours(0,0,0,0);
+
+  const year = cursor.getFullYear();
+  const month = cursor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const startWeekday = firstDay.getDay();
+  const daysInMonth = lastDay.getDate();
+
+  const today_label = page.t('calendar.today', 'Hoje');
+
+  let html = '';
+  // Cabeçalho dos dias da semana
+  const weekdays = ['calendar.sun','calendar.mon','calendar.tue','calendar.wed','calendar.thu','calendar.fri','calendar.sat'];
+  weekdays.forEach(w => {
+    html += `<div class="cal-weekday">${page.t(w, w.split('.')[1])}</div>`;
+  });
+
+  // Dias do mês anterior
+  const prevLastDay = new Date(year, month, 0).getDate();
+  for (let i = startWeekday - 1; i >= 0; i--) {
+    const day = prevLastDay - i;
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${day}</div></div>`;
+  }
+
+  // Dias do mês atual
+  for (let d = 1; d <= daysInMonth; d++) {
+    const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayTasks = tasks.filter(t => t.date === dateStr);
+        const filtered = dayTasks.filter(t => {
+      if (filterCat !== 'all' && t.category !== filterCat) return false;
+      if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+      return true;
+    });
+    const isToday = dateStr === today;
+    const isLate = dayTasks.some(t => t.status !== 'finished' && t.status !== 'notdone');
+
+    const eventsHtml = filtered.slice(0, 3).map(t => {
+      const isFinished = t.status === 'finished';
+      const isAnalyzing = t.status === 'analyzing';
+      const isNotdone = t.status === 'notdone';
+      const isLateT = t.date < today && !isFinished && !isNotdone;
+      const cls = isFinished ? 'finished' : isAnalyzing ? 'analyzing' : isNotdone ? 'notdone' : isLateT ? 'late' : '';
+      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask(${t.id})" title="${page.esc(t.title)} · ${page.t('status.'+t.status, t.status)}">${page.esc(t.title)}</div>`;
+    }).join('');
+    const more = filtered.length > 3 ? `<div class="cal-more">+${filtered.length - 3} ${page.t('calendar.more', 'mais')}</div>` : '';
+
+    html += `
+      <div class="cal-day ${isToday ? 'today' : ''}" onclick="openDay('${dateStr}')">
+        <div class="cal-day-num">${d}${isToday ? ' <small style="font-size:9px">● '+today_label+'</small>' : ''}</div>
+        ${eventsHtml}
+        ${more}
+      </div>
+    `;
+  }
+
+  // Dias do próximo mês para completar a grade
+  const totalCells = startWeekday + daysInMonth;
+  const remaining = (7 - (totalCells % 7)) % 7;
+  for (let d = 1; d <= remaining; d++) {
+    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
+  }
+
+  document.getElementById('calGrid').style.gridTemplateColumns = 'repeat(7,1fr)';
+  document.getElementById('calGrid').innerHTML = html;
+}
+
+function renderWeek(locale, weekStart) {
+  const data = page.getDB();
+  const tasks = data.tasks || [];
+  const filterCat = document.getElementById('filterCategory').value;
+  const filterStatus = document.getElementById('filterStatus').value;
+  const today = core.today();
+  const weekdays = ['calendar.sun','calendar.mon','calendar.tue','calendar.thu','calendar.fri','calendar.sat'];
+
+  let html = '';
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart);
+    d.setDate(weekStart.getDate() + i);
+    const dateStr = d.toISOString().slice(0, 10);
+    const dayTasks = tasks.filter(t => t.date === dateStr);
+    const filtered = dayTasks.filter(t => {
+      if (filterCat !== 'all' && t.category !== filterCat) return false;
+      if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+      return true;
+    });
+    const isToday = dateStr === today;
+    const wd = page.t(weekdays[i], weekdays[i].split('.')[1]);
+    const dayName = d.toLocaleDateString(locale, { day: '2-digit' });
+
+    const eventsHtml = filtered.map(t => {
+      const isFinished = t.status === 'finished';
+      const isAnalyzing = t.status === 'analyzing';
+      const isNotdone = t.status === 'notdone';
+      const isLateT = t.date < today && !isFinished && !isNotdone;
+      const cls = isFinished ? 'finished' : isAnalyzing ? 'analyzing' : isNotdone ? 'notdone' : isLateT ? 'late' : '';
+      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask(${t.id})" title="${page.esc(t.title)}">${page.esc(t.title)}</div>`;
+    }).join('');
+
+    html += `
+      <div class="cal-week-day" onclick="openDay('${dateStr}')" style="${isToday ? 'border-color:var(--primary);background:var(--primary-light)' : ''}">
+        <h4>${wd} ${dayName}</h4>
+        ${eventsHtml || `<small style="color:var(--muted);font-size:11px">${page.t('calendar.noActivities','Nenhuma atividade')}</small>`}
+      </div>
+    `;
+  }
+  document.getElementById('calWeekGrid').innerHTML = html;
+}
+
+/* ========== MODAL DIA ========== */
+function openDay(dateStr) {
+  const data = page.getDB();
+  const tasks = (data.tasks || []).filter(t => t.date === dateStr);
+  const filterCat = document.getElementById('filterCategory').value;
+  const filterStatus = document.getElementById('filterStatus').value;
+  const filtered = tasks.filter(t => {
+    if (filterCat !== 'all' && t.category !== filterCat) return false;
+    if (filterStatus !== 'all' && t.status !== filterStatus) return false;
+    return true;
+  });
+
+  document.getElementById('dayModalTitle').textContent = core.formatDate(dateStr) + ` (${filtered.length})`;
+  document.getElementById('dayModal').dataset.date = dateStr;
+  document.getElementById('dayModalList').innerHTML = filtered.length === 0
+    ? `<div class="empty"><p>${page.t('calendar.noActivities','Nenhuma atividade nesta data')}</p></div>`
+    : filtered.map(t => {
+        const statusLabels = { pending:'⏳', analyzing:'🔍', finished:'✅', notdone:'❌' };
+        return `
+          <div class="item">
+            <span>${statusLabels[t.status] || '⬜'}</span>
+            <div class="item-info">
+              <b>${page.esc(t.title)}</b>
+              <small>${page.esc(t.category || 'Geral')} · ${page.t('priority.'+t.priority, t.priority || 'medium')}</small>
+            </div>
+            <button class="btn-icon" onclick="openTask(${t.id})">👁</button>
+          </div>
+        `;
+      }).join('');
+  document.getElementById('dayModal').classList.remove('hidden');
+}
+
+function closeDayModal() {
+  document.getElementById('dayModal').classList.add('hidden');
+}
+
+function quickAddForDay() {
+  const date = document.getElementById('dayModal').dataset.date || core.today();
+  closeDayModal();
+  // Navega para atividades com a data pré-selecionada
+  page.navigate('atividades');
+  setTimeout(() => {
+    window.parent.postMessage({ type: 'newTask', date }, '*');
+  }, 500);
+}
+
+function quickAdd() {
+  page.navigate('atividades');
+  setTimeout(() => {
+    window.parent.postMessage({ type: 'newTask' }, '*');
+  }, 500);
+}
+
+/* ========== Ver detalhes da atividade ========== */
+function openTask(id) {
+  const data = page.getDB();
+  const t = data.tasks.find(t => t.id === id);
+  if (!t) return;
+  const user = page.getUser();
+  const comments = core.getComments(id);
+
+  const modalHtml = `
+    <h2>${page.esc(t.title)}</h2>
+    <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
+      <span class="badge ${t.status}">${page.t('status.'+t.status, t.status)}</span>
+      <span class="badge">${page.t('priority.'+(t.priority||'medium'), t.priority || 'medium')}</span>
+      <span class="badge">${page.esc(t.category || 'Geral')}</span>
+    </div>
+    ${t.description ? `<p style="margin-bottom:12px;color:var(--text-secondary)">${page.esc(t.description)}</p>` : ''}
+    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">
+      📅 ${core.formatDate(t.date)}
+      ${t.recurrence && t.recurrence !== 'none' ? ` · 🔁 ${page.t('kanban.'+t.recurrence, t.recurrence)}` : ''}
+    </div>
+    <div class="comments-section">
+      <h3>💬 ${page.t('comments.title', 'Comentários')} (${comments.length})</h3>
+      <div class="comments-list" id="commentsList" style="max-height:240px;overflow-y:auto;margin-bottom:10px">
+        ${comments.length === 0
+          ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
+          : comments.map(c => `
+            <div class="comment-item" data-cid="${c.id}">
+              <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
+              <div class="comment-body">
+                <div class="comment-header">
+                  <span class="comment-author">${page.esc(c.userName || 'Anônimo')}</span>
+                  <span class="comment-date">${core.formatDateTime(c.createdAt)}</span>
+                </div>
+                <div class="comment-text">${page.esc(c.text)}</div>
+              </div>
+            </div>
+          `).join('')
+        }
+      </div>
+      <form class="comment-form" onsubmit="submitComment(event,${t.id})">
+        <input type="text" id="commentInput" placeholder="${page.t('comments.placeholder', 'Escreva um comentário...')}" required>
+        <button type="submit" class="btn btn-primary">${page.t('comments.send', 'Enviar')}</button>
+      </form>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="page.closeModal()">${page.t('common.close', 'Fechar')}</button>
+    </div>
+  `;
+  page.openModal(modalHtml);
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+}
+
+function submitComment(e, taskId) {
+  e.preventDefault();
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const user = page.getUser();
+  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  if (c) {
+    input.value = '';
+    const list = document.getElementById('commentsList');
+    const empty = list.querySelector('.empty');
+    if (empty) empty.remove();
+    list.insertAdjacentHTML('beforeend', `
+      <div class="comment-item" data-cid="${c.id}">
+        <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
+        <div class="comment-body">
+          <div class="comment-header">
+            <span class="comment-author">${page.esc(c.userName || 'Anônimo')}</span>
+            <span class="comment-date">${core.formatDateTime(c.createdAt)}</span>
+          </div>
+          <div class="comment-text">${page.esc(c.text)}</div>
+        </div>
+      </div>
+    `);
+    list.scrollTop = list.scrollHeight;
+  }
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
+    setTimeout(() => { populateCategories(); render(); }, 100);
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Modo Foco</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>POMODORO</small>
+    <h1>🎯 Modo Foco</h1>
+    <p>25 minutos de foco, 5 de pausa. Aumente sua produtividade.</p>
+  </div>
+</div>
+
+<div class="pomodoro-container">
+  <!-- PRINCIPAL -->
+  <div class="pomodoro-main">
+    <div class="pomodoro-mode-tabs" id="modeTabs">
+      <button class="active" data-mode="work" onclick="setMode('work')" data-i18n="focus.work">Trabalho</button>
+      <button data-mode="short" onclick="setMode('short')" data-i18n="focus.shortBreak">Pausa curta</button>
+      <button data-mode="long" onclick="setMode('long')" data-i18n="focus.longBreak">Pausa longa</button>
+    </div>
+
+    <div class="pomodoro-timer">
+      <svg viewBox="0 0 200 200">
+        <circle class="timer-bg" cx="100" cy="100" r="90"></circle>
+        <circle class="timer-progress" cx="100" cy="100" r="90"
+                stroke-dasharray="565.48" stroke-dashoffset="0" id="timerCircle"></circle>
+      </svg>
+      <div class="timer-text">
+        <div id="timerDisplay">25:00</div>
+        <small id="timerLabel">Pronto para começar</small>
+      </div>
+    </div>
+
+    <div class="pomodoro-controls">
+      <button class="btn btn-primary" id="btnStart" onclick="startTimer()">▶ <span data-i18n="focus.start">Iniciar</span></button>
+      <button class="btn btn-secondary" id="btnPause" onclick="pauseTimer()" style="display:none">⏸ <span data-i18n="focus.pause">Pausar</span></button>
+      <button class="btn btn-secondary" id="btnResume" onclick="resumeTimer()" style="display:none">▶ <span data-i18n="focus.resume">Retomar</span></button>
+      <button class="btn btn-secondary" id="btnStop" onclick="stopTimer()" style="display:none">⏹ <span data-i18n="focus.stop">Parar</span></button>
+      <button class="btn btn-secondary" id="btnSkip" onclick="skipTimer()" style="display:none">⏭ <span data-i18n="focus.skip">Pular</span></button>
+    </div>
+
+    <!-- Tarefa selecionada -->
+    <div class="pomodoro-task-select" style="width:100%;max-width:400px;margin-top:8px">
+      <label style="margin:0">
+        <span data-i18n="focus.selectTask">Selecione uma atividade para focar</span>
+        <select id="focusTask"></select>
+      </label>
+    </div>
+  </div>
+
+  <!-- LATERAL -->
+  <div class="pomodoro-side">
+    <div class="pomodoro-stats">
+      <div class="pomodoro-stat">
+        <div class="num" id="statToday">0</div>
+        <div class="label" data-i18n="focus.completedSessions">Sessões hoje</div>
+      </div>
+      <div class="pomodoro-stat">
+        <div class="num" id="statTotal">0</div>
+        <div class="label" data-i18n="gamification.total">Total</div>
+      </div>
+      <div class="pomodoro-stat">
+        <div class="num" id="statCycle">0/4</div>
+        <div class="label" data-i18n="focus.cycle">Ciclo</div>
+      </div>
+      <div class="pomodoro-stat">
+        <div class="num" id="statMinutes">0</div>
+        <div class="label">Minutos</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🚫 Bloqueio de distrações</h2>
+      <p class="text-muted mb-2" style="font-size:13px" data-i18n="focus.blockedHint">Sites de distração ficam ocultos durante o foco</p>
+      <label class="toggle-label" style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+        <span style="flex:1;font-size:13px">Bloquear sites de distração</span>
+        <button class="toggle-switch" id="blockToggle" onclick="toggleBlock()"></button>
+      </label>
+      <div class="pomodoro-blocklist">
+        <small class="text-muted">Bloqueado durante o foco:</small><br>
+        <span class="block-tag">📱 Facebook</span>
+        <span class="block-tag">🐦 Twitter/X</span>
+        <span class="block-tag">📸 Instagram</span>
+        <span class="block-tag">🎵 TikTok</span>
+        <span class="block-tag">📺 YouTube</span>
+        <span class="block-tag">💬 WhatsApp Web</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚙️ Configurações</h2>
+      <label><span>Trabalho (min)</span>
+        <input type="number" id="cfgWork" value="25" min="1" max="120" onchange="saveCfg()">
+      </label>
+      <label><span>Pausa curta (min)</span>
+        <input type="number" id="cfgShort" value="5" min="1" max="30" onchange="saveCfg()">
+      </label>
+      <label><span>Pausa longa (min)</span>
+        <input type="number" id="cfgLong" value="15" min="1" max="60" onchange="saveCfg()">
+      </label>
+    </div>
+  </div>
+</div>
+
+<!-- NOTIFICAÇÃO FLUTUANTE -->
+<div id="floatingNotif" style="position:fixed;bottom:20px;right:20px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px 18px;box-shadow:var(--shadow-lg);display:none;z-index:5000">
+  <b id="floatingTitle">⏰ Tempo finalizado!</b>
+  <p id="floatingBody" style="font-size:13px;margin-top:4px"></p>
+</div>
+
+<!-- OVERLAY FOCO TOTAL -->
+<div class="foco-overlay hidden" id="focoOverlay">
+  <button class="foco-quit" onclick="exitFocoOverlay()">✕ Sair</button>
+  <div class="foco-timer" id="focoOverlayTimer">25:00</div>
+  <div class="foco-message" id="focoOverlayMsg">Foque na sua atividade. Você consegue! 💪</div>
+  <button class="btn btn-secondary" onclick="exitFocoOverlay()" style="background:rgba(255,255,255,.1);color:#fff;border:1px solid rgba(255,255,255,.2)">Sair do modo foco</button>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(async function() {
+  await page.i18nReady();
+  page.applyI18n(document.body);
+  loadCfg();
+  loadState();
+  populateTasks();
+  updateDisplay();
+  setInterval(updateDisplay, 500);
+})();
+
+let state = {
+  mode: 'work',
+  running: false,
+  startedAt: null,
+  pausedAt: null,
+  elapsedSec: 0,
+  durationSec: 25 * 60,
+  cycle: 0,
+  todayCount: 0,
+  totalCount: 0,
+  totalMinutes: 0,
+  blockEnabled: false,
+};
+
+let timerInterval = null;
+let isInFocoOverlay = false;
+
+const DURATIONS = () => ({
+  work: (parseInt(document.getElementById('cfgWork')?.value) || 25) * 60,
+  short: (parseInt(document.getElementById('cfgShort')?.value) || 5) * 60,
+  long: (parseInt(document.getElementById('cfgLong')?.value) || 15) * 60,
+});
+
+function loadCfg() {
+  try {
+    const cfg = JSON.parse(localStorage.getItem('cl-pomodoro-cfg') || '{}');
+    if (cfg.work) document.getElementById('cfgWork').value = cfg.work;
+    if (cfg.short) document.getElementById('cfgShort').value = cfg.short;
+    if (cfg.long) document.getElementById('cfgLong').value = cfg.long;
+  } catch(e) {}
+}
+
+function saveCfg() {
+  const cfg = {
+    work: parseInt(document.getElementById('cfgWork').value) || 25,
+    short: parseInt(document.getElementById('cfgShort').value) || 5,
+    long: parseInt(document.getElementById('cfgLong').value) || 15,
+  };
+  localStorage.setItem('cl-pomodoro-cfg', JSON.stringify(cfg));
+  if (!state.running) {
+    state.durationSec = DURATIONS()[state.mode];
+    updateDisplay();
+  }
+  page.toast('Configurações salvas', 'success');
+}
+
+function loadState() {
+  const saved = core.getPomodoroState();
+  if (saved) {
+    Object.assign(state, saved);
+    // Resetar contagem de hoje se for outro dia
+    const today = core.today();
+    if (saved.lastDate && saved.lastDate !== today) {
+      state.todayCount = 0;
+    }
+    if (state.running && state.startedAt) {
+      // Calcular elapsed real baseado em startedAt
+      const startedMs = new Date(state.startedAt).getTime();
+      const nowMs = Date.now();
+      const realElapsed = Math.floor((nowMs - startedMs) / 1000) + (state.elapsedSec || 0);
+      if (state.pausedAt) {
+        // Estava pausado
+        state.running = false;
+      } else {
+        state.elapsedSec = realElapsed;
+        if (state.elapsedSec >= state.durationSec) {
+          onTimerComplete();
+        }
+      }
+    }
+  }
+  document.getElementById('blockToggle').classList.toggle('on', !!state.blockEnabled);
+}
+
+function saveState() {
+  core.setPomodoroState(state);
+}
+
+function setMode(mode) {
+  if (state.running) return;
+  state.mode = mode;
+  state.durationSec = DURATIONS()[mode];
+  state.elapsedSec = 0;
+  document.querySelectorAll('#modeTabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === mode);
+  });
+  saveState();
+  updateDisplay();
+}
+
+function startTimer() {
+  if (state.elapsedSec >= state.durationSec) state.elapsedSec = 0;
+  state.running = true;
+  state.startedAt = new Date().toISOString();
+  state.pausedAt = null;
+  state.lastDate = core.today();
+  saveState();
+  updateControls();
+  updateDisplay();
+  tick();
+  timerInterval = setInterval(tick, 1000);
+  page.toast('🎯 Foco iniciado!', 'success');
+  // Notificação do navegador
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification('Modo Foco', { body: 'Vamos lá! Mantenha o foco por ' + (state.durationSec/60) + ' minutos.' });
+  }
+}
+
+function pauseTimer() {
+  if (!state.running) return;
+  state.running = false;
+  state.pausedAt = new Date().toISOString();
+  clearInterval(timerInterval);
+  timerInterval = null;
+  saveState();
+  updateControls();
+}
+
+function resumeTimer() {
+  if (state.running) return;
+  state.running = true;
+  state.pausedAt = null;
+  state.startedAt = new Date().toISOString();
+  saveState();
+  updateControls();
+  tick();
+  timerInterval = setInterval(tick, 1000);
+}
+
+function stopTimer() {
+  state.running = false;
+  state.pausedAt = null;
+  state.elapsedSec = 0;
+  clearInterval(timerInterval);
+  timerInterval = null;
+  saveState();
+  updateControls();
+  updateDisplay();
+  // Sair do overlay
+  exitFocoOverlay();
+}
+
+function skipTimer() {
+  // Considera como completa
+  onTimerComplete();
+}
+
+function tick() {
+  state.elapsedSec++;
+  saveState();
+  if (state.elapsedSec >= state.durationSec) {
+    clearInterval(timerInterval);
+    timerInterval = null;
+    onTimerComplete();
+    return;
+  }
+  updateDisplay();
+}
+
+function onTimerComplete() {
+  state.elapsedSec = state.durationSec;
+  state.running = false;
+  state.pausedAt = null;
+  // Som de notificação (beep simples)
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.frequency.value = 880;
+    g.gain.setValueAtTime(0.3, audioCtx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 1);
+    o.start();
+    o.stop(audioCtx.currentTime + 1);
+  } catch(e) {}
+
+  if (state.mode === 'work') {
+    state.todayCount++;
+    state.totalCount++;
+    state.totalMinutes += Math.round(state.durationSec / 60);
+    state.cycle = (state.cycle + 1) % 4;
+    showFloating('✅ ' + page.t('focus.completed', 'Sessão concluída!'), 'Hora da pausa!');
+
+    // Dar pontos (gamificação)
+    const user = page.getUser();
+    if (user) {
+      const data = page.getDB();
+      // Cria/atualiza stats: +20 pontos por sessão de foco
+      if (!data.gamification) data.gamification = {};
+      if (!data.gamification[user.id || user.uid]) {
+        data.gamification[user.id || user.uid] = { points:0, badges:[], streak:0, lastActiveDate:null, weeklyPoints:{}, achievements:[], totalFinished:0 };
+      }
+      const s = data.gamification[user.id || user.uid];
+      s.points += 20;
+      const weekKey = core._getWeekKey(new Date());
+      s.weeklyPoints[weekKey] = (s.weeklyPoints[weekKey] || 0) + 20;
+      s.lastActiveDate = core.today();
+      page.saveDB(data);
+    }
+
+    // Próximo modo: pausa curta (ou longa a cada 4 ciclos)
+    state.mode = state.cycle === 0 ? 'long' : 'short';
+  } else {
+    showFloating('⏰ Pausa finalizada!', 'Hora de voltar ao trabalho!');
+    state.mode = 'work';
+  }
+  state.elapsedSec = 0;
+  state.durationSec = DURATIONS()[state.mode];
+
+  document.querySelectorAll('#modeTabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.mode === state.mode);
+  });
+
+  saveState();
+  updateControls();
+  updateDisplay();
+}
+
+function updateControls() {
+  document.getElementById('btnStart').style.display = (!state.running && state.elapsedSec === 0) ? '' : 'none';
+  document.getElementById('btnPause').style.display = state.running ? '' : 'none';
+  document.getElementById('btnResume').style.display = (!state.running && state.elapsedSec > 0 && state.elapsedSec < state.durationSec) ? '' : 'none';
+  document.getElementById('btnStop').style.display = (state.running || state.elapsedSec > 0) ? '' : 'none';
+  document.getElementById('btnSkip').style.display = state.running ? '' : 'none';
+}
+
+function updateDisplay() {
+  const remaining = Math.max(0, state.durationSec - state.elapsedSec);
+  const m = Math.floor(remaining / 60);
+  const s = remaining % 60;
+  const text = `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+
+  document.getElementById('timerDisplay').textContent = text;
+  document.getElementById('focoOverlayTimer').textContent = text;
+
+  // Progresso
+  const pct = state.durationSec > 0 ? (state.elapsedSec / state.durationSec) : 0;
+  const circumference = 2 * Math.PI * 90;
+  const offset = circumference * (1 - pct);
+  const circle = document.getElementById('timerCircle');
+  if (circle) {
+    circle.setAttribute('stroke-dasharray', circumference);
+    circle.setAttribute('stroke-dashoffset', offset);
+  }
+
+  // Label
+  const labels = {
+    work: page.t('focus.work', 'Trabalho'),
+    short: page.t('focus.shortBreak', 'Pausa curta'),
+    long: page.t('focus.longBreak', 'Pausa longa'),
+  };
+  const statusText = state.running ? 'Em andamento...' : (state.elapsedSec === 0 ? 'Pronto para começar' : 'Pausado');
+  document.getElementById('timerLabel').textContent = `${labels[state.mode]} · ${statusText}`;
+
+  // Stats
+  document.getElementById('statToday').textContent = state.todayCount || 0;
+  document.getElementById('statTotal').textContent = state.totalCount || 0;
+  document.getElementById('statCycle').textContent = `${state.cycle || 0}/4`;
+  document.getElementById('statMinutes').textContent = state.totalMinutes || 0;
+
+  updateControls();
+}
+
+function showFloating(title, body) {
+  const f = document.getElementById('floatingNotif');
+  document.getElementById('floatingTitle').textContent = title;
+  document.getElementById('floatingBody').textContent = body;
+  f.style.display = 'block';
+  setTimeout(() => f.style.display = 'none', 6000);
+
+  // Notificação do navegador
+  if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body });
+  }
+
+  // Tocar som
+  try {
+    const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    [0, 0.3, 0.6].forEach(t => {
+      const o = audioCtx.createOscillator();
+      const g = audioCtx.createGain();
+      o.connect(g);
+      g.connect(audioCtx.destination);
+      o.frequency.value = t === 0 ? 660 : (t === 0.3 ? 880 : 1100);
+      g.gain.setValueAtTime(0.2, audioCtx.currentTime + t);
+      g.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + t + 0.3);
+      o.start(audioCtx.currentTime + t);
+      o.stop(audioCtx.currentTime + t + 0.3);
+    });
+  } catch(e) {}
+}
+
+function toggleBlock() {
+  state.blockEnabled = !state.blockEnabled;
+  document.getElementById('blockToggle').classList.toggle('on', state.blockEnabled);
+  saveState();
+  if (state.blockEnabled) {
+    enterFocoOverlay();
+    page.toast('🚫 Bloqueio de distrações ativado', 'info');
+  } else {
+    page.toast('Bloqueio desativado', 'info');
+  }
+}
+
+function enterFocoOverlay() {
+  if (isInFocoOverlay) return;
+  isInFocoOverlay = true;
+  document.getElementById('focoOverlay').classList.remove('hidden');
+}
+
+function exitFocoOverlay() {
+  isInFocoOverlay = false;
+  document.getElementById('focoOverlay').classList.add('hidden');
+}
+
+function populateTasks() {
+  const data = page.getDB();
+  const tasks = (data.tasks || []).filter(t => t.status !== 'finished' && t.status !== 'notdone');
+  const sel = document.getElementById('focusTask');
+  sel.innerHTML = '<option value="">— Nenhuma atividade específica —</option>';
+  tasks.slice(0, 50).forEach(t => {
+    sel.innerHTML += `<option value="${t.id}">${page.esc(t.title)} (${core.formatDate(t.date)})</option>`;
+  });
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
+    setTimeout(() => { page.applyI18n(document.body); populateTasks(); updateDisplay(); }, 100);
+  }
+});
+</script>
+</body>
+</html>

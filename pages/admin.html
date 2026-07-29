@@ -36,6 +36,13 @@
     <label><span>Nome da aplicação</span>
       <input type="text" id="setBrand" placeholder="Checklist ML">
     </label>
+    <label><span>Idioma</span>
+      <select id="setLanguage">
+        <option value="pt-BR">🇧🇷 Português (Brasil)</option>
+        <option value="en">🇺🇸 English</option>
+        <option value="es">🇪🇸 Español</option>
+      </select>
+    </label>
     <label><span>Tema</span>
       <select id="setTheme">
         <option value="ocean">🌊 Ocean Blue (profissional)</option>
@@ -47,6 +54,7 @@
       <select id="setMode">
         <option value="light">☀️ Claro</option>
         <option value="dark">🌙 Escuro</option>
+        <option value="auto">🌓 Automático (segue o sistema)</option>
       </select>
     </label>
     <label><span>Logo (URL ou base64)</span>
@@ -62,6 +70,12 @@
       <input type="file" id="faviconUpload" accept="image/*" onchange="uploadAsset('favicon', event)">
     </label>
     <button class="btn btn-primary" onclick="saveAppearance()">💾 Salvar aparência</button>
+  </div>
+
+  <div class="card">
+    <h2>🎨 Temas personalizados</h2>
+    <p class="text-muted mb-2">Os usuários podem criar seus próprios temas em Personalizar → Temas.</p>
+    <div id="customThemesAdmin"></div>
   </div>
 </div>
 
@@ -236,6 +250,7 @@ let data = page.getDB();
 document.getElementById('setBrand').value = data.settings.brand;
 document.getElementById('setTheme').value = data.settings.theme;
 document.getElementById('setMode').value = data.settings.mode;
+document.getElementById('setLanguage').value = data.settings.language || 'pt-BR';
 document.getElementById('setLogo').value = data.settings.logo || '';
 document.getElementById('setFavicon').value = data.settings.favicon || '';
 document.getElementById('setDeepseekKey').value = data.settings.deepseekKey || '';
@@ -260,6 +275,7 @@ renderPosts();
 renderFiles();
 renderCategories();
 renderLogs();
+renderCustomThemes();
 
 /* ========== TABS ========== */
 function switchTab(id, btn) {
@@ -274,6 +290,7 @@ function saveAppearance() {
   data.settings.brand = document.getElementById('setBrand').value.trim();
   data.settings.theme = document.getElementById('setTheme').value;
   data.settings.mode = document.getElementById('setMode').value;
+  data.settings.language = document.getElementById('setLanguage').value;
   data.settings.logo = document.getElementById('setLogo').value.trim();
   data.settings.favicon = document.getElementById('setFavicon').value.trim();
   page.saveDB(data);
@@ -281,8 +298,46 @@ function saveAppearance() {
 
   // Aplicar tema no parent
   window.parent.postMessage({ type: 'themeChanged', theme: data.settings.theme, mode: data.settings.mode }, '*');
+  window.parent.postMessage({ type: 'languageChanged', lang: data.settings.language }, '*');
   window.parent.postMessage({ type: 'reload' }, '*');
   page.toast('Aparência salva! 🎨', 'success');
+}
+
+function renderCustomThemes() {
+  data = page.getDB();
+  const themes = data.customThemes || [];
+  const el = document.getElementById('customThemesAdmin');
+  if (themes.length === 0) {
+    el.innerHTML = '<div class="empty"><p>Nenhum tema personalizado criado ainda</p></div>';
+    return;
+  }
+  el.innerHTML = '<div class="themes-list">' + themes.map(t => `
+    <div class="theme-card">
+      <div class="theme-swatches">
+        <div class="swatch" style="background:${t.primary}"></div>
+        <div class="swatch" style="background:${t.secondary}"></div>
+        <div class="swatch" style="background:${t.accent}"></div>
+        <div class="swatch" style="background:${t.bg}"></div>
+      </div>
+      <div class="theme-name">${page.esc(t.name)}</div>
+      <small class="text-muted">por ${page.esc(t.createdBy || 'anônimo')}</small>
+      <div class="theme-actions">
+        <button class="btn-icon" onclick="deleteCustomTheme('${t.id}')" title="Excluir">🗑️</button>
+      </div>
+    </div>
+  `).join('') + '</div>';
+}
+
+function deleteCustomTheme(id) {
+  if (!confirm('Excluir este tema personalizado?')) return;
+  core.deleteCustomTheme(id);
+  if (data.settings.theme === id) {
+    data.settings.theme = 'ocean';
+    page.saveDB(data);
+    window.parent.postMessage({ type: 'themeChanged', theme: 'ocean', mode: data.settings.mode }, '*');
+  }
+  page.toast('Tema excluído', 'info');
+  renderCustomThemes();
 }
 
 async function uploadAsset(type, e) {
@@ -626,15 +681,20 @@ function clearLogs() {
 function exportFull() {
   const data = page.getDB();
   const exportData = {
-    version: '2.0',
+    version: '3.0',
     exportedAt: new Date().toISOString(),
     exportedBy: user?.username || 'unknown',
     settings: data.settings,
+    customThemes: data.customThemes || [],
     users: data.users,
     tasks: data.tasks,
     files: data.files,
     posts: data.posts,
     logs: data.logs,
+    gamification: data.gamification || {},
+    comments: data.comments || {},
+    automations: data.automations || [],
+    dashboardWidgets: data.dashboardWidgets || [],
   };
   downloadJSON(exportData, `checklist-ml-backup-${core.today()}.json`);
   core.log('export_full', user.id, 'Backup completo');
@@ -690,14 +750,15 @@ async function handleImport(e) {
       return;
     }
 
-    let count = { tasks: 0, posts: 0, files: 0, users: 0, settings: false };
+    let count = { tasks: 0, posts: 0, files: 0, users: 0, settings: false, themes: 0, gamification: 0 };
 
     if (!confirm(
       `Dados encontrados no backup:\n` +
       `- Atividades: ${(imported.tasks || []).length}\n` +
       `- Posts: ${(imported.posts || []).length}\n` +
       `- Arquivos: ${(imported.files || []).length}\n` +
-      `- Usuários: ${(imported.users || []).length}\n\n` +
+      `- Usuários: ${(imported.users || []).length}\n` +
+      `- Temas custom: ${(imported.customThemes || []).length}\n\n` +
       `Deseja importar? Dados com IDs iguais serão sobrescritos.`
     )) return;
 
@@ -762,16 +823,49 @@ async function handleImport(e) {
       count.settings = true;
     }
 
+    // Importar custom themes
+    if (imported.customThemes && imported.customThemes.length > 0) {
+      data.customThemes = data.customThemes || [];
+      imported.customThemes.forEach(t => {
+        const idx = data.customThemes.findIndex(ct => ct.id === t.id);
+        if (idx >= 0) data.customThemes[idx] = t;
+        else data.customThemes.push(t);
+        count.themes++;
+      });
+    }
+
+    // Importar gamificação
+    if (imported.gamification) {
+      data.gamification = { ...(data.gamification || {}), ...imported.gamification };
+      count.gamification = Object.keys(imported.gamification).length;
+    }
+
+    // Importar comentários
+    if (imported.comments) {
+      data.comments = { ...(data.comments || {}), ...imported.comments };
+    }
+
+    // Importar automações
+    if (imported.automations) {
+      data.automations = imported.automations;
+    }
+
+    // Importar dashboard widgets
+    if (imported.dashboardWidgets) {
+      data.dashboardWidgets = imported.dashboardWidgets;
+    }
+
     page.saveDB(data);
     core.log('import_data', user.id, `tasks:${count.tasks} posts:${count.posts} files:${count.files} users:${count.users}`);
 
-    statusEl.innerHTML = `<span style="color:var(--success)">✅ Importação concluída! ${count.tasks} atividades, ${count.posts} posts, ${count.files} arquivos, ${count.users} usuários${count.settings ? ', configurações' : ''}.</span>`;
+    statusEl.innerHTML = `<span style="color:var(--success)">✅ Importação concluída! ${count.tasks} atividades, ${count.posts} posts, ${count.files} arquivos, ${count.users} usuários${count.settings ? ', configurações' : ''}, ${count.themes} temas.</span>`;
 
     // Recarregar todas as views
     renderUsers();
     renderPosts();
     renderFiles();
     renderCategories();
+    renderCustomThemes();
     populateCategorySelects();
 
     // Recarregar parent

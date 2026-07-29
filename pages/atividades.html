@@ -186,6 +186,7 @@ function render() {
         ${t.description ? `<small style="display:block;margin-top:2px;color:var(--text-secondary)">${page.esc(t.description).slice(0,100)}</small>` : ''}
       </div>
       <div class="item-actions">
+        <button class="btn-icon" onclick="openComments(${t.id},'${page.esc(t.title).replace(/'/g, "\\'")}')" title="Comentários">💬</button>
         <button class="btn-icon" onclick="shareTask(${t.id})" title="Compartilhar">🔗</button>
         <button class="btn-icon" onclick="editTask(${t.id})" title="Editar">✏️</button>
         <button class="btn-icon" onclick="deleteTask(${t.id})" title="Excluir">🗑️</button>
@@ -247,7 +248,25 @@ function saveTask(e) {
   if (id) {
     // Editar
     const task = data.tasks.find(t => t.id === parseInt(id));
-    if (task) Object.assign(task, taskData, { updatedAt: core.now() });
+    if (task) {
+      const wasFinished = task.status === 'finished';
+      Object.assign(task, taskData, { updatedAt: core.now() });
+      // Se mudou para finished agora, dar pontos
+      if (taskData.status === 'finished' && !wasFinished) {
+        task.finishedAt = core.now();
+        if (user) {
+          const result = core.awardPoints(user.id || user.uid, task, 'finish');
+          if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
+        }
+        // Rodar automações (cria recorrente)
+        const autoResults = core.runAutomations('task_finished', { task, userId: user?.id });
+        autoResults.forEach(r => {
+          if (r.ok && r.newTask) {
+            page.toast(`🔁 Recorrente criada: ${r.newTask.title}`, 'info');
+          }
+        });
+      }
+    }
     core.log('task_edit', user?.id, taskData.title);
     page.toast('Atividade atualizada', 'success');
   } else {
@@ -255,7 +274,12 @@ function saveTask(e) {
     taskData.id = Date.now();
     taskData.owner = user?.id || 'unknown';
     taskData.createdAt = core.now();
+    if (taskData.status === 'finished') taskData.finishedAt = core.now();
     data.tasks.unshift(taskData);
+    if (taskData.status === 'finished' && user) {
+      const result = core.awardPoints(user.id || user.uid, taskData, 'finish');
+      if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
+    }
     core.log('task_create', user?.id, taskData.title);
     page.toast('Atividade criada! ✅', 'success');
   }
@@ -285,9 +309,20 @@ function toggleStatus(id) {
 
   const cycle = ['pending', 'analyzing', 'finished', 'notdone'];
   const idx = cycle.indexOf(task.status);
+  const oldStatus = task.status;
   task.status = cycle[(idx + 1) % cycle.length];
 
-  if (task.status === 'finished') task.finishedAt = core.now();
+  if (task.status === 'finished' && oldStatus !== 'finished') {
+    task.finishedAt = core.now();
+    // Gamificação
+    const user = page.getUser();
+    if (user) {
+      const result = core.awardPoints(user.id || user.uid, task, 'finish');
+      if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
+    }
+    // Automações
+    core.runAutomations('task_finished', { task, userId: user?.id });
+  }
   page.saveDB(data);
   core.log('task_status', user?.id, `${task.title} → ${statusLabel(task.status)}`);
   render();
@@ -381,6 +416,93 @@ function shareTask(id) {
   window.shareEmail = function() {
     window.open(`mailto:?subject=${encodeURIComponent(task.title)}&body=${encodeURIComponent(shareText + '\n\n' + shareUrl)}`, '_blank');
   };
+}
+
+/* ========== COMENTÁRIOS ========== */
+function openComments(taskId, title) {
+  const user = page.getUser();
+  const comments = core.getComments(taskId);
+
+  const modalHtml = `
+    <h2>💬 ${page.esc(title)}</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
+    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px">
+      ${comments.length === 0
+        ? `<div class="empty"><p>Nenhum comentário ainda. Inicie a discussão!</p></div>`
+        : comments.map(c => renderComment(c, user)).join('')
+      }
+    </div>
+    <form class="comment-form" onsubmit="submitComment(event,${taskId})">
+      <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
+      <button type="submit" class="btn btn-primary">Enviar</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-secondary" onclick="page.closeModal()">Fechar</button>
+    </div>
+  `;
+  page.openModal(modalHtml);
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+}
+
+function renderComment(c, user) {
+  const isMine = user && (user.id === c.userId || user.uid === c.userId);
+  return `
+    <div class="comment-item" data-cid="${c.id}">
+      <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
+      <div class="comment-body">
+        <div class="comment-header">
+          <div>
+            <span class="comment-author">${page.esc(c.userName || 'Anônimo')}</span>
+            ${isMine ? '<span style="font-size:10px;background:var(--primary-light);color:var(--primary);padding:1px 6px;border-radius:6px;margin-left:6px">você</span>' : ''}
+            <span class="comment-date" style="margin-left:8px">${core.formatDateTime(c.createdAt)}</span>
+          </div>
+          ${isMine ? `<button class="comment-delete" onclick="deleteComment('${c.id}')">🗑️</button>` : ''}
+        </div>
+        <div class="comment-text">${page.esc(c.text)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function submitComment(e, taskId) {
+  e.preventDefault();
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const user = page.getUser();
+  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  if (c) {
+    input.value = '';
+    const list = document.getElementById('commentsList');
+    const empty = list.querySelector('.empty');
+    if (empty) empty.remove();
+    list.insertAdjacentHTML('beforeend', renderComment(c, user));
+    list.scrollTop = list.scrollHeight;
+    page.toast('Comentário enviado! 💬', 'success');
+  }
+}
+
+function deleteComment(commentId) {
+  if (!confirm('Excluir este comentário?')) return;
+  // Encontrar o taskId do contexto (modal aberto)
+  // Vamos varrer todas as tasks para achar o comentário
+  const data = page.getDB();
+  for (const t of data.tasks) {
+    const comments = core.getComments(t.id);
+    if (comments.find(c => c.id === commentId)) {
+      core.deleteComment(t.id, commentId);
+      break;
+    }
+  }
+  // Reabrir modal
+  const titleEl = document.querySelector('.modal h2');
+  const titleText = titleEl ? titleEl.textContent.replace('💬 ', '') : '';
+  const taskId = parseInt([...document.querySelectorAll('.comment-item')].map(el => el.closest('.modal')?.dataset.taskid).find(Boolean));
+  page.closeModal();
+  page.toast('Comentário excluído', 'info');
+  if (titleText) {
+    setTimeout(() => openComments(taskId || data.tasks[0]?.id, titleText), 100);
+  }
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>

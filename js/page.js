@@ -1,14 +1,29 @@
 /* =========================================================
    CHECKLIST ML — page.js
    Script compartilhado para páginas dentro dos iframes
+   + i18n, herança de tema, auto dark mode
    ========================================================= */
 
-// Herdar tema do parent
+// Herdar tema do parent (incluindo custom themes e auto mode)
 (function inheritTheme() {
   try {
     const parentDoc = window.parent.document.documentElement;
-    document.documentElement.dataset.theme = parentDoc.dataset.theme || 'ocean';
-    document.documentElement.dataset.mode = parentDoc.dataset.mode || 'light';
+    const theme = parentDoc.dataset.theme || 'ocean';
+    let mode = parentDoc.dataset.mode || 'light';
+
+    document.documentElement.dataset.theme = theme;
+    document.documentElement.dataset.mode = mode;
+
+    // Se mode=auto, escutar mudanças do sistema
+    if (mode === 'auto' && window.matchMedia) {
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      const apply = () => {
+        document.documentElement.dataset.mode = mq.matches ? 'dark' : 'light';
+      };
+      apply();
+      if (mq.addEventListener) mq.addEventListener('change', apply);
+      else if (mq.addListener) mq.addListener(apply);
+    }
   } catch(e) {
     document.documentElement.dataset.theme = localStorage.getItem('cl-theme') || 'ocean';
     document.documentElement.dataset.mode = localStorage.getItem('cl-mode') || 'light';
@@ -25,6 +40,20 @@ try {
   observer.observe(window.parent.document.documentElement, { attributes: true, attributeFilter: ['data-theme','data-mode'] });
 } catch(e) {}
 
+// Herdar custom theme style do parent
+try {
+  const parentStyle = window.parent.document.getElementById('custom-theme-style');
+  if (parentStyle) {
+    let styleEl = document.getElementById('custom-theme-style');
+    if (!styleEl) {
+      styleEl = document.createElement('style');
+      styleEl.id = 'custom-theme-style';
+      document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = parentStyle.textContent;
+  }
+} catch(e) {}
+
 // Helpers para comunicação com parent
 const Page = {
   getUser() { return core.getCurrentUser(); },
@@ -36,6 +65,23 @@ const Page = {
   navigate(page) { window.parent.postMessage({ type: 'navigate', page }, '*'); },
   openModal(html) { window.parent.postMessage({ type: 'modal', html }, '*'); },
   closeModal() { window.parent.postMessage({ type: 'closeModal' }, '*'); },
+
+  // i18n helpers
+  async i18nReady() {
+    await core.tReady();
+  },
+  t(key, fallback) { return core.t(key, fallback); },
+  applyI18n(root) { core.applyI18n(root || document); },
+
+  // Theme
+  getTheme() { return core.getLocalDB().settings.theme; },
+  getMode() { return core.getLocalDB().settings.mode; },
+  getLanguage() { return core.getCurrentLang(); },
+  setLanguage(lang) {
+    core.setLanguage(lang);
+    // Re-renderizar a página atual
+    setTimeout(() => location.reload(), 100);
+  },
 };
 
 window.page = Page;

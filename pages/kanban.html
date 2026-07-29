@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Kanban</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>QUADRO</small>
+    <h1>📋 Kanban</h1>
+    <p>Organize atividades em colunas — arraste para mover entre status</p>
+  </div>
+</div>
+
+<div class="filters">
+  <input type="text" id="search" placeholder="🔍 Buscar atividade..." oninput="render()">
+  <select id="filterCategory" onchange="render()">
+    <option value="all">Todas categorias</option>
+  </select>
+</div>
+
+<div class="drag-hint">
+  <span>👆</span>
+  <span>Arraste os cartões para mover entre colunas</span>
+</div>
+
+<div class="kanban-board" id="kanbanBoard"></div>
+
+<!-- MODAL: Adicionar/editar cartão -->
+<div class="modal-overlay hidden" id="cardModal" onclick="if(event.target===this)closeCardModal()">
+  <div class="modal">
+    <h2 id="cardModalTitle">Novo cartão</h2>
+    <form onsubmit="saveCard(event)">
+      <input type="hidden" id="cardId">
+      <input type="hidden" id="cardStatus">
+      <label><span>Título *</span>
+        <input type="text" id="cardTitle" required placeholder="Ex: Conferir estoque do setor A">
+      </label>
+      <label><span>Descrição</span>
+        <textarea id="cardDesc" rows="2" placeholder="Detalhes..."></textarea>
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label><span>Data</span>
+          <input type="date" id="cardDate">
+        </label>
+        <label><span>Categoria</span>
+          <select id="cardCategory"></select>
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label><span>Prioridade</span>
+          <select id="cardPriority">
+            <option value="low">🟢 Baixa</option>
+            <option value="medium" selected>🟡 Média</option>
+            <option value="high">🔴 Alta</option>
+            <option value="urgent">🚨 Urgente</option>
+          </select>
+        </label>
+        <label><span>Status</span>
+          <select id="cardStatusSelect">
+            <option value="pending">⏳ Pendente</option>
+            <option value="analyzing">🔍 Analisando</option>
+            <option value="finished">✅ Finalizado</option>
+            <option value="notdone">❌ Não Realizado</option>
+          </select>
+        </label>
+      </div>
+      <label><span>Recorrência</span>
+        <select id="cardRecurrence">
+          <option value="none">Nenhuma</option>
+          <option value="daily">Diária</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensal</option>
+        </select>
+      </label>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="btn btn-secondary" onclick="closeCardModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(async function() {
+  await page.i18nReady();
+  applyStaticI18n();
+  populateCategories();
+  render();
+})();
+
+function applyStaticI18n() {
+  // Apply data-i18n attributes already in HTML
+  page.applyI18n(document.body);
+}
+
+function populateCategories() {
+  const settings = page.getDB().settings;
+  const cats = settings.categories || ['Geral'];
+  const filterCat = document.getElementById('filterCategory');
+  const cardCat = document.getElementById('cardCategory');
+  filterCat.innerHTML = '<option value="all">' + page.t('kanban.allCategories', 'Todas categorias') + '</option>';
+  cats.forEach(c => {
+    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+    cardCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  });
+}
+
+const COLUMNS = [
+  { id: 'pending',   title: 'Pendente',    icon: '⏳', color: '#F59E0B' },
+  { id: 'analyzing', title: 'Analisando',  icon: '🔍', color: '#3B82F6' },
+  { id: 'finished',  title: 'Finalizado',  icon: '✅', color: '#10B981' },
+  { id: 'notdone',   title: 'Não Realizado', icon: '❌', color: '#EF4444' },
+];
+
+function render() {
+  const data = page.getDB();
+  const tasks = data.tasks || [];
+  const search = document.getElementById('search').value.toLowerCase();
+  const filterCat = document.getElementById('filterCategory').value;
+  const today = core.today();
+
+  const filtered = tasks.filter(t => {
+    if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
+    if (filterCat !== 'all' && t.category !== filterCat) return false;
+    return true;
+  });
+
+  const board = document.getElementById('kanbanBoard');
+  board.innerHTML = COLUMNS.map(col => {
+    const colTasks = filtered.filter(t => t.status === col.id);
+    return `
+      <div class="kanban-column" data-status="${col.id}"
+           ondragover="onDragOver(event)" ondragleave="onDragLeave(event)" ondrop="onDrop(event)">
+        <div class="kanban-column-header">
+          <span>${col.icon} ${page.t('kanban.' + col.id, col.title)}</span>
+          <span class="count">${colTasks.length}</span>
+        </div>
+        <div class="kanban-column-body" data-status="${col.id}">
+          ${colTasks.map(t => renderCard(t, today)).join('')}
+          <button class="kanban-add-card" onclick="openAddCard('${col.id}')">
+            ${page.t('kanban.addCard', '+ Adicionar')}
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderCard(t, today) {
+  const isLate = t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
+  return `
+    <div class="kanban-card ${t.status === 'finished' ? 'status-finished' : ''} ${isLate ? 'overdue' : ''}"
+         draggable="true" data-id="${t.id}"
+         ondragstart="onDragStart(event)" ondragend="onDragEnd(event)">
+      <div class="kanban-title">${page.esc(t.title)}</div>
+      <div class="kanban-meta">
+        <span>
+          <span class="prio-dot ${t.priority || 'medium'}"></span>
+          ${core.formatDate(t.date)}
+        </span>
+        <span>${page.esc(t.category || 'Geral')}</span>
+      </div>
+      ${t.description ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${page.esc(t.description).slice(0,80)}</div>` : ''}
+      <div class="kanban-actions">
+        <button class="btn-icon" onclick="editCard(${t.id})" title="Editar" style="width:24px;height:24px;font-size:12px">✏️</button>
+        <button class="btn-icon" onclick="deleteCard(${t.id})" title="Excluir" style="width:24px;height:24px;font-size:12px">🗑️</button>
+        <button class="btn-icon" onclick="openComments(${t.id},'${page.esc(t.title).replace(/'/g, "\\'")}')" title="Comentários" style="width:24px;height:24px;font-size:12px">💬</button>
+      </div>
+    </div>
+  `;
+}
+
+/* ========== DRAG & DROP (HTML5 API) ========== */
+let dragId = null;
+
+function onDragStart(e) {
+  dragId = e.currentTarget.dataset.id;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragId);
+}
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.kanban-column').forEach(c => c.classList.remove('drag-over'));
+}
+function onDragOver(e) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const col = e.currentTarget.closest('.kanban-column') || e.currentTarget;
+  col.classList.add('drag-over');
+}
+function onDragLeave(e) {
+  const col = e.currentTarget.closest('.kanban-column') || e.currentTarget;
+  if (!col.contains(e.relatedTarget)) col.classList.remove('drag-over');
+}
+function onDrop(e) {
+  e.preventDefault();
+  const col = e.currentTarget.closest('.kanban-column') || e.currentTarget;
+  col.classList.remove('drag-over');
+  const newStatus = col.dataset.status;
+  const taskId = parseInt(dragId || e.dataTransfer.getData('text/plain'));
+
+  if (!taskId || !newStatus) return;
+
+  const data = page.getDB();
+  const task = data.tasks.find(t => t.id === taskId);
+  if (!task || task.status === newStatus) return;
+
+  const oldStatus = task.status;
+  task.status = newStatus;
+  task.updatedAt = core.now();
+
+  if (newStatus === 'finished') {
+    task.finishedAt = core.now();
+    // Gamificação
+    const user = page.getUser();
+    if (user) {
+      const result = core.awardPoints(user.id || user.uid, task, 'finish');
+      if (result && result.newBadges && result.newBadges.length > 0) {
+        setTimeout(() => {
+          page.toast(`+${result.total} pontos! 🏆`, 'success');
+        }, 100);
+      }
+    }
+    // Automação: criar recorrente
+    const autoResults = core.runAutomations('task_finished', { task, userId: user?.id });
+    autoResults.forEach(r => {
+      if (r.ok && r.newTask) {
+        page.toast(`🔁 Recorrente criada: ${r.newTask.title}`, 'info');
+      }
+    });
+  }
+
+  page.saveDB(data);
+  core.log('kanban_move', user?.id, `${task.title}: ${oldStatus} → ${newStatus}`);
+  page.toast(`Movido para "${COLUMNS.find(c=>c.id===newStatus)?.title}"`, 'success');
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+/* ========== MODAL ========== */
+function openAddCard(status) {
+  document.getElementById('cardModalTitle').textContent = 'Novo cartão';
+  document.getElementById('cardId').value = '';
+  document.getElementById('cardStatus').value = status;
+  document.getElementById('cardTitle').value = '';
+  document.getElementById('cardDesc').value = '';
+  document.getElementById('cardDate').value = core.today();
+  document.getElementById('cardCategory').value = (page.getDB().settings.categories || ['Geral'])[0];
+  document.getElementById('cardPriority').value = 'medium';
+  document.getElementById('cardStatusSelect').value = status;
+  document.getElementById('cardRecurrence').value = 'none';
+  document.getElementById('cardModal').classList.remove('hidden');
+}
+
+function editCard(id) {
+  const data = page.getDB();
+  const t = data.tasks.find(t => t.id === id);
+  if (!t) return;
+  document.getElementById('cardModalTitle').textContent = 'Editar cartão';
+  document.getElementById('cardId').value = id;
+  document.getElementById('cardStatus').value = t.status;
+  document.getElementById('cardTitle').value = t.title;
+  document.getElementById('cardDesc').value = t.description || '';
+  document.getElementById('cardDate').value = t.date || '';
+  document.getElementById('cardCategory').value = t.category || 'Geral';
+  document.getElementById('cardPriority').value = t.priority || 'medium';
+  document.getElementById('cardStatusSelect').value = t.status || 'pending';
+  document.getElementById('cardRecurrence').value = t.recurrence || 'none';
+  document.getElementById('cardModal').classList.remove('hidden');
+}
+
+function saveCard(e) {
+  e.preventDefault();
+  const data = page.getDB();
+  const id = document.getElementById('cardId').value;
+  const user = page.getUser();
+  const newStatus = document.getElementById('cardStatusSelect').value;
+  const cardData = {
+    title: document.getElementById('cardTitle').value.trim(),
+    description: document.getElementById('cardDesc').value.trim(),
+    date: document.getElementById('cardDate').value,
+    category: document.getElementById('cardCategory').value,
+    priority: document.getElementById('cardPriority').value,
+    status: newStatus,
+    recurrence: document.getElementById('cardRecurrence').value,
+  };
+
+  if (id) {
+    const t = data.tasks.find(t => t.id === parseInt(id));
+    if (t) {
+      const wasFinished = t.status === 'finished';
+      Object.assign(t, cardData, { updatedAt: core.now() });
+      if (cardData.status === 'finished' && !wasFinished) {
+        t.finishedAt = core.now();
+        if (user) core.awardPoints(user.id || user.uid, t, 'finish');
+      }
+    }
+    core.log('kanban_edit', user?.id, cardData.title);
+    page.toast('Cartão atualizado', 'success');
+  } else {
+    cardData.id = Date.now();
+    cardData.owner = user?.id || 'unknown';
+    cardData.createdAt = core.now();
+    data.tasks.unshift(cardData);
+    if (cardData.status === 'finished') {
+      cardData.finishedAt = core.now();
+      if (user) core.awardPoints(user.id || user.uid, cardData, 'finish');
+    }
+    core.log('kanban_create', user?.id, cardData.title);
+    page.toast('Cartão criado! ✅', 'success');
+  }
+
+  page.saveDB(data);
+  closeCardModal();
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function deleteCard(id) {
+  if (!confirm('Excluir este cartão?')) return;
+  const data = page.getDB();
+  const t = data.tasks.find(t => t.id === id);
+  data.tasks = data.tasks.filter(t => t.id !== id);
+  page.saveDB(data);
+  core.log('kanban_delete', page.getUser()?.id, t?.title || '');
+  page.toast('Cartão excluído', 'info');
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function closeCardModal() {
+  document.getElementById('cardModal').classList.add('hidden');
+}
+
+/* ========== COMENTÁRIOS (integrado) ========== */
+function openComments(taskId, title) {
+  const user = page.getUser();
+  const comments = core.getComments(taskId);
+
+  const modalHtml = `
+    <h2>💬 ${page.esc(title)}</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${page.t('comments.title', 'Comentários')}</p>
+    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px">
+      ${comments.length === 0
+        ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
+        : comments.map(c => renderComment(c, user)).join('')
+      }
+    </div>
+    <form class="comment-form" onsubmit="submitComment(event,${taskId})">
+      <input type="text" id="commentInput" placeholder="${page.t('comments.placeholder', 'Escreva um comentário...')}" required>
+      <button type="submit" class="btn btn-primary">${page.t('comments.send', 'Enviar')}</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-secondary" onclick="page.closeModal()">${page.t('common.close', 'Fechar')}</button>
+    </div>
+  `;
+  page.openModal(modalHtml);
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+}
+
+function renderComment(c, user) {
+  const isMine = user && (user.id === c.userId || user.uid === c.userId);
+  return `
+    <div class="comment-item" data-cid="${c.id}">
+      <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
+      <div class="comment-body">
+        <div class="comment-header">
+          <div>
+            <span class="comment-author">${page.esc(c.userName || 'Anônimo')}</span>
+            ${isMine ? '<span style="font-size:10px;background:var(--primary-light);color:var(--primary);padding:1px 6px;border-radius:6px;margin-left:6px">você</span>' : ''}
+            <span class="comment-date" style="margin-left:8px">${core.formatDateTime(c.createdAt)}</span>
+          </div>
+          ${isMine ? `<button class="comment-delete" onclick="deleteComment(${user.id === c.userId ? user.id : `'${c.userId}'`}, '${c.id}')">🗑️</button>` : ''}
+        </div>
+        <div class="comment-text">${page.esc(c.text)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function submitComment(e, taskId) {
+  e.preventDefault();
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const user = page.getUser();
+  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  if (c) {
+    input.value = '';
+    // Re-render a lista no modal
+    const list = document.getElementById('commentsList');
+    const empty = list.querySelector('.empty');
+    if (empty) empty.remove();
+    list.insertAdjacentHTML('beforeend', renderComment(c, user));
+    list.scrollTop = list.scrollHeight;
+  }
+}
+
+function deleteComment(userId, commentId) {
+  if (!confirm(page.t('comments.deleteConfirm', 'Excluir este comentário?'))) return;
+  // Pegar taskId do contexto
+  const list = document.getElementById('commentsList');
+  if (!list) return;
+  // Encontrar o taskId via data attribute - mas não temos. Buscar em todas as tasks:
+  const data = page.getDB();
+  for (const t of data.tasks) {
+    const comments = core.getComments(t.id);
+    if (comments.find(c => c.id === commentId)) {
+      core.deleteComment(t.id, commentId);
+      break;
+    }
+  }
+  // Reabrir o modal
+  page.closeModal();
+  page.toast('Comentário excluído', 'info');
+}
+
+// Receber mensagens do parent (re-render ao mudar idioma)
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'newTask') openAddCard('pending');
+  if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
+    setTimeout(() => { applyStaticI18n(); populateCategories(); render(); }, 100);
+  }
+});
+</script>
+</body>
+</html>

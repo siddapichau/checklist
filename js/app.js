@@ -1,7 +1,8 @@
 /* =========================================================
-   CHECKLIST ML — app.js  (Parte 2/3)
+   CHECKLIST ML — app.js  (Parte 2/3 + 3/3)
    Controlador principal: auth, navegação, tema, sidebar,
-   atalhos de teclado, busca global, sync, PWA
+   atalhos de teclado, busca global, sync, PWA,
+   i18n, temas custom, dark mode auto, automações, gamificação
    ========================================================= */
 
 const App = {
@@ -14,18 +15,35 @@ const App = {
     // Registrar Service Worker
     this.registerSW();
 
+    // Verificar se há código de redefinição de senha na URL
+    this.handlePasswordResetCode();
+
     // Carregar configurações
     const data = core.getLocalDB();
     this.settings = data.settings;
 
-    // Aplicar tema salvo
+    // Inicializar auto dark mode
+    core.initAutoTheme();
+
+    // Pré-carregar idioma
+    await core.tReady(this.settings.language);
+
+    // Aplicar tema (incluindo custom themes e auto mode)
     this.applyTheme(this.settings.theme, this.settings.mode);
+
+    // Inicializar gamificação (streak do dia)
+    const user = core.getCurrentUser();
+    if (user) {
+      core.updateStreak(user.id || user.uid);
+    }
+
+    // Rodar automações de atraso (silencioso)
+    try { core.checkLateAutomations(); } catch(e) { console.warn('checkLateAutomations:', e); }
 
     // Verificar se há usuário logado
     this.currentUser = core.getCurrentUser();
 
     if (!this.currentUser) {
-      // Verificar "lembrar login"
       this.currentUser = core.getRememberedUser();
       if (this.currentUser) core.setCurrentUser(this.currentUser);
     }
@@ -39,14 +57,12 @@ const App = {
         if (!this.currentUser) {
           await this.syncFirebaseUser(fbUser);
         }
-        // Iniciar sync se não foi iniciado ainda
         if (this.currentUser && !fireSync._syncing) {
           fireSync.start(this.currentUser.uid || this.currentUser.id);
         }
       }
     });
 
-    // Iniciar sync para usuário logado (mesmo local)
     if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
       fireSync.start(this.currentUser.uid || this.currentUser.id);
     }
@@ -56,12 +72,9 @@ const App = {
 
     // Firebase Sync event listener
     window.addEventListener('firebaseSync', (e) => {
-      if (e.detail.type === 'tasks') {
-        this.renderSidebar();
-      }
+      if (e.detail.type === 'tasks') this.renderSidebar();
     });
 
-    // Mostrar tela correta
     document.getElementById('loadingScreen').classList.add('hidden');
 
     if (this.currentUser) {
@@ -77,8 +90,6 @@ const App = {
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then((reg) => {
           console.log('✅ Service Worker registrado:', reg.scope);
-          
-          // Check for updates
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             newWorker.addEventListener('statechange', () => {
@@ -87,20 +98,15 @@ const App = {
               }
             });
           });
-
-          // Request push notification permission
           this.requestPushPermission(reg);
         })
         .catch(err => console.warn('SW registration failed:', err));
     }
 
-    // PWA install prompt
     let deferredPrompt;
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       deferredPrompt = e;
-      
-      // Show install button after 5 seconds if not installed
       setTimeout(() => {
         if (deferredPrompt && !window.matchMedia('(display-mode: standalone)').matches) {
           this.showInstallBanner();
@@ -108,7 +114,6 @@ const App = {
       }, 5000);
     });
 
-    // Store for install
     window._pwaInstall = () => {
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -122,38 +127,23 @@ const App = {
     };
   },
 
-  /* Request push notification permission */
   requestPushPermission(swReg) {
     if (!('Notification' in window) || !('PushManager' in window)) return;
-
-    // Check current permission
     if (Notification.permission === 'granted') {
       this.subscribeToPush(swReg);
     } else if (Notification.permission !== 'denied') {
-      // Ask after user has been using the app for a while
       setTimeout(() => {
         Notification.requestPermission().then(permission => {
-          if (permission === 'granted') {
-            this.subscribeToPush(swReg);
-          }
+          if (permission === 'granted') this.subscribeToPush(swReg);
         });
-      }, 30000); // 30 seconds delay before asking
+      }, 30000);
     }
   },
 
   async subscribeToPush(swReg) {
     try {
-      // Using VAPID would require a server, so we use a simple approach:
-      // Store that user wants notifications
       localStorage.setItem('cl-push-enabled', 'true');
       console.log('🔔 Push notifications enabled');
-
-      // Note: Full FCM integration requires a server-side component
-      // to send messages via Firebase Admin SDK. The service worker
-      // is already configured to receive and display push notifications.
-      // To send notifications, use Firebase Cloud Messaging API with
-      // the server key from Firebase Console > Cloud Messaging.
-
     } catch (err) {
       console.warn('Push subscription failed:', err);
     }
@@ -190,6 +180,8 @@ const App = {
     document.getElementById('appScreen').classList.remove('hidden');
     this.renderSidebar();
     this.updateUserInfo();
+    this.injectLanguageSwitcher();
+    this.injectNotificationButton();
     this.navigate(location.hash.slice(1) || 'home');
   },
 
@@ -199,7 +191,157 @@ const App = {
       t.classList.toggle('active', t.dataset.tab === tab));
     document.getElementById('loginForm').classList.toggle('hidden', tab !== 'login');
     document.getElementById('registerForm').classList.toggle('hidden', tab !== 'register');
+    document.getElementById('forgotForm')?.classList.add('hidden');
     this.clearErrors();
+  },
+
+  /**
+   * Mostra o formulário de "esqueci minha senha"
+   */
+  showForgotPassword(e) {
+    if (e) e.preventDefault();
+    // Esconde tabs e mostra só o form de recuperação
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerForm').classList.add('hidden');
+    document.getElementById('forgotForm').classList.remove('hidden');
+    this.clearErrors();
+    setTimeout(() => document.getElementById('forgotEmail')?.focus(), 100);
+  },
+
+  /**
+   * Envia o e-mail de recuperação de senha via Firebase Auth
+   */
+  async handleForgotPassword(e) {
+    e.preventDefault();
+    this.clearErrors();
+    const email = document.getElementById('forgotEmail').value.trim();
+    if (!email) {
+      this.showError('forgotError', 'Digite um e-mail válido');
+      return;
+    }
+    const errEl = document.getElementById('forgotError');
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = '⏳ Enviando...';
+
+    try {
+      // Configura o URL de continuação (importante para o link do e-mail)
+      // Em produção, troque pelo seu domínio real
+      const continueUrl = window.location.origin + window.location.pathname;
+      await auth.sendPasswordResetEmail(email, {
+        url: continueUrl,
+        handleCodeInApp: true,
+      });
+      // Sucesso: mostrar modal
+      document.getElementById('forgotSentModal').classList.remove('hidden');
+      document.getElementById('forgotForm').classList.add('hidden');
+      document.getElementById('forgotEmail').value = '';
+    } catch (err) {
+      let msg = 'Erro ao enviar e-mail de recuperação';
+      if (err.code === 'auth/user-not-found') {
+        // Por segurança, não revelamos se o e-mail existe
+        // Mesmo assim, mostramos o modal de "enviado"
+        document.getElementById('forgotSentModal').classList.remove('hidden');
+        document.getElementById('forgotForm').classList.add('hidden');
+        document.getElementById('forgotEmail').value = '';
+        btn.disabled = false;
+        btn.textContent = '📧 Enviar link de recuperação';
+        return;
+      } else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde alguns minutos';
+      else msg = err.message;
+      this.showError('forgotError', msg);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📧 Enviar link de recuperação';
+    }
+  },
+
+  /**
+   * Detecta quando o usuário volta do e-mail com um código de redefinição
+   * (o link no e-mail aponta para ?oobCode=XXXX)
+   */
+  async handlePasswordResetCode() {
+    const url = new URL(window.location.href);
+    const oobCode = url.searchParams.get('oobCode');
+    const mode = url.searchParams.get('mode');
+    if (mode === 'resetPassword' && oobCode) {
+      try {
+        // Verifica se o código é válido
+        await auth.verifyPasswordResetCode(oobCode);
+        // Pede nova senha em um modal
+        this.showResetPasswordModal(oobCode);
+      } catch (err) {
+        core.toast('Link de recuperação inválido ou expirado', 'error');
+      }
+    }
+  },
+
+  showResetPasswordModal(oobCode) {
+    const html = `
+      <div style="text-align:center">
+        <div style="font-size:48px;margin-bottom:12px">🔑</div>
+        <h2 style="margin-bottom:8px">Definir nova senha</h2>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Escolha uma senha forte (mín. 8 chars, maiúsc, minúsc, 2 núm, especial)</p>
+      </div>
+      <label><span>Nova senha</span>
+        <div class="input-group">
+          <input type="password" id="newPassReset" required placeholder="Sua nova senha" oninput="App.checkPasswordStrength(this.value)">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassReset', this)">👁</button>
+        </div>
+        <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBarReset"></div></div>
+        <small class="text-muted" id="passStrengthTextReset"></small>
+      </label>
+      <label><span>Confirmar nova senha</span>
+        <div class="input-group">
+          <input type="password" id="newPassConfirmReset" required placeholder="Repita a senha">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassConfirmReset', this)">👁</button>
+        </div>
+      </label>
+      <div class="form-error" id="resetError"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha</button>
+      </div>
+    `;
+    this.showModal(html);
+  },
+
+  async confirmPasswordReset(oobCode) {
+    const newPass = document.getElementById('newPassReset').value;
+    const confirm = document.getElementById('newPassConfirmReset').value;
+    const errEl = document.getElementById('resetError');
+    errEl.classList.remove('show'); errEl.textContent = '';
+
+    if (newPass !== confirm) {
+      errEl.textContent = 'As senhas não coincidem';
+      errEl.classList.add('show');
+      return;
+    }
+    const validation = core.validatePassword(newPass);
+    if (!validation.valid) {
+      errEl.textContent = validation.errors.join(', ');
+      errEl.classList.add('show');
+      return;
+    }
+    const btn = document.getElementById('btnConfirmReset');
+    btn.disabled = true;
+    btn.textContent = '⏳ Redefinindo...';
+    try {
+      await auth.confirmPasswordReset(oobCode, newPass);
+      this.closeModal();
+      core.toast('Senha redefinida com sucesso! Faça login novamente.', 'success');
+      // Limpar URL
+      window.history.replaceState({}, '', window.location.pathname);
+      this.showLogin();
+    } catch (err) {
+      errEl.textContent = err.message || 'Erro ao redefinir senha';
+      errEl.classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '💾 Redefinir senha';
+    }
   },
 
   clearErrors() {
@@ -219,8 +361,6 @@ const App = {
 
   checkPasswordStrength(pass) {
     const score = core.passwordStrength(pass);
-    const bar = document.getElementById('passStrengthBar');
-    const text = document.getElementById('passStrengthText');
     const levels = [
       { w: '0%', c: '#E2E8F0', t: '' },
       { w: '20%', c: '#EF4444', t: 'Muito fraca' },
@@ -230,8 +370,11 @@ const App = {
       { w: '100%', c: '#059669', t: 'Muito forte' },
     ];
     const l = levels[score];
-    bar.style.width = l.w; bar.style.background = l.c;
-    text.textContent = l.t;
+    // Detecta se estamos no form de cadastro ou no modal de reset
+    const bar = document.getElementById('passStrengthBar') || document.getElementById('passStrengthBarReset');
+    const text = document.getElementById('passStrengthText') || document.getElementById('passStrengthTextReset');
+    if (bar) { bar.style.width = l.w; bar.style.background = l.c; }
+    if (text) text.textContent = l.t;
   },
 
   async handleLogin(e) {
@@ -241,7 +384,6 @@ const App = {
     const password = document.getElementById('loginPass').value;
     const remember = document.getElementById('rememberMe').checked;
 
-    // Tentar login Firebase primeiro
     try {
       let email = username;
       if (!username.includes('@')) {
@@ -255,7 +397,6 @@ const App = {
       await this.loginSuccess(cred.user, remember);
       return;
     } catch (fbErr) {
-      // Se falhou no Firebase, tentar login local (fallback)
       const data = core.getLocalDB();
       const user = data.users.find(u =>
         (u.username === username || u.user === username || u.email === username) && !u.banned
@@ -282,7 +423,6 @@ const App = {
           return;
         }
       }
-
       this.showError('loginError', 'Usuário ou senha incorretos');
     }
   },
@@ -310,8 +450,6 @@ const App = {
         provider: fbUser.providerData[0]?.providerId || 'password'
       };
       await docRef.set(profile);
-
-      // Também salvar localmente
       const data = core.getLocalDB();
       data.users.push({ id: fbUser.uid, ...profile });
       core.saveLocalDB(data);
@@ -340,12 +478,12 @@ const App = {
     core.setCurrentUser(this.currentUser);
     if (remember) core.setRememberedUser(this.currentUser);
 
+    // Inicializa gamificação
+    core.getUserStats(this.currentUser.id);
+
     core.log('login', this.currentUser.id, 'Login Firebase');
     this.showApp();
-    
-    // Iniciar Firebase sync
     fireSync.start(this.currentUser.uid || this.currentUser.id);
-    
     core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
   },
 
@@ -428,6 +566,7 @@ const App = {
             provider: profile.provider || 'google.com'
           };
           core.setCurrentUser(this.currentUser);
+          core.getUserStats(this.currentUser.id);
           this.showApp();
           fireSync.start(this.currentUser.uid || this.currentUser.id);
         }
@@ -445,6 +584,9 @@ const App = {
     core.setRememberedUser(null);
     this.currentUser = null;
     this.showLogin();
+    // Limpar elementos injetados
+    document.getElementById('langSwitcher')?.remove();
+    document.getElementById('notifButton')?.remove();
     core.toast('Você saiu da sua conta', 'info');
   },
 
@@ -461,7 +603,6 @@ const App = {
     const frame = document.getElementById('pageFrame');
     frame.src = `pages/${page}.html`;
 
-    // Animação de transição
     frame.style.opacity = '0';
     frame.style.transform = 'translateY(6px)';
     frame.style.transition = 'opacity .2s ease, transform .2s ease';
@@ -474,7 +615,7 @@ const App = {
     const items = this.settings.menuItems;
     const item = items.find(i => i.id === page);
     const icon = item ? item.icon : '📄';
-    const label = item ? item.label : page;
+    const label = item ? this.tr(item.label, item.id) : page;
     document.getElementById('breadcrumb').textContent = `${icon} ${label}`;
 
     document.querySelectorAll('.nav-item').forEach(n =>
@@ -499,10 +640,11 @@ const App = {
 
       const isActive = this.currentPage === id ? 'active' : '';
       const badge = this.getBadge(id);
+      const label = this.tr(item.label, item.id);
 
       html += `<div class="nav-item ${isActive}" data-page="${id}" onclick="App.navigate('${id}')">
         <span class="icon">${item.icon}</span>
-        <span>${item.label}</span>
+        <span>${label}</span>
         ${badge ? `<span class="badge">${badge}</span>` : ''}
       </div>`;
     });
@@ -555,38 +697,92 @@ const App = {
     }
     document.getElementById('topbarName').textContent = u.name || u.username;
 
-    document.getElementById('btnTheme').textContent = this.settings.mode === 'dark' ? '☀️' : '🌙';
-  },
-
-  toggleSidebar() {
-    document.getElementById('sidebar').classList.toggle('open');
-    document.getElementById('sidebarOverlay').classList.toggle('show');
-  },
-
-  closeSidebar() {
-    document.getElementById('sidebar').classList.remove('open');
-    document.getElementById('sidebarOverlay').classList.remove('show');
+    document.getElementById('btnTheme').textContent = this.getThemeIcon();
   },
 
   /* ========== TEMA ========== */
   applyTheme(theme, mode) {
     document.documentElement.dataset.theme = theme || 'ocean';
-    document.documentElement.dataset.mode = mode || 'light';
+    // Se mode = 'auto', escutar o sistema
+    if (mode === 'auto') {
+      this._setupAutoListener();
+      const mq = window.matchMedia('(prefers-color-scheme: dark)');
+      document.documentElement.dataset.mode = mq.matches ? 'dark' : 'light';
+    } else {
+      this._removeAutoListener();
+      document.documentElement.dataset.mode = mode || 'light';
+    }
     localStorage.setItem('cl-theme', theme);
     localStorage.setItem('cl-mode', mode);
     this.settings.theme = theme;
     this.settings.mode = mode;
 
+    // Aplicar tema custom se necessário
     const data = core.getLocalDB();
-    data.settings.theme = theme;
-    data.settings.mode = mode;
-    core.saveLocalDB(data);
+    const customThemes = data.customThemes || [];
+    const isCustom = customThemes.find(t => t.id === theme);
+    if (isCustom) {
+      core.applyCustomTheme(theme);
+    } else {
+      // Remover custom-theme-style se tema não-custom
+      const el = document.getElementById('custom-theme-style');
+      if (el) el.textContent = '';
+    }
+
+    const data2 = core.getLocalDB();
+    data2.settings.theme = theme;
+    data2.settings.mode = mode;
+    core.saveLocalDB(data2);
+
+    // Atualizar ícone do botão
+    const btn = document.getElementById('btnTheme');
+    if (btn) btn.textContent = this.getThemeIcon();
   },
 
+  _setupAutoListener() {
+    if (this._autoMqlistener) return;
+    this._autoMq = window.matchMedia('(prefers-color-scheme: dark)');
+    this._autoMqlistener = () => {
+      const actual = this._autoMq.matches ? 'dark' : 'light';
+      document.documentElement.dataset.mode = actual;
+    };
+    if (this._autoMq.addEventListener) {
+      this._autoMq.addEventListener('change', this._autoMqlistener);
+    } else if (this._autoMq.addListener) {
+      this._autoMq.addListener(this._autoMqlistener);
+    }
+  },
+  _removeAutoListener() {
+    if (this._autoMq && this._autoMqlistener) {
+      if (this._autoMq.removeEventListener) {
+        this._autoMq.removeEventListener('change', this._autoMqlistener);
+      } else if (this._autoMq.removeListener) {
+        this._autoMq.removeListener(this._autoMqlistener);
+      }
+    }
+    this._autoMq = null;
+    this._autoMqlistener = null;
+  },
+
+  getThemeIcon() {
+    const mode = this.settings.mode;
+    if (mode === 'auto') return '🌓';
+    return mode === 'dark' ? '☀️' : '🌙';
+  },
+
+  /**
+   * Cycle: light -> dark -> auto -> light
+   */
   toggleTheme() {
-    const newMode = this.settings.mode === 'dark' ? 'light' : 'dark';
+    const cycle = ['light', 'dark', 'auto'];
+    const idx = cycle.indexOf(this.settings.mode);
+    const newMode = cycle[(idx + 1) % cycle.length];
     this.applyTheme(this.settings.theme, newMode);
-    document.getElementById('btnTheme').textContent = newMode === 'dark' ? '☀️' : '🌙';
+    core.toast(
+      newMode === 'auto' ? 'Modo automático (segue o sistema)' :
+      newMode === 'dark' ? 'Modo escuro' : 'Modo claro',
+      'info'
+    );
     const frame = document.getElementById('pageFrame');
     if (frame.contentWindow) {
       frame.contentWindow.postMessage({ type: 'themeChanged', theme: this.settings.theme, mode: newMode }, '*');
@@ -596,6 +792,166 @@ const App = {
   setTheme(theme) {
     this.applyTheme(theme, this.settings.mode);
     this.renderSidebar();
+  },
+
+  /* ========== LANGUAGE SWITCHER (i18n) ========== */
+  injectLanguageSwitcher() {
+    if (document.getElementById('langSwitcher')) return;
+    const topbar = document.querySelector('.topbar-actions');
+    if (!topbar) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'langSwitcher';
+    wrap.className = 'lang-switcher';
+    wrap.innerHTML = `
+      <button onclick="App.toggleLangMenu(event)" title="Idioma">
+        🌐 <span>${this.getLangLabel(this.settings.language)}</span>
+      </button>
+      <div class="lang-menu hidden" id="langMenu">
+        <button onclick="App.changeLang('pt-BR')" data-lang="pt-BR">🇧🇷 Português</button>
+        <button onclick="App.changeLang('en')" data-lang="en">🇺🇸 English</button>
+        <button onclick="App.changeLang('es')" data-lang="es">🇪🇸 Español</button>
+      </div>
+    `;
+    topbar.insertBefore(wrap, topbar.firstChild);
+    this.updateLangMenuActive();
+  },
+
+  getLangLabel(lang) {
+    return { 'pt-BR': 'PT', 'en': 'EN', 'es': 'ES' }[lang] || 'PT';
+  },
+
+  toggleLangMenu(e) {
+    e?.stopPropagation();
+    const menu = document.getElementById('langMenu');
+    if (menu) menu.classList.toggle('hidden');
+  },
+
+  async changeLang(lang) {
+    if (this.settings.language === lang) {
+      document.getElementById('langMenu')?.classList.add('hidden');
+      return;
+    }
+    core.setLanguage(lang);
+    await core.tReady(lang);
+    this.settings.language = lang;
+
+    // Atualizar interface
+    this.updateLangMenuActive();
+    this.renderSidebar();
+    document.querySelector('#langSwitcher button span').textContent = this.getLangLabel(lang);
+    document.getElementById('langMenu')?.classList.add('hidden');
+
+    // Recarregar página atual para aplicar i18n
+    const frame = document.getElementById('pageFrame');
+    if (frame.contentWindow) {
+      frame.contentWindow.postMessage({ type: 'languageChanged', lang }, '*');
+    }
+    // Recarregar a página após pequeno delay
+    setTimeout(() => {
+      const page = this.currentPage;
+      frame.src = `pages/${page}.html?lang=${lang}&t=${Date.now()}`;
+    }, 200);
+
+    core.toast(lang === 'pt-BR' ? 'Idioma: Português' : lang === 'en' ? 'Language: English' : 'Idioma: Español', 'success');
+  },
+
+  updateLangMenuActive() {
+    document.querySelectorAll('#langMenu button').forEach(b => {
+      b.classList.toggle('active', b.dataset.lang === this.settings.language);
+    });
+  },
+
+  /* ========== NOTIFICATION BUTTON ========== */
+  injectNotificationButton() {
+    if (document.getElementById('notifButton')) return;
+    const topbar = document.querySelector('.topbar-actions');
+    if (!topbar) return;
+
+    const wrap = document.createElement('div');
+    wrap.id = 'notifButton';
+    wrap.className = 'lang-switcher';
+    wrap.innerHTML = `
+      <button class="notif-btn" onclick="App.toggleNotifMenu(event)" title="Notificações">
+        🔔
+        <span class="notif-dot hidden" id="notifDot"></span>
+      </button>
+      <div class="notif-dropdown hidden" id="notifMenu">
+        <h4>
+          <span>Notificações</span>
+          <button onclick="App.markAllRead()">Marcar lidas</button>
+        </h4>
+        <div id="notifList"></div>
+      </div>
+    `;
+    // Inserir antes do language switcher se existir, senão no início
+    const langSw = document.getElementById('langSwitcher');
+    if (langSw) topbar.insertBefore(wrap, langSw);
+    else topbar.insertBefore(wrap, topbar.firstChild);
+
+    this.renderNotifications();
+  },
+
+  toggleNotifMenu(e) {
+    e?.stopPropagation();
+    const menu = document.getElementById('notifMenu');
+    if (menu) menu.classList.toggle('hidden');
+    if (menu && !menu.classList.contains('hidden')) {
+      this.renderNotifications();
+    }
+  },
+
+  renderNotifications() {
+    const list = document.getElementById('notifList');
+    const dot = document.getElementById('notifDot');
+    if (!list) return;
+
+    if (!this.currentUser) return;
+    const notifs = core.getNotifications(this.currentUser.id || this.currentUser.uid);
+    const unread = notifs.filter(n => !n.read).length;
+
+    if (dot) dot.classList.toggle('hidden', unread === 0);
+
+    if (notifs.length === 0) {
+      list.innerHTML = '<div class="notif-empty">Nenhuma notificação</div>';
+      return;
+    }
+
+    list.innerHTML = notifs.slice(0, 20).map(n => `
+      <div class="notif-item ${!n.read ? 'unread' : ''}" onclick="App.openNotif('${n.id}')">
+        <div class="notif-icon">${n.type === 'warning' ? '⚠️' : n.type === 'error' ? '❌' : 'ℹ️'}</div>
+        <div class="notif-content">
+          <b>${core.escapeHTML(n.title)}</b>
+          <small>${core.escapeHTML(n.body)}</small>
+          <small style="margin-top:2px">${core.formatDateTime(n.timestamp)}</small>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  openNotif(id) {
+    if (!this.currentUser) return;
+    const notifs = core.getNotifications(this.currentUser.id || this.currentUser.uid);
+    const n = notifs.find(x => x.id === id);
+    if (n) {
+      n.read = true;
+      localStorage.setItem('cl-notifications-' + (this.currentUser.id || this.currentUser.uid), JSON.stringify(notifs));
+    }
+    this.renderNotifications();
+    document.getElementById('notifMenu')?.classList.add('hidden');
+    if (n?.data?.page) this.navigate(n.data.page);
+  },
+
+  markAllRead() {
+    if (!this.currentUser) return;
+    core.markAllNotificationsRead(this.currentUser.id || this.currentUser.uid);
+    this.renderNotifications();
+  },
+
+  /* ========== i18n helper ========== */
+  tr(label, id) {
+    if (!id) return label;
+    return core.t('nav.' + id, label);
   },
 
   /* ========== QUICK NEW TASK ========== */
@@ -615,63 +971,52 @@ const App = {
     let gKeyTimeout = null;
 
     document.addEventListener('keydown', (e) => {
-      // Ignorar se foco está em input/textarea
+      // ESC fecha menus
+      if (e.key === 'Escape') {
+        document.getElementById('langMenu')?.classList.add('hidden');
+        document.getElementById('notifMenu')?.classList.add('hidden');
+      }
+
       const tag = document.activeElement?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
 
       const key = e.key.toLowerCase();
       const ctrl = e.ctrlKey || e.metaKey;
 
-      // Ctrl+K: Busca global
       if (ctrl && key === 'k') {
         e.preventDefault();
         this.openGlobalSearch();
         return;
       }
-
-      // Ctrl+? ou apenas ?: Mostrar ajuda
       if (key === '?' || (ctrl && key === '/')) {
         e.preventDefault();
         this.showShortcutHelp();
         return;
       }
-
-      // G + H: Ir para home
       if (key === 'g') {
         gKeyPressed = true;
         clearTimeout(gKeyTimeout);
         gKeyTimeout = setTimeout(() => { gKeyPressed = false; }, 1000);
         return;
       }
-
-      if (gKeyPressed && key === 'h') {
-        e.preventDefault();
-        gKeyPressed = false;
-        this.navigate('home');
-        return;
-      }
-
-      if (gKeyPressed && key === 'a') {
-        e.preventDefault();
-        gKeyPressed = false;
-        this.navigate('atividades');
-        return;
-      }
+      if (gKeyPressed && key === 'h') { e.preventDefault(); gKeyPressed = false; this.navigate('home'); return; }
+      if (gKeyPressed && key === 'a') { e.preventDefault(); gKeyPressed = false; this.navigate('atividades'); return; }
+      if (gKeyPressed && key === 'k') { e.preventDefault(); gKeyPressed = false; this.navigate('kanban'); return; }
+      if (gKeyPressed && key === 'c') { e.preventDefault(); gKeyPressed = false; this.navigate('calendario'); return; }
 
       gKeyPressed = false;
 
-      // N: Nova atividade
-      if (key === 'n') {
-        e.preventDefault();
-        this.quickNewTask();
-        return;
-      }
+      if (key === 'n') { e.preventDefault(); this.quickNewTask(); return; }
+      if (key === 't') { e.preventDefault(); this.toggleTheme(); return; }
+    });
 
-      // T: Alternar tema
-      if (key === 't') {
-        e.preventDefault();
-        this.toggleTheme();
-        return;
+    // Fechar menus ao clicar fora
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('#langSwitcher')) {
+        document.getElementById('langMenu')?.classList.add('hidden');
+      }
+      if (!e.target.closest('#notifButton')) {
+        document.getElementById('notifMenu')?.classList.add('hidden');
       }
     });
   },
@@ -705,18 +1050,10 @@ const App = {
     `;
 
     document.body.appendChild(overlay);
+    setTimeout(() => document.getElementById('globalSearchInput')?.focus(), 100);
 
-    setTimeout(() => {
-      const input = document.getElementById('globalSearchInput');
-      if (input) input.focus();
-    }, 100);
-
-    // Close on ESC
     const escHandler = (e) => {
-      if (e.key === 'Escape') {
-        overlay.remove();
-        document.removeEventListener('keydown', escHandler);
-      }
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
     };
     document.addEventListener('keydown', escHandler);
   },
@@ -724,22 +1061,16 @@ const App = {
   performGlobalSearch(query) {
     const results = document.getElementById('globalSearchResults');
     if (!results) return;
-
     const q = query.toLowerCase().trim();
-
     if (q.length < 2) {
       results.innerHTML = '<div class="empty"><p>Digite pelo menos 2 caracteres...</p></div>';
       return;
     }
-
     const data = core.getLocalDB();
     let html = '';
-
-    // Buscar em tasks
     const matchedTasks = (data.tasks || []).filter(t =>
       t.title.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)
     ).slice(0, 5);
-
     if (matchedTasks.length > 0) {
       html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">✅ Atividades</div>';
       matchedTasks.forEach(t => {
@@ -751,12 +1082,9 @@ const App = {
         </div>`;
       });
     }
-
-    // Buscar em arquivos
     const matchedFiles = (data.files || []).filter(f =>
       f.title.toLowerCase().includes(q) || (f.description || '').toLowerCase().includes(q)
     ).slice(0, 3);
-
     if (matchedFiles.length > 0) {
       html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">📁 Arquivos</div>';
       matchedFiles.forEach(f => {
@@ -766,12 +1094,9 @@ const App = {
           <small style="display:block;color:var(--muted)">${core.escapeHTML(f.category || 'Geral')}</small></div></a>`;
       });
     }
-
-    // Buscar em posts
     const matchedPosts = (data.posts || []).filter(p =>
       p.title.toLowerCase().includes(q) || (p.body || '').toLowerCase().includes(q)
     ).slice(0, 3);
-
     if (matchedPosts.length > 0) {
       html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">📰 Notícias</div>';
       matchedPosts.forEach(p => {
@@ -781,11 +1106,7 @@ const App = {
           <small style="display:block;color:var(--muted)">${p.category || 'Geral'} · ${core.formatDateTime(p.publishedAt)}</small></div></div>`;
       });
     }
-
-    if (!html) {
-      html = '<div class="empty"><div class="icon">🔍</div><p>Nenhum resultado para <b>' + core.escapeHTML(q) + '</b></p></div>';
-    }
-
+    if (!html) html = '<div class="empty"><div class="icon">🔍</div><p>Nenhum resultado para <b>' + core.escapeHTML(q) + '</b></p></div>';
     results.innerHTML = html;
   },
 
@@ -805,9 +1126,11 @@ const App = {
     const shortcuts = [
       ['Ctrl + K', 'Busca global', '🔍'],
       ['N', 'Nova atividade', '✅'],
-      ['T', 'Alternar tema claro/escuro', '🌙'],
+      ['T', 'Tema (claro/escuro/auto)', '🌓'],
       ['G H', 'Ir para Home', '📊'],
       ['G A', 'Ir para Atividades', '✅'],
+      ['G K', 'Ir para Kanban', '📋'],
+      ['G C', 'Ir para Calendário', '📅'],
       ['?', 'Mostrar esta ajuda', '❓'],
       ['ESC', 'Fechar modais', '✕'],
     ];
@@ -830,8 +1153,6 @@ const App = {
     `;
 
     document.body.appendChild(overlay);
-
-    // ESC to close
     const escHandler = (e) => {
       if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
     };
@@ -853,9 +1174,17 @@ const App = {
       case 'reload':
         this.renderSidebar();
         this.updateUserInfo();
+        this.renderNotifications();
         break;
       case 'themeChanged':
         this.applyTheme(msg.theme, msg.mode);
+        break;
+      case 'languageChanged':
+        // Recarrega o iframe para aplicar i18n
+        this.settings.language = msg.lang;
+        document.querySelector('#langSwitcher button span').textContent = this.getLangLabel(msg.lang);
+        this.updateLangMenuActive();
+        this.renderSidebar();
         break;
       case 'modal':
         this.showModal(msg.html);
@@ -868,9 +1197,9 @@ const App = {
         break;
       case 'updateBadge':
         this.renderSidebar();
+        this.renderNotifications();
         break;
       case 'firebaseSync':
-        // Forward to fireSync
         if (msg.collection && msg.data) {
           fireSync.pushDocument(msg.collection, msg.id, msg.data);
         }
@@ -891,5 +1220,4 @@ const App = {
   },
 };
 
-// Inicializar quando DOM estiver pronto
 document.addEventListener('DOMContentLoaded', () => App.init());

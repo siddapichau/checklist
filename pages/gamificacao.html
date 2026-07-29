@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <title>Conquistas</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>GAMIFICAÇÃO</small>
+    <h1>🏆 Conquistas & Ranking</h1>
+    <p>Ganhe pontos, desbloqueie badges e suba no ranking</p>
+  </div>
+</div>
+
+<!-- STATS DO USUÁRIO -->
+<div class="gam-stats" id="myStats"></div>
+
+<!-- STREAK -->
+<div class="card" id="streakCard"></div>
+
+<!-- TABS: BADGES / RANKING / REGRAS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('badges',this)">🏅 Badges</button>
+  <button class="tab" onclick="switchTab('ranking',this)" data-i18n="gamification.weeklyRanking">Ranking semanal</button>
+  <button class="tab" onclick="switchTab('allranking',this)">🏆 Ranking geral</button>
+  <button class="tab" onclick="switchTab('rules',this)">📋 Regras</button>
+</div>
+
+<div class="tab-content active" id="tab-badges">
+  <div class="card">
+    <h2>🏅 Todas as conquistas</h2>
+    <div class="badges-grid" id="badgesGrid"></div>
+  </div>
+</div>
+
+<div class="tab-content" id="tab-ranking">
+  <div class="card">
+    <h2 data-i18n="gamification.weeklyRanking">Ranking semanal</h2>
+    <table class="ranking-table" id="weeklyTable">
+      <thead><tr>
+        <th data-i18n="gamification.rank">Posição</th>
+        <th data-i18n="gamification.user">Usuário</th>
+        <th data-i18n="gamification.week">Semana</th>
+        <th data-i18n="gamification.total">Total</th>
+      </tr></thead>
+      <tbody id="weeklyBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="tab-content" id="tab-allranking">
+  <div class="card">
+    <h2>🏆 Ranking geral</h2>
+    <table class="ranking-table" id="allTable">
+      <thead><tr>
+        <th data-i18n="gamification.rank">Posição</th>
+        <th data-i18n="gamification.user">Usuário</th>
+        <th data-i18n="gamification.total">Total</th>
+        <th>🔥</th>
+        <th>🏅</th>
+      </tr></thead>
+      <tbody id="allBody"></tbody>
+    </table>
+  </div>
+</div>
+
+<div class="tab-content" id="tab-rules">
+  <div class="card">
+    <h2 data-i18n="gamification.earnPoints">Como ganhar pontos?</h2>
+    <div style="display:grid;gap:10px;margin-top:12px">
+      <div class="item"><span style="font-size:22px">✅</span><div class="item-info"><b data-i18n="gamification.rule1">Concluir uma atividade: 10 pontos</b></div><strong style="color:var(--primary)">+10</strong></div>
+      <div class="item"><span style="font-size:22px">🔴</span><div class="item-info"><b data-i18n="gamification.rule2">Prioridade alta: +5 pontos</b></div><strong style="color:var(--primary)">+5</strong></div>
+      <div class="item"><span style="font-size:22px">🚨</span><div class="item-info"><b data-i18n="gamification.rule3">Prioridade urgente: +10 pontos</b></div><strong style="color:var(--primary)">+10</strong></div>
+      <div class="item"><span style="font-size:22px">🔁</span><div class="item-info"><b data-i18n="gamification.rule4">Recorrente: +5 pontos</b></div><strong style="color:var(--primary)">+5</strong></div>
+      <div class="item"><span style="font-size:22px">🔥</span><div class="item-info"><b data-i18n="gamification.rule5">Sequência: complete todos os dias</b></div><strong style="color:var(--primary)">+streak</strong></div>
+    </div>
+  </div>
+</div>
+
+<!-- GRÁFICO DE PROGRESSO -->
+<div class="card" style="margin-top:20px">
+  <h2>📈 Seu progresso de pontos</h2>
+  <canvas id="progressChart" height="100"></canvas>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(async function() {
+  await page.i18nReady();
+  page.applyI18n(document.body);
+  render();
+})();
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+function render() {
+  const user = page.getUser();
+  if (!user) return;
+  const stats = core.getUserStats(user.id || user.uid);
+
+  // Stats principais
+  const earnedCount = (stats.achievements || []).length;
+  document.getElementById('myStats').innerHTML = `
+    <div class="gam-stat">
+      <div class="gam-icon">⭐</div>
+      <div class="gam-num">${stats.points || 0}</div>
+      <div class="gam-label">${page.t('gamification.myPoints', 'Meus pontos')}</div>
+    </div>
+    <div class="gam-stat">
+      <div class="gam-icon">🔥</div>
+      <div class="gam-num">${stats.streak || 0}</div>
+      <div class="gam-label">${page.t('gamification.myStreak', 'Sequência')} (${page.t('gamification.days','dias')})</div>
+    </div>
+    <div class="gam-stat">
+      <div class="gam-icon">🏅</div>
+      <div class="gam-num">${earnedCount}</div>
+      <div class="gam-label">${page.t('gamification.myBadges', 'Conquistas')}</div>
+    </div>
+    <div class="gam-stat">
+      <div class="gam-icon">✅</div>
+      <div class="gam-num">${stats.totalFinished || 0}</div>
+      <div class="gam-label">Concluídas</div>
+    </div>
+  `;
+
+  // Streak display
+  document.getElementById('streakCard').innerHTML = `
+    <h2>🔥 Sua sequência</h2>
+    <div class="streak-display">
+      <div class="streak-flame">${(stats.streak || 0) > 0 ? '🔥' : '💤'}</div>
+      <div class="streak-info">
+        <div class="streak-num">${stats.streak || 0} ${page.t('gamification.days', 'dias')}</div>
+        <div class="streak-label">${stats.lastActiveDate ? 'Última atividade: ' + core.formatDate(stats.lastActiveDate) : 'Comece sua sequência hoje!'}</div>
+      </div>
+      <div style="margin-left:auto">
+        <button class="btn btn-primary" onclick="page.navigate('atividades')">📋 Fazer atividades</button>
+      </div>
+    </div>
+  `;
+
+  // Badges
+  const achievements = core.getAchievements();
+  const earned = new Set(stats.achievements || []);
+  document.getElementById('badgesGrid').innerHTML = achievements.map(a => {
+    const isEarned = earned.has(a.id);
+    const badgeData = (stats.badges || []).find(b => b.id === a.id);
+    return `
+      <div class="badge-card ${isEarned ? 'earned' : 'locked'}">
+        <div class="badge-icon">${a.icon}</div>
+        <div class="badge-name">${a.name}</div>
+        <div class="badge-desc">${a.desc}</div>
+        ${isEarned && badgeData ? `<div class="badge-date">✅ ${core.formatDateTime(badgeData.earnedAt)}</div>` : ''}
+      </div>
+    `;
+  }).join('');
+
+  // Ranking semanal
+  const weekly = core.getWeeklyRanking(20);
+  if (weekly.length === 0) {
+    document.getElementById('weeklyBody').innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda. Complete atividades para aparecer no ranking!</td></tr>`;
+  } else {
+    document.getElementById('weeklyBody').innerHTML = weekly.map((u, i) => {
+      const rank = i + 1;
+      const rowClass = rank <= 3 ? `top-${rank}` : '';
+      const rankClass = rank <= 3 ? `rank-${rank}` : '';
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+      const isMe = user && (user.id === u.userId || user.uid === u.userId);
+      return `
+        <tr class="${rowClass}" style="${isMe ? 'background:var(--primary-light);font-weight:700' : ''}">
+          <td class="rank-cell ${rankClass}">${medal} ${rank}</td>
+          <td>
+            <div class="user-cell">
+              <div class="avatar">${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}">` : (u.avatar || '👤')}</div>
+              <span>${page.esc(u.name)} ${isMe ? '(você)' : ''}</span>
+            </div>
+          </td>
+          <td class="points-cell">${u.points} pts</td>
+          <td>${u.total} pts</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Ranking geral
+  const allRank = core.getAllRanking(20);
+  if (allRank.length === 0) {
+    document.getElementById('allBody').innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda.</td></tr>`;
+  } else {
+    document.getElementById('allBody').innerHTML = allRank.map((u, i) => {
+      const rank = i + 1;
+      const rowClass = rank <= 3 ? `top-${rank}` : '';
+      const rankClass = rank <= 3 ? `rank-${rank}` : '';
+      const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
+      const isMe = user && (user.id === u.userId || user.uid === u.userId);
+      return `
+        <tr class="${rowClass}" style="${isMe ? 'background:var(--primary-light);font-weight:700' : ''}">
+          <td class="rank-cell ${rankClass}">${medal} ${rank}</td>
+          <td>
+            <div class="user-cell">
+              <div class="avatar">${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}">` : (u.avatar || '👤')}</div>
+              <span>${page.esc(u.name)} ${isMe ? '(você)' : ''}</span>
+            </div>
+          </td>
+          <td class="points-cell">${u.points} pts</td>
+          <td>${u.streak} 🔥</td>
+          <td>${u.badges} 🏅</td>
+        </tr>
+      `;
+    }).join('');
+  }
+
+  // Gráfico de progresso de pontos
+  renderProgressChart(stats);
+}
+
+function renderProgressChart(stats) {
+  const data = page.getDB();
+  const user = page.getUser();
+  const userId = user?.id || user?.uid;
+  const gam = data.gamification || {};
+  const myStats = gam[userId] || stats;
+  const weekly = myStats.weeklyPoints || {};
+  const labels = [];
+  const points = [];
+  // Últimas 8 semanas
+  for (let i = 7; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i * 7);
+    const key = core._getWeekKey(d);
+    const lang = page.getLanguage();
+    const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
+    labels.push(d.toLocaleDateString(locale, { day:'2-digit', month:'short' }));
+    points.push(weekly[key] || 0);
+  }
+
+  if (typeof Chart === 'undefined') return;
+  const ctx = document.getElementById('progressChart');
+  if (!ctx) return;
+
+  // Destruir chart anterior se existir
+  if (ctx._chart) ctx._chart.destroy();
+  ctx._chart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels,
+      datasets: [{
+        label: 'Pontos por semana',
+        data: points,
+        borderColor: '#2563EB',
+        backgroundColor: 'rgba(37,99,235,.1)',
+        fill: true,
+        tension: 0.4,
+        pointRadius: 5,
+        pointBackgroundColor: '#2563EB',
+        borderWidth: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, grid: { color: 'var(--line,#E2E8F0)' } },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
+    setTimeout(() => { page.applyI18n(document.body); render(); }, 100);
+  }
+});
+</script>
+</body>
+</html>
