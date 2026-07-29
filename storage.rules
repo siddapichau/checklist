@@ -1,0 +1,92 @@
+rules_version = '2';
+
+// =========================================================
+// CHECKLIST ML — Firebase Storage Security Rules
+// Pastas: avatars/, posts/, files/, themes/
+// =========================================================
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    // ---------- FUNÇÕES AUXILIARES ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isNotBanned() {
+      return isSignedIn() &&
+             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.banned != true;
+    }
+
+    // Limites de tamanho
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isSmallImage() {
+      // Avatares e thumbnails: máx 2MB
+      return request.resource.size < 2 * 1024 * 1024;
+    }
+
+    function isLargeImage() {
+      // Posts e arquivos: máx 5MB
+      return request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // ---------- AVATARES ----------
+    // Usuário pode ler qualquer avatar (público para o app),
+    // mas só pode escrever o próprio.
+    match /avatars/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId)
+                   && isNotBanned()
+                   && isImage()
+                   && isSmallImage();
+    }
+
+    // ---------- IMAGENS DE POSTS ----------
+    match /posts/{postId}/{fileName} {
+      allow read: if isSignedIn();
+      // Apenas admins ou editores podem postar (imagens vinculadas a posts)
+      allow write: if isSignedIn()
+                   && isNotBanned()
+                   && (isAdmin() || request.auth.token.admin == true)
+                   && isImage()
+                   && isLargeImage();
+    }
+
+    // ---------- ARQUIVOS / BIBLIOTECA ----------
+    match /files/{fileId}/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn()
+                   && isNotBanned()
+                   && (isAdmin() || request.auth.token.admin == true)
+                   && isLargeImage();
+    }
+
+    // ---------- TEMAS / CUSTOM ASSETS ----------
+    match /themes/{userId}/{fileName} {
+      allow read: if true;
+      allow write: if isOwner(userId)
+                   && isNotBanned()
+                   && isImage()
+                   && isSmallImage();
+    }
+
+    // ---------- BLOQUEIO PADRÃO ----------
+    match /{path=**} {
+      allow read, write: if false;
+    }
+  }
+}

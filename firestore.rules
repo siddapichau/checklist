@@ -1,0 +1,159 @@
+rules_version = '2';
+
+// =========================================================
+// CHECKLIST ML — Firestore Security Rules
+// Coleções: users, tasks, posts, files, settings, comments
+// =========================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- FUNÇÕES AUXILIARES ----------
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function isEditorOrAdmin() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
+    }
+
+    function isNotBanned() {
+      return isSignedIn() &&
+             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.banned != true;
+    }
+
+    function validUserFields() {
+      // Campos permitidos ao criar/atualizar perfil pelo próprio usuário
+      return request.resource.data.keys().hasOnly([
+        'username', 'user', 'name', 'lastName', 'phone', 'address',
+        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme'
+      ]);
+    }
+
+    // ---------- USERS ----------
+    // Cada usuário lê/edita apenas o próprio perfil.
+    // Admin pode ler todos e editar qualquer um.
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isOwner(userId) && validUserFields();
+      allow update: if (isOwner(userId) && validUserFields())
+                    || isAdmin();
+      allow delete: if isAdmin();
+
+      // Subcoleção de notificações por usuário
+      match /notifications/{notifId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ---------- TASKS ----------
+    // Usuário lê/edita/exclui apenas as próprias atividades.
+    // Admin pode tudo. Editor pode ler e atualizar.
+    match /tasks/{taskId} {
+      allow read: if isSignedIn() && (
+        resource.data.owner == request.auth.uid
+        || isAdmin()
+        || isEditorOrAdmin()
+      );
+      allow create: if isSignedIn()
+                    && isNotBanned()
+                    && request.resource.data.owner == request.auth.uid;
+      allow update: if isSignedIn() && isNotBanned() && (
+        resource.data.owner == request.auth.uid
+        || isAdmin()
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.owner == request.auth.uid
+        || isAdmin()
+      );
+
+      // Comentários aninhados em cada atividade
+      match /comments/{commentId} {
+        allow read: if isSignedIn();
+        allow create: if isSignedIn()
+                      && isNotBanned()
+                      && request.resource.data.userId == request.auth.uid;
+        allow update, delete: if isSignedIn() && (
+          resource.data.userId == request.auth.uid
+          || isAdmin()
+        );
+      }
+    }
+
+    // ---------- POSTS / NOTÍCIAS ----------
+    // Qualquer usuário logado pode ler.
+    // Editor ou Admin pode criar/editar/excluir.
+    match /posts/{postId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isNotBanned() && isEditorOrAdmin();
+      allow update, delete: if isSignedIn() && (
+        resource.data.authorId == request.auth.uid
+        || isEditorOrAdmin()
+      );
+    }
+
+    // ---------- FILES / BIBLIOTECA ----------
+    match /files/{fileId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isSignedIn() && isEditorOrAdmin();
+    }
+
+    // ---------- SETTINGS (documento único 'global') ----------
+    // Apenas admins podem modificar configurações globais.
+    // Qualquer usuário logado pode ler (para carregar tema, idioma etc).
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+
+      // Configurações por usuário (preferências individuais)
+      match /user/{userId} {
+        allow read, write: if isOwner(userId);
+      }
+    }
+
+    // ---------- GAMIFICAÇÃO ----------
+    match /gamification/{userId} {
+      // Usuário lê apenas os próprios stats
+      allow read: if isOwner(userId) || isAdmin();
+      // Apenas o backend (admin SDK) escreve —客户端 não pode fraudar pontos
+      allow write: if false;
+    }
+
+    // ---------- LOGS ----------
+    // Apenas admins leem. Apenas o backend escreve.
+    match /logs/{logId} {
+      allow read: if isAdmin();
+      allow write: if false;
+    }
+
+    // ---------- AUTOMAÇÕES ----------
+    match /automations/{autoId} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    // ---------- DASHBOARD WIDGETS POR USUÁRIO ----------
+    match /dashboards/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // ---------- BLOQUEIO PADRÃO ----------
+    // Qualquer outra coleção não mapeada explicitamente é bloqueada
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
