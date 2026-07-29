@@ -7,8 +7,6 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ---------- FUNÇÕES AUXILIARES ----------
     function isSignedIn() {
       return request.auth != null;
     }
@@ -17,91 +15,93 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.role == 'admin';
     }
 
     function isEditorOrAdmin() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.role in ['admin', 'editor'];
     }
 
     function isNotBanned() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.banned != true;
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.banned != true;
     }
 
-    function validUserFields() {
-      // Campos permitidos ao criar/atualizar perfil pelo próprio usuário
+    // Campos criados pelo cliente no primeiro login. O cliente nunca pode
+    // conceder a si mesmo role=admin/editor, nem remover um banimento.
+    function validNewUserProfile() {
       return request.resource.data.keys().hasOnly([
-        'username', 'user', 'name', 'lastName', 'phone', 'address',
+        'username', 'email', 'name', 'lastName', 'phone', 'address',
+        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme',
+        'role', 'banned', 'createdAt', 'provider'
+      ])
+      && request.resource.data.role == 'member'
+      && request.resource.data.banned == false;
+    }
+
+    // Campos que o próprio usuário pode alterar depois de criado.
+    function validOwnProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'username', 'name', 'lastName', 'phone', 'address',
         'avatar', 'avatarType', 'googlePhoto', 'language', 'theme'
       ]);
     }
 
     // ---------- USERS ----------
-    // Cada usuário lê/edita apenas o próprio perfil.
-    // Admin pode ler todos e editar qualquer um.
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create: if isOwner(userId) && validUserFields();
-      allow update: if (isOwner(userId) && validUserFields())
-                    || isAdmin();
+      allow create: if isOwner(userId) && validNewUserProfile();
+      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate());
       allow delete: if isAdmin();
 
-      // Subcoleção de notificações por usuário
       match /notifications/{notifId} {
         allow read, write: if isOwner(userId);
       }
     }
 
     // ---------- TASKS ----------
-    // Usuário lê/edita/exclui apenas as próprias atividades.
-    // Admin pode tudo. Editor pode ler e atualizar.
     match /tasks/{taskId} {
       allow read: if isSignedIn() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
-        || isEditorOrAdmin()
+        resource.data.owner == request.auth.uid || isEditorOrAdmin()
       );
-      allow create: if isSignedIn()
-                    && isNotBanned()
+      allow create: if isNotBanned()
                     && request.resource.data.owner == request.auth.uid;
-      allow update: if isSignedIn() && isNotBanned() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
+      // O dono não pode transferir uma atividade para outra conta.
+      allow update: if isAdmin() || (
+        isNotBanned()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner
       );
       allow delete: if isSignedIn() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
+        resource.data.owner == request.auth.uid || isAdmin()
       );
 
-      // Comentários aninhados em cada atividade
       match /comments/{commentId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn()
-                      && isNotBanned()
+        allow create: if isNotBanned()
                       && request.resource.data.userId == request.auth.uid;
         allow update, delete: if isSignedIn() && (
-          resource.data.userId == request.auth.uid
-          || isAdmin()
+          resource.data.userId == request.auth.uid || isAdmin()
         );
       }
     }
 
     // ---------- POSTS / NOTÍCIAS ----------
-    // Qualquer usuário logado pode ler.
-    // Editor ou Admin pode criar/editar/excluir.
     match /posts/{postId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isNotBanned() && isEditorOrAdmin();
+      allow create: if isNotBanned() && isEditorOrAdmin();
       allow update, delete: if isSignedIn() && (
-        resource.data.authorId == request.auth.uid
-        || isEditorOrAdmin()
+        resource.data.authorId == request.auth.uid || isEditorOrAdmin()
       );
     }
 
@@ -111,14 +111,11 @@ service cloud.firestore {
       allow create, update, delete: if isSignedIn() && isEditorOrAdmin();
     }
 
-    // ---------- SETTINGS (documento único 'global') ----------
-    // Apenas admins podem modificar configurações globais.
-    // Qualquer usuário logado pode ler (para carregar tema, idioma etc).
+    // ---------- SETTINGS ----------
     match /settings/{settingId} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
 
-      // Configurações por usuário (preferências individuais)
       match /user/{userId} {
         allow read, write: if isOwner(userId);
       }
@@ -126,14 +123,11 @@ service cloud.firestore {
 
     // ---------- GAMIFICAÇÃO ----------
     match /gamification/{userId} {
-      // Usuário lê apenas os próprios stats
       allow read: if isOwner(userId) || isAdmin();
-      // Apenas o backend (admin SDK) escreve —客户端 não pode fraudar pontos
       allow write: if false;
     }
 
     // ---------- LOGS ----------
-    // Apenas admins leem. Apenas o backend escreve.
     match /logs/{logId} {
       allow read: if isAdmin();
       allow write: if false;
@@ -145,13 +139,11 @@ service cloud.firestore {
       allow write: if isAdmin();
     }
 
-    // ---------- DASHBOARD WIDGETS POR USUÁRIO ----------
+    // ---------- DASHBOARDS POR USUÁRIO ----------
     match /dashboards/{userId} {
       allow read, write: if isOwner(userId);
     }
 
-    // ---------- BLOQUEIO PADRÃO ----------
-    // Qualquer outra coleção não mapeada explicitamente é bloqueada
     match /{document=**} {
       allow read, write: if false;
     }

@@ -134,11 +134,10 @@ if (user?.provider === 'google.com' || user?.provider === 'google') {
 async function sendResetEmail() {
   if (!user?.email) return page.toast('Sua conta não tem e-mail cadastrado', 'error');
   try {
-    const continueUrl = window.location.origin + window.location.pathname;
-    await firebase.auth().sendPasswordResetEmail(user.email, {
-      url: continueUrl,
-      handleCodeInApp: true,
-    });
+    // Fluxo padrão hospedado pelo Firebase: não depende de domínio de
+    // continuação autorizado nem de um template editável no Console.
+    firebase.auth().useDeviceLanguage();
+    await firebase.auth().sendPasswordResetEmail(user.email);
     page.toast('E-mail de redefinição enviado para ' + user.email + '! 📬', 'success');
   } catch (err) {
     if (err.code === 'auth/user-not-found') {

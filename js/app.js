@@ -226,13 +226,13 @@ const App = {
     btn.textContent = '⏳ Enviando...';
 
     try {
-      // Configura o URL de continuação (importante para o link do e-mail)
-      // Em produção, troque pelo seu domínio real
-      const continueUrl = window.location.origin + window.location.pathname;
-      await auth.sendPasswordResetEmail(email, {
-        url: continueUrl,
-        handleCodeInApp: true,
-      });
+      // Usa o fluxo hospedado e seguro do Firebase. Não passamos uma URL de
+      // continuação: ela precisaria estar em "Authorized domains" e era a
+      // causa de auth/unauthorized-continue-uri em instalações novas.
+      // O template padrão do Firebase funciona mesmo quando a edição do
+      // template está bloqueada no Console.
+      auth.useDeviceLanguage();
+      await auth.sendPasswordResetEmail(email);
       // Sucesso: mostrar modal
       document.getElementById('forgotSentModal').classList.remove('hidden');
       document.getElementById('forgotForm').classList.add('hidden');
@@ -370,9 +370,12 @@ const App = {
       { w: '100%', c: '#059669', t: 'Muito forte' },
     ];
     const l = levels[score];
-    // Detecta se estamos no form de cadastro ou no modal de reset
-    const bar = document.getElementById('passStrengthBar') || document.getElementById('passStrengthBarReset');
-    const text = document.getElementById('passStrengthText') || document.getElementById('passStrengthTextReset');
+    // Prioriza o campo visível (o formulário de cadastro continua no DOM
+    // enquanto o modal de redefinição está aberto).
+    const resetInput = document.getElementById('newPassReset');
+    const isReset = resetInput && resetInput.offsetParent !== null;
+    const bar = document.getElementById(isReset ? 'passStrengthBarReset' : 'passStrengthBar');
+    const text = document.getElementById(isReset ? 'passStrengthTextReset' : 'passStrengthText');
     if (bar) { bar.style.width = l.w; bar.style.background = l.c; }
     if (text) text.textContent = l.t;
   },

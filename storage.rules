@@ -23,6 +23,12 @@ service firebase.storage {
              firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isEditorOrAdmin() {
+      return isSignedIn() &&
+             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
+    }
+
     function isNotBanned() {
       return isSignedIn() &&
              firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
@@ -59,9 +65,8 @@ service firebase.storage {
     match /posts/{postId}/{fileName} {
       allow read: if isSignedIn();
       // Apenas admins ou editores podem postar (imagens vinculadas a posts)
-      allow write: if isSignedIn()
+      allow write: if isEditorOrAdmin()
                    && isNotBanned()
-                   && (isAdmin() || request.auth.token.admin == true)
                    && isImage()
                    && isLargeImage();
     }
@@ -69,9 +74,8 @@ service firebase.storage {
     // ---------- ARQUIVOS / BIBLIOTECA ----------
     match /files/{fileId}/{fileName} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn()
+      allow write: if isEditorOrAdmin()
                    && isNotBanned()
-                   && (isAdmin() || request.auth.token.admin == true)
                    && isLargeImage();
     }
 
