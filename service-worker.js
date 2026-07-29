@@ -3,7 +3,8 @@
    PWA: cache offline + push notifications
    ========================================================= */
 
-const CACHE_NAME = 'checklist-ml-v3';
+// Altere a versão sempre que arquivos do app em cache forem modificados.
+const CACHE_NAME = 'checklist-ml-v5';
 const ASSETS = [
   '/',
   '/index.html',
@@ -16,6 +17,9 @@ const ASSETS = [
   '/js/seed.js',
   '/assets/favicon.svg',
   '/assets/logo.svg',
+  '/assets/icon-192.png',
+  '/assets/icon-512.png',
+  '/assets/apple-touch-icon.png',
   '/pages/home.html',
   '/pages/atividades.html',
   '/pages/arquivos.html',

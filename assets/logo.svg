@@ -1,11 +1,21 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 56">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 72" role="img" aria-labelledby="title">
+  <title id="title">Checklist ML</title>
   <defs>
-    <linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0%" stop-color="#FFE600"/>
-      <stop offset="100%" stop-color="#2563EB"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#152C68"/><stop offset=".55" stop-color="#1D5DCE"/><stop offset="1" stop-color="#0B98C9"/>
     </linearGradient>
+    <linearGradient id="a" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#A9F7FF"/><stop offset="1" stop-color="#49D5F2"/></linearGradient>
   </defs>
-  <rect width="48" height="48" x="4" y="4" rx="12" fill="url(#lg)"/>
-  <path d="M16 28 L23 35 L38 19" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <text x="62" y="36" font-family="Arial, sans-serif" font-weight="bold" font-size="22" fill="currentColor">Checklist ML</text>
+  <rect x="2" y="2" width="68" height="68" rx="20" fill="url(#bg)"/>
+  <circle cx="55" cy="19" r="7" fill="#76E8F7"/>
+  <rect x="16" y="17" width="40" height="35" rx="10" fill="#F8FCFF"/>
+  <rect x="23" y="25" width="8" height="8" rx="2.5" fill="url(#a)"/>
+  <path d="m24.8 29 2.1 2.1 4-4.8" fill="none" stroke="#0B4E87" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="35" y="25" width="14" height="3" rx="1.5" fill="#1A55A4"/><rect x="35" y="31" width="10" height="2" rx="1" fill="#9CB9D9"/>
+  <rect x="23" y="37" width="8" height="8" rx="2.5" fill="#E4F7FC"/>
+  <path d="m24.8 41 2.1 2.1 4-4.8" fill="none" stroke="#0A91BF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="35" y="37" width="12" height="3" rx="1.5" fill="#1A55A4"/><rect x="35" y="43" width="14" height="2" rx="1" fill="#9CB9D9"/>
+  <path d="M19 57c10 7 25 7 35-2" fill="none" stroke="#73E8F8" stroke-width="3" stroke-linecap="round"/>
+  <text x="86" y="37" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="27" fill="currentColor">Checklist</text>
+  <text x="86" y="58" font-family="Arial, Helvetica, sans-serif" font-weight="700" font-size="16" letter-spacing="3.2" fill="#0B98C9">ML</text>
 </svg>

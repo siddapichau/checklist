@@ -75,10 +75,13 @@ Em **Authentication → Settings → Authorized domains**, certifique-se de que 
 ```firestore-rules
 rules_version = '2';
 
+// =========================================================
+// CHECKLIST ML — Firestore Security Rules
+// Coleções: users, tasks, posts, files, settings, comments
+// =========================================================
+
 service cloud.firestore {
   match /databases/{database}/documents {
-
-    // ---------- FUNÇÕES AUXILIARES ----------
     function isSignedIn() {
       return request.auth != null;
     }
@@ -87,27 +90,44 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.role == 'admin';
     }
 
     function isEditorOrAdmin() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.role in ['admin', 'editor'];
     }
 
     function isNotBanned() {
-      return isSignedIn() &&
-             exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.banned != true;
+      return isSignedIn()
+             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userDoc().data.banned != true;
     }
 
-    function validUserFields() {
+    // Campos criados pelo cliente no primeiro login. O cliente nunca pode
+    // conceder a si mesmo role=admin/editor, nem remover um banimento.
+    function validNewUserProfile() {
       return request.resource.data.keys().hasOnly([
-        'username', 'user', 'name', 'lastName', 'phone', 'address',
+        'username', 'email', 'name', 'lastName', 'phone', 'address',
+        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme',
+        'role', 'banned', 'createdAt', 'provider'
+      ])
+      && request.resource.data.role == 'member'
+      && request.resource.data.banned == false;
+    }
+
+    // Campos que o próprio usuário pode alterar depois de criado.
+    function validOwnProfileUpdate() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+        'username', 'name', 'lastName', 'phone', 'address',
         'avatar', 'avatarType', 'googlePhoto', 'language', 'theme'
       ]);
     }
@@ -115,8 +135,8 @@ service cloud.firestore {
     // ---------- USERS ----------
     match /users/{userId} {
       allow read: if isSignedIn();
-      allow create: if isOwner(userId) && validUserFields();
-      allow update: if (isOwner(userId) && validUserFields()) || isAdmin();
+      allow create: if isOwner(userId) && validNewUserProfile();
+      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate());
       allow delete: if isAdmin();
 
       match /notifications/{notifId} {
@@ -127,30 +147,26 @@ service cloud.firestore {
     // ---------- TASKS ----------
     match /tasks/{taskId} {
       allow read: if isSignedIn() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
-        || isEditorOrAdmin()
+        resource.data.owner == request.auth.uid || isEditorOrAdmin()
       );
-      allow create: if isSignedIn()
-                    && isNotBanned()
+      allow create: if isNotBanned()
                     && request.resource.data.owner == request.auth.uid;
-      allow update: if isSignedIn() && isNotBanned() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
+      // O dono não pode transferir uma atividade para outra conta.
+      allow update: if isAdmin() || (
+        isNotBanned()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner
       );
       allow delete: if isSignedIn() && (
-        resource.data.owner == request.auth.uid
-        || isAdmin()
+        resource.data.owner == request.auth.uid || isAdmin()
       );
 
       match /comments/{commentId} {
         allow read: if isSignedIn();
-        allow create: if isSignedIn()
-                      && isNotBanned()
+        allow create: if isNotBanned()
                       && request.resource.data.userId == request.auth.uid;
         allow update, delete: if isSignedIn() && (
-          resource.data.userId == request.auth.uid
-          || isAdmin()
+          resource.data.userId == request.auth.uid || isAdmin()
         );
       }
     }
@@ -158,10 +174,9 @@ service cloud.firestore {
     // ---------- POSTS / NOTÍCIAS ----------
     match /posts/{postId} {
       allow read: if isSignedIn();
-      allow create: if isSignedIn() && isNotBanned() && isEditorOrAdmin();
+      allow create: if isNotBanned() && isEditorOrAdmin();
       allow update, delete: if isSignedIn() && (
-        resource.data.authorId == request.auth.uid
-        || isEditorOrAdmin()
+        resource.data.authorId == request.auth.uid || isEditorOrAdmin()
       );
     }
 
@@ -184,13 +199,13 @@ service cloud.firestore {
     // ---------- GAMIFICAÇÃO ----------
     match /gamification/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if false; // apenas backend
+      allow write: if false;
     }
 
     // ---------- LOGS ----------
     match /logs/{logId} {
       allow read: if isAdmin();
-      allow write: if false; // apenas backend
+      allow write: if false;
     }
 
     // ---------- AUTOMAÇÕES ----------
@@ -204,7 +219,6 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
-    // ---------- BLOQUEIO PADRÃO ----------
     match /{document=**} {
       allow read, write: if false;
     }
@@ -231,9 +245,15 @@ service cloud.firestore {
 ```storage-rules
 rules_version = '2';
 
+// =========================================================
+// CHECKLIST ML — Firebase Storage Security Rules
+// Pastas: avatars/, posts/, files/, themes/
+// =========================================================
+
 service firebase.storage {
   match /b/{bucket}/o {
 
+    // ---------- FUNÇÕES AUXILIARES ----------
     function isSignedIn() {
       return request.auth != null;
     }
@@ -248,49 +268,72 @@ service firebase.storage {
              firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
+    function isEditorOrAdmin() {
+      return isSignedIn() &&
+             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
+    }
+
     function isNotBanned() {
       return isSignedIn() &&
              firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
              firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.banned != true;
     }
 
+    // Limites de tamanho
     function isImage() {
       return request.resource.contentType.matches('image/.*');
     }
 
     function isSmallImage() {
+      // Avatares e thumbnails: máx 2MB
       return request.resource.size < 2 * 1024 * 1024;
     }
 
     function isLargeImage() {
+      // Posts e arquivos: máx 5MB
       return request.resource.size < 5 * 1024 * 1024;
     }
 
-    // Avatares
+    // ---------- AVATARES ----------
+    // Usuário pode ler qualquer avatar (público para o app),
+    // mas só pode escrever o próprio.
     match /avatars/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isOwner(userId) && isNotBanned() && isImage() && isSmallImage();
+      allow write: if isOwner(userId)
+                   && isNotBanned()
+                   && isImage()
+                   && isSmallImage();
     }
 
-    // Imagens de posts
+    // ---------- IMAGENS DE POSTS ----------
     match /posts/{postId}/{fileName} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && isNotBanned() && isAdmin() && isImage() && isLargeImage();
+      // Apenas admins ou editores podem postar (imagens vinculadas a posts)
+      allow write: if isEditorOrAdmin()
+                   && isNotBanned()
+                   && isImage()
+                   && isLargeImage();
     }
 
-    // Arquivos da biblioteca
+    // ---------- ARQUIVOS / BIBLIOTECA ----------
     match /files/{fileId}/{fileName} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn() && isNotBanned() && isAdmin() && isLargeImage();
+      allow write: if isEditorOrAdmin()
+                   && isNotBanned()
+                   && isLargeImage();
     }
 
-    // Temas
+    // ---------- TEMAS / CUSTOM ASSETS ----------
     match /themes/{userId}/{fileName} {
       allow read: if true;
-      allow write: if isOwner(userId) && isNotBanned() && isImage() && isSmallImage();
+      allow write: if isOwner(userId)
+                   && isNotBanned()
+                   && isImage()
+                   && isSmallImage();
     }
 
-    // Bloqueio padrão
+    // ---------- BLOQUEIO PADRÃO ----------
     match /{path=**} {
       allow read, write: if false;
     }
@@ -349,45 +392,32 @@ OU use o **admin do app** (se você é o primeiro usuário admin criado pelo see
 
 ---
 
-## 8. Templates de e-mail
+## 8. Recuperação de senha e templates de e-mail
 
-Para personalizar os e-mails de verificação, redefinição de senha etc:
+O app tem o link **“Esqueci minha senha”** no login e também em **Meu Perfil**.
+Ele usa `sendPasswordResetEmail()` com o fluxo hospedado pelo Firebase. Assim,
+o reset funciona com o **template padrão**, sem depender de URL de continuação,
+domínio adicional ou da tela personalizada do app.
 
-**Firebase Console → Authentication → Templates**
+### Template aparece bloqueado / somente padrão
 
-### 📧 E-mail de redefinição de senha (password reset)
+Isso não é um bloqueio do app nem das regras do Firestore. É uma restrição da
+configuração/conta do Firebase (em alguns projetos o Console permite apenas o
+template padrão para evitar abuso de e-mail). Nesse caso:
 
-Recomendação de configuração:
+1. Mantenha o template padrão: a recuperação continua funcionando.
+2. Em **Authentication → Sign-in method**, confirme que **E-mail/senha** está
+   habilitado.
+3. Teste com um usuário criado em **Authentication → Users** e verifique Spam.
+4. Para alterar completamente assunto, HTML e remetente mesmo com a tela
+   bloqueada, é necessário um backend confiável: gerar o link com Firebase
+   Admin SDK (`generatePasswordResetLink`) e enviá-lo por SMTP/serviço de
+   e-mail próprio. Nunca coloque credenciais SMTP ou Admin SDK no navegador.
 
-- **Sender name:** `Checklist ML`
-- **Reply-to:** seu e-mail de suporte
-- **Subject:** `Redefina sua senha do Checklist ML`
-- **Body (HTML):**
-
-```html
-<p>Olá,</p>
-<p>Recebemos uma solicitação para redefinir a senha da sua conta no <b>Checklist ML</b>.</p>
-<p>Clique no botão abaixo para definir uma nova senha:</p>
-<p style="margin:24px 0">
-  <a href="%LINK%" style="background:#2563EB;color:#fff;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block">
-    Redefinir senha
-  </a>
-</p>
-<p>Ou cole este link no navegador:</p>
-<p style="background:#F1F5F9;padding:10px;border-radius:6px;word-break:break-all;font-family:monospace;font-size:12px">%LINK%</p>
-<p style="color:#64748B;font-size:13px;margin-top:24px">
-  <b>Não solicitou essa alteração?</b><br>
-  Ignore esta mensagem. Sua senha permanecerá a mesma.
-</p>
-<p style="color:#64748B;font-size:12px;margin-top:24px">
-  Este link expira em 1 hora.
-</p>
-```
-
-### 📧 E-mail de verificação de endereço
-
-- **Subject:** `Confirme seu e-mail — Checklist ML`
-- **Body:** personalizado similar ao acima
+> O Firebase também permite configurar uma URL de ação própria em
+> **Authentication → Templates** quando essa opção estiver disponível. O app
+> já possui a tela que trata `mode=resetPassword` e `oobCode`, mas ela só deve
+> ser ativada após configurar essa URL e autorizá-la no Firebase.
 
 ---
 
