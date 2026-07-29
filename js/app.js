@@ -15,6 +15,9 @@ const App = {
     // Registrar Service Worker
     this.registerSW();
 
+    // Verificar se há código de redefinição de senha na URL
+    this.handlePasswordResetCode();
+
     // Carregar configurações
     const data = core.getLocalDB();
     this.settings = data.settings;
@@ -188,7 +191,157 @@ const App = {
       t.classList.toggle('active', t.dataset.tab === tab));
     document.getElementById('loginForm').classList.toggle('hidden', tab !== 'login');
     document.getElementById('registerForm').classList.toggle('hidden', tab !== 'register');
+    document.getElementById('forgotForm')?.classList.add('hidden');
     this.clearErrors();
+  },
+
+  /**
+   * Mostra o formulário de "esqueci minha senha"
+   */
+  showForgotPassword(e) {
+    if (e) e.preventDefault();
+    // Esconde tabs e mostra só o form de recuperação
+    document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById('loginForm').classList.add('hidden');
+    document.getElementById('registerForm').classList.add('hidden');
+    document.getElementById('forgotForm').classList.remove('hidden');
+    this.clearErrors();
+    setTimeout(() => document.getElementById('forgotEmail')?.focus(), 100);
+  },
+
+  /**
+   * Envia o e-mail de recuperação de senha via Firebase Auth
+   */
+  async handleForgotPassword(e) {
+    e.preventDefault();
+    this.clearErrors();
+    const email = document.getElementById('forgotEmail').value.trim();
+    if (!email) {
+      this.showError('forgotError', 'Digite um e-mail válido');
+      return;
+    }
+    const errEl = document.getElementById('forgotError');
+    const btn = e.target.querySelector('button[type="submit"]');
+    btn.disabled = true;
+    btn.textContent = '⏳ Enviando...';
+
+    try {
+      // Configura o URL de continuação (importante para o link do e-mail)
+      // Em produção, troque pelo seu domínio real
+      const continueUrl = window.location.origin + window.location.pathname;
+      await auth.sendPasswordResetEmail(email, {
+        url: continueUrl,
+        handleCodeInApp: true,
+      });
+      // Sucesso: mostrar modal
+      document.getElementById('forgotSentModal').classList.remove('hidden');
+      document.getElementById('forgotForm').classList.add('hidden');
+      document.getElementById('forgotEmail').value = '';
+    } catch (err) {
+      let msg = 'Erro ao enviar e-mail de recuperação';
+      if (err.code === 'auth/user-not-found') {
+        // Por segurança, não revelamos se o e-mail existe
+        // Mesmo assim, mostramos o modal de "enviado"
+        document.getElementById('forgotSentModal').classList.remove('hidden');
+        document.getElementById('forgotForm').classList.add('hidden');
+        document.getElementById('forgotEmail').value = '';
+        btn.disabled = false;
+        btn.textContent = '📧 Enviar link de recuperação';
+        return;
+      } else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde alguns minutos';
+      else msg = err.message;
+      this.showError('forgotError', msg);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '📧 Enviar link de recuperação';
+    }
+  },
+
+  /**
+   * Detecta quando o usuário volta do e-mail com um código de redefinição
+   * (o link no e-mail aponta para ?oobCode=XXXX)
+   */
+  async handlePasswordResetCode() {
+    const url = new URL(window.location.href);
+    const oobCode = url.searchParams.get('oobCode');
+    const mode = url.searchParams.get('mode');
+    if (mode === 'resetPassword' && oobCode) {
+      try {
+        // Verifica se o código é válido
+        await auth.verifyPasswordResetCode(oobCode);
+        // Pede nova senha em um modal
+        this.showResetPasswordModal(oobCode);
+      } catch (err) {
+        core.toast('Link de recuperação inválido ou expirado', 'error');
+      }
+    }
+  },
+
+  showResetPasswordModal(oobCode) {
+    const html = `
+      <div style="text-align:center">
+        <div style="font-size:48px;margin-bottom:12px">🔑</div>
+        <h2 style="margin-bottom:8px">Definir nova senha</h2>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Escolha uma senha forte (mín. 8 chars, maiúsc, minúsc, 2 núm, especial)</p>
+      </div>
+      <label><span>Nova senha</span>
+        <div class="input-group">
+          <input type="password" id="newPassReset" required placeholder="Sua nova senha" oninput="App.checkPasswordStrength(this.value)">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassReset', this)">👁</button>
+        </div>
+        <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBarReset"></div></div>
+        <small class="text-muted" id="passStrengthTextReset"></small>
+      </label>
+      <label><span>Confirmar nova senha</span>
+        <div class="input-group">
+          <input type="password" id="newPassConfirmReset" required placeholder="Repita a senha">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassConfirmReset', this)">👁</button>
+        </div>
+      </label>
+      <div class="form-error" id="resetError"></div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
+        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha</button>
+      </div>
+    `;
+    this.showModal(html);
+  },
+
+  async confirmPasswordReset(oobCode) {
+    const newPass = document.getElementById('newPassReset').value;
+    const confirm = document.getElementById('newPassConfirmReset').value;
+    const errEl = document.getElementById('resetError');
+    errEl.classList.remove('show'); errEl.textContent = '';
+
+    if (newPass !== confirm) {
+      errEl.textContent = 'As senhas não coincidem';
+      errEl.classList.add('show');
+      return;
+    }
+    const validation = core.validatePassword(newPass);
+    if (!validation.valid) {
+      errEl.textContent = validation.errors.join(', ');
+      errEl.classList.add('show');
+      return;
+    }
+    const btn = document.getElementById('btnConfirmReset');
+    btn.disabled = true;
+    btn.textContent = '⏳ Redefinindo...';
+    try {
+      await auth.confirmPasswordReset(oobCode, newPass);
+      this.closeModal();
+      core.toast('Senha redefinida com sucesso! Faça login novamente.', 'success');
+      // Limpar URL
+      window.history.replaceState({}, '', window.location.pathname);
+      this.showLogin();
+    } catch (err) {
+      errEl.textContent = err.message || 'Erro ao redefinir senha';
+      errEl.classList.add('show');
+    } finally {
+      btn.disabled = false;
+      btn.textContent = '💾 Redefinir senha';
+    }
   },
 
   clearErrors() {
@@ -208,8 +361,6 @@ const App = {
 
   checkPasswordStrength(pass) {
     const score = core.passwordStrength(pass);
-    const bar = document.getElementById('passStrengthBar');
-    const text = document.getElementById('passStrengthText');
     const levels = [
       { w: '0%', c: '#E2E8F0', t: '' },
       { w: '20%', c: '#EF4444', t: 'Muito fraca' },
@@ -219,8 +370,11 @@ const App = {
       { w: '100%', c: '#059669', t: 'Muito forte' },
     ];
     const l = levels[score];
-    bar.style.width = l.w; bar.style.background = l.c;
-    text.textContent = l.t;
+    // Detecta se estamos no form de cadastro ou no modal de reset
+    const bar = document.getElementById('passStrengthBar') || document.getElementById('passStrengthBarReset');
+    const text = document.getElementById('passStrengthText') || document.getElementById('passStrengthTextReset');
+    if (bar) { bar.style.width = l.w; bar.style.background = l.c; }
+    if (text) text.textContent = l.t;
   },
 
   async handleLogin(e) {

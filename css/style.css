@@ -161,7 +161,22 @@ input,select,textarea{font:inherit}
 .btn-google img{width:20px;height:20px}
 .login-footer{text-align:center;margin-top:20px;font-size:13px;color:#94A3B8}
 .login-footer a{font-weight:600}
+.login-links{
+  display:flex;align-items:center;justify-content:center;gap:10px;margin-top:18px;
+  font-size:13px;color:#94A3B8;flex-wrap:wrap;
+}
+.login-links a{
+  color:#2563EB;font-weight:600;text-decoration:none;transition:.15s;
+}
+.login-links a:hover{text-decoration:underline;color:#1D4ED8}
+.login-divider{color:#CBD5E1}
 .form-error{font-size:12px;color:#EF4444;display:none}
+.form-error.show{display:block}
+.form-success{
+  font-size:13px;color:#059669;background:#D1FAE5;padding:10px 14px;
+  border-radius:8px;display:none;margin:4px 0;
+}
+.form-success.show{display:block}
 .form-error.show{display:block}
 .pass-strength{height:4px;border-radius:2px;background:#E2E8F0;margin-top:4px;overflow:hidden}
 .pass-strength-bar{height:100%;border-radius:2px;transition:width .3s,background .3s;width:0}

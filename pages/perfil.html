@@ -64,20 +64,35 @@
     </div>
 
     <!-- SENHA -->
-    <div class="card">
-      <h2>🔒 Alterar senha</h2>
-      <form onsubmit="changePassword(event)">
-        <label><span>Senha atual</span>
-          <input type="password" id="oldPass" required>
-        </label>
-        <label><span>Nova senha</span>
-          <input type="password" id="newPass" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial">
-        </label>
-        <label><span>Confirmar nova senha</span>
-          <input type="password" id="confirmPass" required>
-        </label>
-        <button type="submit" class="btn btn-primary" style="width:100%">Alterar senha</button>
-      </form>
+    <div class="card" id="passwordCard">
+      <h2>🔒 Senha & Segurança</h2>
+
+      <div id="providerInfo" style="background:var(--bg-secondary);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
+        <b>Conta via:</b> <span id="providerType">carregando...</span>
+      </div>
+
+      <div id="localPasswordForm">
+        <form onsubmit="changePassword(event)">
+          <label><span>Senha atual</span>
+            <input type="password" id="oldPass" required>
+          </label>
+          <label><span>Nova senha</span>
+            <input type="password" id="newPass" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial">
+          </label>
+          <label><span>Confirmar nova senha</span>
+            <input type="password" id="confirmPass" required>
+          </label>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px">💾 Alterar senha</button>
+        </form>
+      </div>
+
+      <div id="forgotPasswordBlock" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
+        <h3 style="font-size:14px;margin-bottom:8px">🔑 Esqueceu sua senha?</h3>
+        <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
+          Enviaremos um link de redefinição para o seu e-mail.
+        </p>
+        <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()">📧 Enviar link de redefinição</button>
+      </div>
     </div>
   </div>
 </div>
@@ -104,6 +119,34 @@ updateAvatarDisplay();
 if (user?.provider !== 'google.com' && user?.provider !== 'google') {
   document.getElementById('btnGooglePhoto').disabled = true;
   document.getElementById('btnGooglePhoto').textContent = 'Login via Google necessário';
+}
+
+// Provider info
+const providerEl = document.getElementById('providerType');
+if (user?.provider === 'google.com' || user?.provider === 'google') {
+  providerEl.innerHTML = '🔵 Google';
+  // Para Google, esconde o form de alterar senha (Google gerencia)
+  document.getElementById('localPasswordForm').style.display = 'none';
+} else {
+  providerEl.innerHTML = '📧 E-mail e senha';
+}
+
+async function sendResetEmail() {
+  if (!user?.email) return page.toast('Sua conta não tem e-mail cadastrado', 'error');
+  try {
+    const continueUrl = window.location.origin + window.location.pathname;
+    await firebase.auth().sendPasswordResetEmail(user.email, {
+      url: continueUrl,
+      handleCodeInApp: true,
+    });
+    page.toast('E-mail de redefinição enviado para ' + user.email + '! 📬', 'success');
+  } catch (err) {
+    if (err.code === 'auth/user-not-found') {
+      page.toast('E-mail não encontrado no Firebase. Conta apenas local.', 'warning');
+    } else {
+      page.toast('Erro: ' + err.message, 'error');
+    }
+  }
 }
 
 // Grid de avatares
@@ -221,20 +264,28 @@ async function changePassword(e) {
   const valid = await core.verifyPassword(oldP, u.passHash);
   if (!valid) return page.toast('Senha atual incorreta', 'error');
 
-  // Atualizar
+  // Atualizar senha local (sempre)
   u.passHash = await core.hashPassword(newP);
   page.saveDB(data);
 
-  // Tentar atualizar no Firebase também
+  // Tentar atualizar no Firebase também (re-autenticação pode ser necessária)
   try {
     const fbUser = firebase.auth().currentUser;
-    if (fbUser && fbUser.email === u.email) {
+    if (fbUser && fbUser.email === u.email && fbUser.providerData[0]?.providerId === 'password') {
       await fbUser.updatePassword(newP);
+      page.toast('Senha alterada localmente e no Firebase! 🔒', 'success');
+    } else {
+      page.toast('Senha alterada localmente! (Firebase: requer re-login)', 'info');
     }
-  } catch {}
+  } catch (err) {
+    if (err.code === 'auth/requires-recent-login') {
+      page.toast('Senha local alterada. Para alterar no Firebase, faça logout e login novamente.', 'warning');
+    } else {
+      page.toast('Senha local alterada. Erro Firebase: ' + err.message, 'warning');
+    }
+  }
 
   core.log('password_change', user.id);
-  page.toast('Senha alterada com sucesso! 🔒', 'success');
   document.getElementById('oldPass').value = '';
   document.getElementById('newPass').value = '';
   document.getElementById('confirmPass').value = '';
