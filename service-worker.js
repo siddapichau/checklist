@@ -3,7 +3,7 @@
    PWA: cache offline + push notifications
    ========================================================= */
 
-const CACHE_NAME = 'checklist-ml-v2';
+const CACHE_NAME = 'checklist-ml-v3';
 const ASSETS = [
   '/',
   '/index.html',
@@ -23,6 +23,14 @@ const ASSETS = [
   '/pages/perfil.html',
   '/pages/admin.html',
   '/pages/relatorios.html',
+  '/pages/kanban.html',
+  '/pages/calendario.html',
+  '/pages/gamificacao.html',
+  '/pages/foco.html',
+  '/pages/custom.html',
+  '/locales/pt-BR.json',
+  '/locales/en.json',
+  '/locales/es.json',
   '/manifest.json',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js',

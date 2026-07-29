@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Personalizar</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>TEMAS</small>
+    <h1>🎨 Personalizar</h1>
+    <p>Crie temas personalizados, escolha idioma e configure o modo escuro automático</p>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('themes',this)" data-i18n="custom.title">Personalizar Temas</button>
+  <button class="tab" onclick="switchTab('lang',this)">🌐 Idioma</button>
+  <button class="tab" onclick="switchTab('mode',this)">🌓 Modo</button>
+  <button class="tab" onclick="switchTab('dashboard',this)" data-i18n="dashboard.title">Dashboard</button>
+  <button class="tab" onclick="switchTab('automations',this)" data-i18n="automation.title">Automações</button>
+</div>
+
+<!-- TAB: TEMAS -->
+<div class="tab-content active" id="tab-themes">
+  <div class="cols">
+    <div>
+      <div class="card">
+        <h2 data-i18n="custom.createNew">Criar novo tema</h2>
+        <label><span data-i18n="custom.themeName">Nome do tema</span>
+          <input type="text" id="themeName" placeholder="Meu tema personalizado">
+        </label>
+        <div class="color-picker-row">
+          <label><span data-i18n="custom.primary">Cor primária</span>
+            <input type="color" id="themePrimary" value="#2563EB">
+          </label>
+          <input type="color" id="themePrimaryPicker" value="#2563EB" onchange="document.getElementById('themePrimary').value=this.value">
+        </div>
+        <div class="color-picker-row">
+          <label><span data-i18n="custom.secondary">Cor secundária</span>
+            <input type="color" id="themeSecondary" value="#1D4ED8">
+          </label>
+          <input type="color" id="themeSecondaryPicker" value="#1D4ED8" onchange="document.getElementById('themeSecondary').value=this.value">
+        </div>
+        <div class="color-picker-row">
+          <label><span data-i18n="custom.accent">Cor de destaque</span>
+            <input type="color" id="themeAccent" value="#06B6D4">
+          </label>
+          <input type="color" id="themeAccentPicker" value="#06B6D4" onchange="document.getElementById('themeAccent').value=this.value">
+        </div>
+        <div class="color-picker-row">
+          <label><span data-i18n="custom.background">Cor de fundo</span>
+            <input type="color" id="themeBg" value="#F8FAFC">
+          </label>
+          <input type="color" id="themeBgPicker" value="#F8FAFC" onchange="document.getElementById('themeBg').value=this.value">
+        </div>
+        <label><span data-i18n="custom.mode">Modo</span>
+          <select id="themeMode">
+            <option value="light" data-i18n="custom.lightMode">Claro</option>
+            <option value="dark" data-i18n="custom.darkMode">Escuro</option>
+          </select>
+        </label>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <button class="btn btn-primary" onclick="saveTheme()">💾 <span data-i18n="custom.save">Salvar tema</span></button>
+          <button class="btn btn-secondary" onclick="resetForm()">↺ Limpar</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>📦 <span data-i18n="custom.builtIn">Temas integrados</span></h2>
+        <div class="themes-list" id="builtInThemes">
+          <div class="theme-card" data-theme="ocean" onclick="applyBuiltIn('ocean')">
+            <div class="theme-swatches">
+              <div class="swatch" style="background:#2563EB"></div>
+              <div class="swatch" style="background:#06B6D4"></div>
+              <div class="swatch" style="background:#F8FAFC"></div>
+              <div class="swatch" style="background:#0F172A"></div>
+            </div>
+            <div class="theme-name">🌊 Ocean Blue</div>
+            <button class="btn btn-sm btn-primary">Aplicar</button>
+          </div>
+          <div class="theme-card" data-theme="mercado" onclick="applyBuiltIn('mercado')">
+            <div class="theme-swatches">
+              <div class="swatch" style="background:#FFE600"></div>
+              <div class="swatch" style="background:#3483FA"></div>
+              <div class="swatch" style="background:#FFFFFF"></div>
+              <div class="swatch" style="background:#1A1A2E"></div>
+            </div>
+            <div class="theme-name">💛 Mercado Livre</div>
+            <button class="btn btn-sm btn-primary">Aplicar</button>
+          </div>
+          <div class="theme-card" data-theme="forest" onclick="applyBuiltIn('forest')">
+            <div class="theme-swatches">
+              <div class="swatch" style="background:#059669"></div>
+              <div class="swatch" style="background:#8B5CF6"></div>
+              <div class="swatch" style="background:#F0FDF4"></div>
+              <div class="swatch" style="background:#0A1F0A"></div>
+            </div>
+            <div class="theme-name">🌲 Forest</div>
+            <button class="btn btn-sm btn-primary">Aplicar</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- PREVIEW + LISTA -->
+    <div>
+      <div class="theme-preview" id="themePreview">
+        <h3 data-i18n="custom.preview">Pré-visualização</h3>
+        <div class="preview-block preview-primary">✨ Botão primário</div>
+        <div class="preview-block preview-bg">Fundo (background)</div>
+        <div class="preview-block preview-card" style="border:1px solid var(--line)">Card</div>
+        <div class="preview-block preview-secondary">Cor secundária</div>
+        <small class="text-muted" style="text-align:center">As cores serão aplicadas em todo o app</small>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h2>📚 <span data-i18n="custom.myThemes">Meus temas personalizados</span></h2>
+    <div class="themes-list" id="myThemesList"></div>
+  </div>
+</div>
+
+<!-- TAB: IDIOMA -->
+<div class="tab-content" id="tab-lang">
+  <div class="card">
+    <h2>🌐 <span data-i18n="settings.language">Idioma</span></h2>
+    <p class="text-muted mb-2">Escolha o idioma da interface. As alterações são aplicadas imediatamente.</p>
+    <div class="lang-picker" id="langPicker">
+      <button class="lang-btn" data-lang="pt-BR" onclick="changeLang('pt-BR')">🇧🇷 Português</button>
+      <button class="lang-btn" data-lang="en" onclick="changeLang('en')">🇺🇸 English</button>
+      <button class="lang-btn" data-lang="es" onclick="changeLang('es')">🇪🇸 Español</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: MODO -->
+<div class="tab-content" id="tab-mode">
+  <div class="card">
+    <h2>🌓 Modo de exibição</h2>
+    <p class="text-muted mb-2" data-i18n="settings.autoHint">Segue a preferência do seu sistema operacional</p>
+    <div style="display:grid;gap:10px">
+      <button class="item" onclick="setMode('light')" style="cursor:pointer;border:2px solid var(--line)">
+        <span style="font-size:30px">☀️</span>
+        <div class="item-info">
+          <b data-i18n="settings.light">Claro</b>
+          <small>Sempre usa o tema claro, independente do sistema</small>
+        </div>
+      </button>
+      <button class="item" onclick="setMode('dark')" style="cursor:pointer;border:2px solid var(--line)">
+        <span style="font-size:30px">🌙</span>
+        <div class="item-info">
+          <b data-i18n="settings.dark">Escuro</b>
+          <small>Sempre usa o tema escuro, independente do sistema</small>
+        </div>
+      </button>
+      <button class="item" onclick="setMode('auto')" style="cursor:pointer;border:2px solid var(--line)">
+        <span style="font-size:30px">🌓</span>
+        <div class="item-info">
+          <b data-i18n="settings.auto">Automático (sistema)</b>
+          <small>Segue a preferência do seu sistema operacional</small>
+        </div>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: DASHBOARD WIDGETS -->
+<div class="tab-content" id="tab-dashboard">
+  <div class="card">
+    <h2>📊 <span data-i18n="dashboard.title">Configurar Dashboard</span></h2>
+    <p class="text-muted mb-2" data-i18n="dashboard.subtitle">Escolha, redimensione e organize seus widgets</p>
+    <div id="widgetsList"></div>
+    <div style="display:flex;gap:8px;margin-top:12px">
+      <button class="btn btn-primary" onclick="saveWidgets()">💾 <span data-i18n="common.save">Salvar</span></button>
+      <button class="btn btn-secondary" onclick="resetWidgets()">↺ Restaurar padrão</button>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: AUTOMAÇÕES -->
+<div class="tab-content" id="tab-automations">
+  <div class="card">
+    <h2>🤖 <span data-i18n="automation.title">Automações</span></h2>
+    <p class="text-muted mb-2" data-i18n="automation.subtitle">Regras automáticas para tarefas recorrentes e alertas</p>
+    <div id="automationsList"></div>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(async function() {
+  await page.i18nReady();
+  page.applyI18n(document.body);
+  renderMyThemes();
+  renderLangPicker();
+  renderDashboardConfig();
+  renderAutomations();
+  updatePreview();
+})();
+
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+/* ========== TEMAS ========== */
+function updatePreview() {
+  const p = document.getElementById('themePrimary').value;
+  const s = document.getElementById('themeSecondary').value;
+  const a = document.getElementById('themeAccent').value;
+  const bg = document.getElementById('themeBg').value;
+  const m = document.getElementById('themeMode').value;
+
+  // Aplicar temporariamente só no preview
+  const preview = document.getElementById('themePreview');
+  preview.style.setProperty('--primary', p);
+  preview.style.setProperty('--primary-hover', s);
+  preview.style.setProperty('--accent', a);
+  preview.style.setProperty('--bg', m === 'light' ? bg : core._lighten(bg, -0.3));
+  preview.style.setProperty('--card', m === 'light' ? '#FFFFFF' : core._lighten(bg, 0.05));
+  preview.style.setProperty('--bg-secondary', m === 'light' ? core._lighten(bg, 0.05) : core._lighten(bg, 0.08));
+  preview.style.setProperty('--text', m === 'light' ? '#1E293B' : '#F1F5F9');
+  preview.style.setProperty('--text-secondary', m === 'light' ? '#64748B' : '#94A3B8');
+  preview.style.setProperty('--line', m === 'light' ? '#E2E8F0' : core._lighten(bg, 0.2));
+  preview.style.background = preview.style.getPropertyValue('--card');
+}
+
+// Listeners
+['themePrimary','themeSecondary','themeAccent','themeBg','themeMode'].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener('input', updatePreview);
+  if (el) el.addEventListener('change', updatePreview);
+});
+
+function saveTheme() {
+  const name = document.getElementById('themeName').value.trim();
+  if (!name) return page.toast('Digite um nome para o tema', 'warning');
+
+  const theme = {
+    name,
+    primary: document.getElementById('themePrimary').value,
+    secondary: document.getElementById('themeSecondary').value,
+    accent: document.getElementById('themeAccent').value,
+    bg: document.getElementById('themeBg').value,
+    mode: document.getElementById('themeMode').value,
+    createdBy: page.getUser()?.id || 'unknown',
+  };
+
+  const saved = core.saveCustomTheme(theme);
+  page.toast(`Tema "${saved.name}" salvo! 🎨`, 'success');
+  core.log('theme_create', page.getUser()?.id, saved.name);
+  renderMyThemes();
+  resetForm();
+}
+
+function resetForm() {
+  document.getElementById('themeName').value = '';
+  document.getElementById('themePrimary').value = '#2563EB';
+  document.getElementById('themeSecondary').value = '#1D4ED8';
+  document.getElementById('themeAccent').value = '#06B6D4';
+  document.getElementById('themeBg').value = '#F8FAFC';
+  document.getElementById('themeMode').value = 'light';
+  updatePreview();
+}
+
+function renderMyThemes() {
+  const themes = core.getCustomThemes();
+  const list = document.getElementById('myThemesList');
+  const currentTheme = page.getDB().settings.theme;
+
+  if (themes.length === 0) {
+    list.innerHTML = `<div class="empty"><div class="icon">🎨</div><p>${page.t('custom.noThemes','Nenhum tema personalizado. Crie o seu!')}</p></div>`;
+    return;
+  }
+
+  list.innerHTML = themes.map(t => `
+    <div class="theme-card ${currentTheme === t.id ? 'active' : ''}">
+      <div class="theme-swatches">
+        <div class="swatch" style="background:${t.primary}"></div>
+        <div class="swatch" style="background:${t.secondary}"></div>
+        <div class="swatch" style="background:${t.accent}"></div>
+        <div class="swatch" style="background:${t.bg}"></div>
+      </div>
+      <div class="theme-name">${page.esc(t.name)} ${t.mode === 'dark' ? '🌙' : '☀️'}</div>
+      <div class="theme-actions">
+        <button class="btn-icon" onclick="applyCustom('${t.id}')" title="Aplicar" style="flex:1">${currentTheme === t.id ? '✓' : '▶'}</button>
+        <button class="btn-icon" onclick="editCustom('${t.id}')" title="Editar">✏️</button>
+        <button class="btn-icon" onclick="deleteCustom('${t.id}')" title="Excluir">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+function applyBuiltIn(theme) {
+  // Aplicar tema integrado via app
+  const data = page.getDB();
+  data.settings.theme = theme;
+  page.saveDB(data);
+  // Remove custom style
+  const el = document.getElementById('custom-theme-style');
+  if (el) el.textContent = '';
+  window.parent.postMessage({ type: 'themeChanged', theme, mode: data.settings.mode }, '*');
+  window.parent.postMessage({ type: 'reload' }, '*');
+  page.toast(`Tema aplicado! 🎨`, 'success');
+}
+
+function applyCustom(themeId) {
+  const data = page.getDB();
+  data.settings.theme = themeId;
+  page.saveDB(data);
+  window.parent.postMessage({ type: 'themeChanged', theme: themeId, mode: data.settings.mode }, '*');
+  window.parent.postMessage({ type: 'reload' }, '*');
+  page.toast('Tema aplicado! 🎨', 'success');
+  setTimeout(() => renderMyThemes(), 300);
+}
+
+function editCustom(id) {
+  const themes = core.getCustomThemes();
+  const t = themes.find(x => x.id === id);
+  if (!t) return;
+  document.getElementById('themeName').value = t.name;
+  document.getElementById('themePrimary').value = t.primary;
+  document.getElementById('themeSecondary').value = t.secondary;
+  document.getElementById('themeAccent').value = t.accent;
+  document.getElementById('themeBg').value = t.bg;
+  document.getElementById('themeMode').value = t.mode || 'light';
+  updatePreview();
+  // Adicionar ID ao form para edição
+  document.getElementById('themeName').dataset.editingId = id;
+  document.querySelector('button[onclick="saveTheme()"]').textContent = '💾 Atualizar tema';
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+function deleteCustom(id) {
+  if (!confirm('Excluir este tema?')) return;
+  core.deleteCustomTheme(id);
+  const data = page.getDB();
+  if (data.settings.theme === id) {
+    data.settings.theme = 'ocean';
+    page.saveDB(data);
+    window.parent.postMessage({ type: 'themeChanged', theme: 'ocean', mode: data.settings.mode }, '*');
+  }
+  core.log('theme_delete', page.getUser()?.id, id);
+  page.toast('Tema excluído', 'info');
+  renderMyThemes();
+}
+
+/* ========== LANG PICKER ========== */
+function renderLangPicker() {
+  const lang = core.getCurrentLang();
+  document.querySelectorAll('#langPicker .lang-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.lang === lang);
+  });
+}
+
+function changeLang(lang) {
+  core.setLanguage(lang);
+  renderLangPicker();
+  // Re-renderizar esta página
+  setTimeout(() => location.reload(), 100);
+}
+
+/* ========== MODE PICKER ========== */
+function setMode(mode) {
+  const data = page.getDB();
+  data.settings.mode = mode;
+  page.saveDB(data);
+  window.parent.postMessage({ type: 'themeChanged', theme: data.settings.theme, mode }, '*');
+  window.parent.postMessage({ type: 'reload' }, '*');
+  page.toast(
+    mode === 'auto' ? '🌓 Modo automático' : mode === 'dark' ? '🌙 Modo escuro' : '☀️ Modo claro',
+    'success'
+  );
+}
+
+/* ========== DASHBOARD WIDGETS ========== */
+const WIDGET_TYPES = [
+  { id:'metrics',     icon:'📊', labelKey:'dashboard.metrics',     defaultSize:'full' },
+  { id:'late',        icon:'⚠️', labelKey:'dashboard.late',        defaultSize:'half' },
+  { id:'next',        icon:'📋', labelKey:'dashboard.next',        defaultSize:'half' },
+  { id:'weekProgress',icon:'📈', labelKey:'dashboard.weekProgress',defaultSize:'half' },
+  { id:'posts',       icon:'📰', labelKey:'dashboard.posts',       defaultSize:'half' },
+  { id:'ranking',     icon:'🏆', labelKey:'dashboard.ranking',     defaultSize:'half' },
+  { id:'pomodoro',    icon:'🎯', labelKey:'dashboard.pomodoro',    defaultSize:'half' },
+];
+
+function renderDashboardConfig() {
+  const widgets = core.getDashboardWidgets();
+  const list = document.getElementById('widgetsList');
+  list.innerHTML = widgets.map(w => {
+    const def = WIDGET_TYPES.find(t => t.id === w.type);
+    if (!def) return '';
+    return `
+      <div class="automation-item" data-wtype="${w.type}">
+        <div class="auto-icon">${def.icon}</div>
+        <div class="auto-info">
+          <b>${page.t(def.labelKey, w.type)}</b>
+          <small>Tamanho:
+            <select data-size="${w.type}" onchange="updateWidgetSize('${w.type}',this.value)" style="display:inline-block;width:auto;padding:4px 8px;font-size:12px;margin-left:6px">
+              <option value="full" ${w.size==='full'?'selected':''}>Largura total</option>
+              <option value="half" ${w.size==='half'?'selected':''}>Meia largura</option>
+              <option value="third" ${w.size==='third'?'selected':''}>Terço</option>
+            </select>
+          </small>
+        </div>
+        <button class="auto-toggle ${w.visible ? 'on' : ''}" onclick="toggleWidget('${w.type}')"></button>
+      </div>
+    `;
+  }).join('');
+}
+
+function updateWidgetSize(type, size) {
+  const widgets = core.getDashboardWidgets();
+  const w = widgets.find(x => x.type === type);
+  if (w) {
+    w.size = size;
+    core.saveDashboardWidgets(widgets);
+  }
+}
+
+function toggleWidget(type) {
+  const widgets = core.getDashboardWidgets();
+  const w = widgets.find(x => x.type === type);
+  if (w) {
+    w.visible = !w.visible;
+    core.saveDashboardWidgets(widgets);
+    renderDashboardConfig();
+  }
+}
+
+function resetWidgets() {
+  const data = page.getDB();
+  data.dashboardWidgets = JSON.parse(JSON.stringify(core._defaults.dashboardWidgets));
+  page.saveDB(data);
+  renderDashboardConfig();
+  page.toast('Widgets restaurados', 'info');
+}
+
+function saveWidgets() {
+  page.toast(page.t('dashboard.saved', 'Dashboard salvo'), 'success');
+  window.parent.postMessage({ type: 'reload' }, '*');
+}
+
+/* ========== AUTOMAÇÕES ========== */
+function renderAutomations() {
+  const autos = core.getAutomations();
+  const list = document.getElementById('automationsList');
+
+  const allTriggers = {
+    'task_late':     'Atividade atrasada',
+    'task_finished': 'Atividade finalizada',
+    'task_created':  'Atividade criada',
+  };
+  const allActions = {
+    'notify_admin':     'Notificar administrador',
+    'create_recurrence':'Criar próxima recorrente',
+    'mark_urgent':      'Marcar como urgente',
+  };
+
+  list.innerHTML = autos.map(a => `
+    <div class="automation-item ${a.enabled ? '' : 'disabled'}" data-aid="${a.id}">
+      <div class="auto-icon">🤖</div>
+      <div class="auto-info">
+        <b>${page.esc(a.name)}</b>
+        <small>${page.t('automation.trigger','Gatilho')}: <b>${allTriggers[a.trigger] || a.trigger}</b> · ${page.t('automation.action','Ação')}: <b>${allActions[a.action] || a.action}</b></small>
+      </div>
+      <button class="auto-toggle ${a.enabled ? 'on' : ''}" onclick="toggleAutomation('${a.id}')"></button>
+    </div>
+  `).join('');
+
+  if (autos.length === 0) {
+    list.innerHTML = `<div class="empty"><p>Nenhuma automação configurada</p></div>`;
+  }
+}
+
+function toggleAutomation(id) {
+  const autos = core.getAutomations();
+  const a = autos.find(x => x.id === id);
+  if (a) {
+    a.enabled = !a.enabled;
+    core.saveAutomations(autos);
+    renderAutomations();
+    page.toast(a.enabled ? '✅ Automação ativada' : '⏸️ Automação desativada', 'info');
+  }
+}
+
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
+    setTimeout(() => { page.applyI18n(document.body); renderMyThemes(); renderLangPicker(); renderDashboardConfig(); renderAutomations(); }, 100);
+  }
+});
+</script>
+</body>
+</html>
