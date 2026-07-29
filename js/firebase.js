@@ -1,0 +1,2 @@
+/* Configuração fornecida pelo projeto. Em produção, use regras do Firebase e App Check. */
+window.firebaseConfig={apiKey:'AIzaSyAfc3ZwPacSLU2zci5IOpv1hDB1Ln1pq-U',authDomain:'checklist-3e70c.firebaseapp.com',projectId:'checklist-3e70c',storageBucket:'checklist-3e70c.firebasestorage.app',messagingSenderId:'1003296881614',appId:'1:1003296881614:web:14f7438b38267f3698c99f'};window.firebaseRTDB='https://checklist-3e70c-default-rtdb.firebaseio.com/';

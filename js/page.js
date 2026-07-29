@@ -1,0 +1,1 @@
+const core=parent.core;const d=core.getDB();
