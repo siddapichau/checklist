@@ -1,1 +1,301 @@
-<!doctype html><link rel="stylesheet" href="../css/page.css"><body><div class="wrap"><div class="title"><div><small>CHECKLIST</small><h1>Atividades</h1></div><button class="primary" onclick="newTask()">＋ Nova</button></div><div class="card"><div class="filters"><input id="q" placeholder="Buscar atividade..."><select id="filter"><option value="all">Todos os status</option><option value="pending">Pendentes</option><option value="analyzing">Analisando</option><option value="done">Finalizadas</option><option value="notdone">Não realizadas</option></select></div><div id="list"></div></div></div><script src="../js/page.js"></script><script>let d=core.getDB();function render(){let q=document.querySelector('#q').value.toLowerCase(),f=document.querySelector('#filter').value;list.innerHTML=d.tasks.filter(x=>(!q||x.title.toLowerCase().includes(q))&&(f==='all'||(f==='done'?x.status==='finished':f==='notdone'?x.status==='notdone':x.status===f))).map(x=>`<div class="item"><b>${core.esc(x.title)}</b><small>${x.category||'Geral'} · ${x.date||'Sem data'} · <select onchange="status(${x.id},this.value)"><option value="pending" ${x.status==='pending'?'selected':''}>Pendente</option><option value="analyzing" ${x.status==='analyzing'?'selected':''}>Analisando</option><option value="finished" ${x.status==='finished'?'selected':''}>Finalizada</option><option value="notdone" ${x.status==='notdone'?'selected':''}>Não realizada</option></select> <button onclick="del(${x.id})">Excluir</button></small></div>`).join('')||'<p class="muted">Nada encontrado.</p>'}function status(id,s){let x=d.tasks.find(x=>x.id===id);x.status=s;core.saveDB(d);render()}function del(id){d.tasks=d.tasks.filter(x=>x.id!==id);core.saveDB(d);render()}function newTask(){let title=prompt('Título da atividade');if(!title)return;let date=prompt('Data (AAAA-MM-DD)',new Date().toISOString().slice(0,10));d.tasks.unshift({id:Date.now(),title,date,status:'pending',priority:'medium',category:'Operação',owner:core.user().id});core.saveDB(d);render()}q.oninput=render;filter.onchange=render;render()</script></body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Atividades</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>CHECKLIST</small>
+    <h1>Atividades</h1>
+    <p>Gerencie suas tarefas diárias e agendadas</p>
+  </div>
+  <button class="btn btn-primary" onclick="openNewTask()">＋ Nova atividade</button>
+</div>
+
+<!-- FILTROS -->
+<div class="filters">
+  <input type="text" id="search" placeholder="🔍 Buscar atividade..." oninput="render()">
+  <select id="filterStatus" onchange="render()">
+    <option value="all">Todos os status</option>
+    <option value="pending">⏳ Pendentes</option>
+    <option value="analyzing">🔍 Analisando</option>
+    <option value="finished">✅ Finalizadas</option>
+    <option value="notdone">❌ Não realizadas</option>
+  </select>
+  <select id="filterCategory" onchange="render()">
+    <option value="all">Todas categorias</option>
+  </select>
+  <select id="filterDate" onchange="render()">
+    <option value="all">Todas as datas</option>
+    <option value="today">Hoje</option>
+    <option value="week">Esta semana</option>
+    <option value="late">Atrasadas</option>
+    <option value="month">Este mês</option>
+  </select>
+</div>
+
+<!-- LISTA -->
+<div class="card">
+  <div id="taskList"></div>
+</div>
+
+<!-- MODAL NOVA/EDITAR ATIVIDADE -->
+<div class="modal-overlay hidden" id="taskModal" onclick="if(event.target===this)closeModal()">
+  <div class="modal">
+    <h2 id="modalTitle">Nova atividade</h2>
+    <form onsubmit="saveTask(event)">
+      <input type="hidden" id="taskId">
+      <label><span>Título *</span>
+        <input type="text" id="taskTitle" required placeholder="Ex: Conferir estoque do setor A">
+      </label>
+      <label><span>Descrição</span>
+        <textarea id="taskDesc" rows="3" placeholder="Detalhes opcionais da atividade..."></textarea>
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label><span>Data</span>
+          <input type="date" id="taskDate">
+        </label>
+        <label><span>Categoria</span>
+          <select id="taskCategory"></select>
+        </label>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label><span>Prioridade</span>
+          <select id="taskPriority">
+            <option value="low">🟢 Baixa</option>
+            <option value="medium" selected>🟡 Média</option>
+            <option value="high">🔴 Alta</option>
+            <option value="urgent">🚨 Urgente</option>
+          </select>
+        </label>
+        <label><span>Status</span>
+          <select id="taskStatus">
+            <option value="pending">⏳ Pendente</option>
+            <option value="analyzing">🔍 Analisando</option>
+            <option value="finished">✅ Finalizada</option>
+            <option value="notdone">❌ Não realizada</option>
+          </select>
+        </label>
+      </div>
+      <label><span>Recorrência</span>
+        <select id="taskRecurrence">
+          <option value="none">Nenhuma (uma vez)</option>
+          <option value="daily">Diária</option>
+          <option value="weekly">Semanal</option>
+          <option value="monthly">Mensal</option>
+        </select>
+      </label>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+        <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const user = page.getUser();
+const settings = page.getDB().settings;
+
+// Popular filtro de categorias
+(function initCategories() {
+  const cats = settings.categories || ['Geral'];
+  const filterCat = document.getElementById('filterCategory');
+  const taskCat = document.getElementById('taskCategory');
+  cats.forEach(c => {
+    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+    taskCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  });
+  render();
+})();
+
+// Listener para mensagem do parent (nova tarefa rápida)
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'newTask') openNewTask();
+});
+
+function render() {
+  const data = page.getDB();
+  const tasks = data.tasks || [];
+  const search = document.getElementById('search').value.toLowerCase();
+  const status = document.getElementById('filterStatus').value;
+  const category = document.getElementById('filterCategory').value;
+  const dateFilter = document.getElementById('filterDate').value;
+  const today = core.today();
+  const now = new Date();
+
+  let filtered = tasks.filter(t => {
+    if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
+    if (status !== 'all' && t.status !== status) return false;
+    if (category !== 'all' && t.category !== category) return false;
+    if (dateFilter === 'today' && t.date !== today) return false;
+    if (dateFilter === 'week') {
+      const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay());
+      const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+      if (!t.date || t.date < weekStart.toISOString().slice(0,10) || t.date > weekEnd.toISOString().slice(0,10)) return false;
+    }
+    if (dateFilter === 'late' && !(t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone')) return false;
+    if (dateFilter === 'month') {
+      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
+      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0,10);
+      if (!t.date || t.date < monthStart || t.date > monthEnd) return false;
+    }
+    return true;
+  });
+
+  // Ordenar: atrasadas primeiro, depois por data, depois por prioridade
+  const prio = { urgent: 0, high: 1, medium: 2, low: 3 };
+  filtered.sort((a, b) => {
+    const aLate = a.date && a.date < today && a.status !== 'finished' && a.status !== 'notdone';
+    const bLate = b.date && b.date < today && b.status !== 'finished' && b.status !== 'notdone';
+    if (aLate && !bLate) return -1;
+    if (!aLate && bLate) return 1;
+    if (a.date && b.date) return a.date.localeCompare(b.date);
+    return (prio[a.priority] || 2) - (prio[b.priority] || 2);
+  });
+
+  const list = document.getElementById('taskList');
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="empty"><div class="icon">📋</div><p>Nenhuma atividade encontrada</p></div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(t => {
+    const isLate = t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
+    const prioIcons = { low: '🟢', medium: '🟡', high: '🔴', urgent: '🚨' };
+    return `
+    <div class="item" style="${isLate ? 'border-left:3px solid var(--danger,#EF4444)' : ''}">
+      <div style="font-size:18px;cursor:pointer" onclick="toggleStatus(${t.id})">
+        ${t.status === 'finished' ? '✅' : t.status === 'notdone' ? '❌' : t.status === 'analyzing' ? '🔍' : '⬜'}
+      </div>
+      <div class="item-info">
+        <b style="${t.status === 'finished' ? 'text-decoration:line-through;opacity:.6' : ''}">${prioIcons[t.priority] || '🟡'} ${page.esc(t.title)}</b>
+        <small>
+          ${core.formatDate(t.date)} · ${page.esc(t.category || 'Geral')}
+          <span class="badge ${t.status}">${statusLabel(t.status)}</span>
+          ${t.recurrence && t.recurrence !== 'none' ? ` · 🔁 ${recLabel(t.recurrence)}` : ''}
+        </small>
+        ${t.description ? `<small style="display:block;margin-top:2px;color:var(--text-secondary)">${page.esc(t.description).slice(0,100)}</small>` : ''}
+      </div>
+      <div class="item-actions">
+        <button class="btn-icon" onclick="editTask(${t.id})" title="Editar">✏️</button>
+        <button class="btn-icon" onclick="deleteTask(${t.id})" title="Excluir">🗑️</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function statusLabel(s) {
+  return { pending:'Pendente', analyzing:'Analisando', finished:'Finalizada', notdone:'Não realizada' }[s] || s;
+}
+function recLabel(r) {
+  return { daily:'Diária', weekly:'Semanal', monthly:'Mensal' }[r] || r;
+}
+
+function openNewTask() {
+  document.getElementById('modalTitle').textContent = 'Nova atividade';
+  document.getElementById('taskId').value = '';
+  document.getElementById('taskTitle').value = '';
+  document.getElementById('taskDesc').value = '';
+  document.getElementById('taskDate').value = core.today();
+  document.getElementById('taskPriority').value = 'medium';
+  document.getElementById('taskStatus').value = 'pending';
+  document.getElementById('taskRecurrence').value = 'none';
+  document.getElementById('taskModal').classList.remove('hidden');
+}
+
+function editTask(id) {
+  const data = page.getDB();
+  const task = data.tasks.find(t => t.id === id);
+  if (!task) return;
+
+  document.getElementById('modalTitle').textContent = 'Editar atividade';
+  document.getElementById('taskId').value = id;
+  document.getElementById('taskTitle').value = task.title;
+  document.getElementById('taskDesc').value = task.description || '';
+  document.getElementById('taskDate').value = task.date || '';
+  document.getElementById('taskCategory').value = task.category || 'Geral';
+  document.getElementById('taskPriority').value = task.priority || 'medium';
+  document.getElementById('taskStatus').value = task.status || 'pending';
+  document.getElementById('taskRecurrence').value = task.recurrence || 'none';
+  document.getElementById('taskModal').classList.remove('hidden');
+}
+
+function saveTask(e) {
+  e.preventDefault();
+  const data = page.getDB();
+  const id = document.getElementById('taskId').value;
+  const taskData = {
+    title: document.getElementById('taskTitle').value.trim(),
+    description: document.getElementById('taskDesc').value.trim(),
+    date: document.getElementById('taskDate').value,
+    category: document.getElementById('taskCategory').value,
+    priority: document.getElementById('taskPriority').value,
+    status: document.getElementById('taskStatus').value,
+    recurrence: document.getElementById('taskRecurrence').value,
+  };
+
+  if (id) {
+    // Editar
+    const task = data.tasks.find(t => t.id === parseInt(id));
+    if (task) Object.assign(task, taskData, { updatedAt: core.now() });
+    core.log('task_edit', user?.id, taskData.title);
+    page.toast('Atividade atualizada', 'success');
+  } else {
+    // Nova
+    taskData.id = Date.now();
+    taskData.owner = user?.id || 'unknown';
+    taskData.createdAt = core.now();
+    data.tasks.unshift(taskData);
+    core.log('task_create', user?.id, taskData.title);
+    page.toast('Atividade criada! ✅', 'success');
+  }
+
+  page.saveDB(data);
+  closeModal();
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function deleteTask(id) {
+  if (!confirm('Excluir esta atividade?')) return;
+  const data = page.getDB();
+  const task = data.tasks.find(t => t.id === id);
+  data.tasks = data.tasks.filter(t => t.id !== id);
+  core.log('task_delete', user?.id, task?.title || '');
+  page.saveDB(data);
+  page.toast('Atividade excluída', 'info');
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function toggleStatus(id) {
+  const data = page.getDB();
+  const task = data.tasks.find(t => t.id === id);
+  if (!task) return;
+
+  const cycle = ['pending', 'analyzing', 'finished', 'notdone'];
+  const idx = cycle.indexOf(task.status);
+  task.status = cycle[(idx + 1) % cycle.length];
+
+  if (task.status === 'finished') task.finishedAt = core.now();
+  page.saveDB(data);
+  core.log('task_status', user?.id, `${task.title} → ${statusLabel(task.status)}`);
+  render();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function closeModal() {
+  document.getElementById('taskModal').classList.add('hidden');
+}
+</script>
+</body>
+</html>

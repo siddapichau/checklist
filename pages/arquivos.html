@@ -1,1 +1,82 @@
-<!doctype html><link rel="stylesheet" href="../css/page.css"><body><div class="wrap"><div class="title"><div><small>BIBLIOTECA</small><h1>Arquivos</h1></div><button class="primary" onclick="add()">＋ Adicionar link</button></div><div class="card"><input id="q" placeholder="Filtrar por nome ou categoria"><div id="list"></div></div></div><script src="../js/page.js"></script><script>let d=core.getDB();function render(){list.innerHTML=d.files.filter(x=>!q.value||JSON.stringify(x).toLowerCase().includes(q.value.toLowerCase())).map(x=>`<div class="item"><b>${core.esc(x.title)}</b><small>${core.esc(x.category||'Geral')} · <a href="${x.url}" target="_blank">Abrir arquivo</a></small></div>`).join('')||'<p class="muted">Nenhum arquivo cadastrado.</p>'}function add(){let title=prompt('Nome'),url=prompt('URL'),category=prompt('Categoria');if(title&&url){d.files.push({id:Date.now(),title,url,category});core.saveDB(d);render()}}q.oninput=render;render()</script></body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Arquivos</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>BIBLIOTECA</small>
+    <h1>Arquivos</h1>
+    <p>Documentos, links e recursos da operação</p>
+  </div>
+</div>
+
+<!-- FILTROS -->
+<div class="filters">
+  <input type="text" id="search" placeholder="🔍 Buscar arquivo..." oninput="render()">
+  <select id="filterCategory" onchange="render()">
+    <option value="all">Todas categorias</option>
+  </select>
+</div>
+
+<!-- LISTA -->
+<div class="card">
+  <div id="fileList"></div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const user = page.getUser();
+const settings = page.getDB().settings;
+
+// Popular filtro de categorias
+(function init() {
+  const cats = settings.categories || ['Geral'];
+  const filterCat = document.getElementById('filterCategory');
+  cats.forEach(c => {
+    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  });
+  render();
+})();
+
+function render() {
+  const data = page.getDB();
+  const files = data.files || [];
+  const search = document.getElementById('search').value.toLowerCase();
+  const category = document.getElementById('filterCategory').value;
+
+  let filtered = files.filter(f => {
+    if (search && !f.title.toLowerCase().includes(search) && !(f.description || '').toLowerCase().includes(search)) return false;
+    if (category !== 'all' && f.category !== category) return false;
+    return true;
+  });
+
+  const list = document.getElementById('fileList');
+
+  if (filtered.length === 0) {
+    list.innerHTML = '<div class="empty"><div class="icon">📁</div><p>Nenhum arquivo encontrado</p><p class="text-muted">Arquivos são adicionados pelo administrador</p></div>';
+    return;
+  }
+
+  list.innerHTML = filtered.map(f => `
+    <div class="item">
+      ${f.image ? `<img src="${f.image}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--info-light,#DBEAFE);display:flex;align-items:center;justify-content:center;font-size:22px">📄</div>'}
+      <div class="item-info">
+        <b>${page.esc(f.title)}</b>
+        <small>${page.esc(f.category || 'Geral')}${f.description ? ' · ' + page.esc(f.description) : ''}</small>
+      </div>
+      <div class="item-actions">
+        <a href="${page.esc(f.url)}" target="_blank" class="btn-icon" title="Abrir">🔗</a>
+      </div>
+    </div>
+  `).join('');
+}
+</script>
+</body>
+</html>

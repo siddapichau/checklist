@@ -1,1 +1,217 @@
-<!doctype html><link rel="stylesheet" href="../css/page.css"><body><div class="wrap"><small>ASSISTENTE</small><h1>IA operacional</h1><div class="card"><p>Faça perguntas sobre suas atividades. A integração DeepSeek deve ser feita por uma Cloud Function para nunca expor a chave no navegador.</p><textarea id="question" rows="5" placeholder="Ex.: organize as atividades pendentes por prioridade"></textarea><button class="primary" onclick="ask()">Consultar IA</button><div id="answer" class="item"></div></div></div><script src="../js/page.js"></script><script>function ask(){let q=question.value;answer.innerHTML='<b>Prévia local</b><p>Recebi: '+core.esc(q)+'</p><p>Configure a Cloud Function DeepSeek no backend para obter respostas reais.</p>'}</script></body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>IA Assistente</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>ASSISTENTE INTELIGENTE</small>
+    <h1>🤖 IA Operacional</h1>
+    <p>Consulte a IA para organizar, priorizar e otimizar suas atividades</p>
+  </div>
+</div>
+
+<div class="card">
+  <h2>💬 Pergunte à IA</h2>
+  <p class="text-muted mb-2">A IA analisa suas atividades e responde perguntas sobre prioridades, organização e sugestões.</p>
+
+  <label><span>Sua pergunta</span>
+    <textarea id="question" rows="4" placeholder="Ex: Organize minhas atividades pendentes por prioridade&#10;Ex: Quais atividades estão atrasadas e como priorizá-las?&#10;Ex: Sugira uma ordem para realizar as tarefas de hoje"></textarea>
+  </label>
+
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais são minhas atividades mais urgentes?')">🚨 Urgentes</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Resuma meu dia de trabalho')">📋 Resumo do dia</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Sugira uma ordem para fazer as tarefas pendentes')">📊 Sugerir ordem</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais atividades estão atrasadas?')">⚠️ Atrasadas</button>
+  </div>
+
+  <button class="btn btn-primary" onclick="askAI()" id="btnAsk" style="width:100%">
+    ✨ Consultar IA
+  </button>
+</div>
+
+<!-- RESPOSTA -->
+<div class="card" id="answerCard" style="display:none">
+  <h2>📝 Resposta da IA</h2>
+  <div id="answer"></div>
+</div>
+
+<!-- HISTÓRICO -->
+<div class="card">
+  <h2>📜 Histórico de consultas</h2>
+  <div id="history"></div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const user = page.getUser();
+const aiHistory = JSON.parse(localStorage.getItem('ai_history_' + user?.id) || '[]');
+
+renderHistory();
+
+function quickQ(q) {
+  document.getElementById('question').value = q;
+}
+
+async function askAI() {
+  const question = document.getElementById('question').value.trim();
+  if (!question) return page.toast('Digite uma pergunta', 'warning');
+
+  const data = page.getDB();
+  const apiKey = data.settings?.deepseekKey;
+
+  const btn = document.getElementById('btnAsk');
+  btn.disabled = true;
+  btn.textContent = '⏳ Processando...';
+
+  // Preparar contexto das atividades
+  const tasks = data.tasks || [];
+  const today = core.today();
+  const context = {
+    today,
+    totalTasks: tasks.length,
+    pending: tasks.filter(t => t.status === 'pending'),
+    analyzing: tasks.filter(t => t.status === 'analyzing'),
+    finished: tasks.filter(t => t.status === 'finished'),
+    notdone: tasks.filter(t => t.status === 'notdone'),
+    late: tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone'),
+    todayTasks: tasks.filter(t => t.date === today),
+  };
+
+  const systemPrompt = `Você é um assistente operacional de um Centro Logístico do Mercado Livre. 
+Ajude o usuário a organizar suas atividades de checklist.
+
+Dados atuais:
+- Data de hoje: ${today}
+- Total de atividades: ${context.totalTasks}
+- Pendentes: ${context.pending.length}
+- Em análise: ${context.analyzing.length}
+- Finalizadas: ${context.finished.length}
+- Não realizadas: ${context.notdone.length}
+- Atrasadas: ${context.late.length}
+
+Atividades pendentes:
+${context.pending.map(t => `- ${t.title} (${t.category || 'Geral'}, prioridade: ${t.priority || 'média'}, data: ${t.date || 'sem data'})`).join('\n')}
+
+Atividades atrasadas:
+${context.late.map(t => `- ${t.title} (${t.category || 'Geral'}, data: ${t.date})`).join('\n')}
+
+Atividades de hoje:
+${context.todayTasks.map(t => `- ${t.title} [${t.status}] (${t.category || 'Geral'})`).join('\n')}
+
+Responda de forma clara, organizada e prática. Use emojis para facilitar a leitura.`;
+
+  try {
+    if (apiKey) {
+      // Chamada real à API DeepSeek
+      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: question }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+
+      if (!response.ok) throw new Error('Erro na API: ' + response.status);
+
+      const result = await response.json();
+      const answer = result.choices?.[0]?.message?.content || 'Sem resposta da IA';
+      showAnswer(answer, question);
+    } else {
+      // Modo preview sem API key
+      showAnswer(generateLocalResponse(question, context), question);
+    }
+  } catch (err) {
+    showAnswer(`⚠️ Erro ao consultar IA: ${err.message}\n\nConfigure a API Key do DeepSeek em Administração > Configurações.`, question);
+  }
+
+  btn.disabled = false;
+  btn.textContent = '✨ Consultar IA';
+}
+
+function showAnswer(text, question) {
+  document.getElementById('answerCard').style.display = 'block';
+  document.getElementById('answer').innerHTML = formatAnswer(text);
+
+  // Salvar no histórico
+  aiHistory.unshift({ question, answer: text, timestamp: Date.now() });
+  if (aiHistory.length > 20) aiHistory.length = 20;
+  localStorage.setItem('ai_history_' + user?.id, JSON.stringify(aiHistory));
+  renderHistory();
+
+  core.log('ai_query', user?.id, question.slice(0, 50));
+}
+
+function formatAnswer(text) {
+  return text
+    .replace(/\n/g, '<br>')
+    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
+    .replace(/\*(.*?)\*/g, '<i>$1</i>')
+    .replace(/- (.*?)(<br>|$)/g, '• $1$2');
+}
+
+function generateLocalResponse(question, ctx) {
+  const q = question.toLowerCase();
+  let resp = '🤖 **Modo Preview** (configure a API Key do DeepSeek em Administração para respostas reais)\n\n';
+
+  if (q.includes('urgent') || q.includes('priori')) {
+    resp += `🚨 **Análise de Prioridades:**\n\n`;
+    resp += `Você tem **${ctx.pending.length} atividades pendentes** e **${ctx.late.length} atrasadas**.\n\n`;
+    if (ctx.late.length > 0) {
+      resp += `**⚠️ Comece pelas atrasadas:**\n`;
+      ctx.late.slice(0, 5).forEach(t => { resp += `- ${t.title} (atrasada desde ${t.date})\n`; });
+    }
+  } else if (q.includes('resumo') || q.includes('dia')) {
+    resp += `📋 **Resumo do dia ${ctx.today}:**\n\n`;
+    resp += `- Atividades de hoje: **${ctx.todayTasks.length}**\n`;
+    resp += `- Atrasadas: **${ctx.late.length}**\n`;
+    resp += `- Total pendente: **${ctx.pending.length}**\n`;
+    resp += `- Progresso geral: **${ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0}%**\n`;
+  } else if (q.includes('ordem') || q.includes('sugerir')) {
+    resp += `📊 **Ordem sugerida:**\n\n`;
+    resp += `1. 🔴 Resolver atividades **atrasadas** (${ctx.late.length})\n`;
+    resp += `2. 🟡 Finalizar atividades **de hoje** (${ctx.todayTasks.filter(t => t.status !== 'finished').length})\n`;
+    resp += `3. 🟢 Avançar atividades **pendentes** por prioridade\n`;
+  } else {
+    resp += `📊 **Visão geral:**\n\n`;
+    resp += `Total: ${ctx.totalTasks} | Pendentes: ${ctx.pending.length} | Atrasadas: ${ctx.late.length} | Feitas: ${ctx.finished.length}\n\n`;
+    resp += `Para uma análise mais detalhada, configure a API Key do DeepSeek.\n`;
+  }
+
+  return resp;
+}
+
+function renderHistory() {
+  const el = document.getElementById('history');
+  if (aiHistory.length === 0) {
+    el.innerHTML = '<div class="empty"><p>Nenhuma consulta realizada ainda</p></div>';
+    return;
+  }
+  el.innerHTML = aiHistory.slice(0, 10).map(h => `
+    <div class="item">
+      <div class="item-info">
+        <b>${page.esc(h.question.slice(0, 80))}${h.question.length > 80 ? '...' : ''}</b>
+        <small>${core.formatDateTime(h.timestamp)}</small>
+      </div>
+    </div>
+  `).join('');
+}
+</script>
+</body>
+</html>

@@ -1,1 +1,173 @@
-<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Checklist ML</title><link rel="stylesheet" href="css/style.css"></head><body><div id="login" class="login"><div class="login-card"><div class="brand">✓ Checklist ML</div><h1>Seu turno sob controle</h1><p>Organize atividades e acompanhe a operação.</p><form id="loginForm"><input id="loginUser" placeholder="Usuário ou e-mail" required><div class="pass"><input id="loginPass" type="password" placeholder="Senha" required><button type="button" data-toggle="loginPass">◉</button></div><label><input id="remember" type="checkbox"> Lembrar login</label><button class="primary">Entrar</button></form><button class="google" id="google">Continuar com Google</button><a href="#" id="register">Criar cadastro</a></div></div><div id="app" class="hidden"><aside><div class="brand">✓ <span id="brandName">Checklist ML</span></div><button class="new" data-page="atividades">＋ Nova atividade</button><nav id="menu"><a data-page="home">▦ Visão geral</a><a data-page="atividades">✓ Atividades</a><a data-page="arquivos">▣ Arquivos</a><a data-page="IA">✦ IA</a><a data-page="perfil">◉ Meu perfil</a><a data-page="admin" class="admin-only">⚙ Administração</a></nav><div class="user-mini" id="userMini"></div></aside><main><header><button id="mobile">☰</button><span id="crumb">Visão geral</span><div class="top-user" id="topUser"></div><button id="theme">☾</button><button id="logout">Sair</button></header><iframe id="page" title="Conteúdo"></iframe></main></div><div id="toast"></div><script src="js/firebase.js"></script><script src="js/core.js"></script><script src="js/app.js"></script></body></html>
+<!DOCTYPE html>
+<html lang="pt-BR" data-theme="ocean" data-mode="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Checklist ML — Gestão operacional para centros logísticos">
+  <meta name="theme-color" content="#2563EB">
+  <title>Checklist ML</title>
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- Firebase SDKs (compat para uso global) -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+</head>
+<body>
+
+<!-- ========== LOADING ========== -->
+<div class="loading-screen" id="loadingScreen">
+  <img src="assets/favicon.svg" alt="" width="56" height="56">
+  <div class="spinner"></div>
+  <p class="text-muted">Carregando...</p>
+</div>
+
+<!-- ========== TELA DE LOGIN / CADASTRO ========== -->
+<div class="login-screen hidden" id="loginScreen">
+  <div class="login-card">
+    <div class="login-brand">
+      <img src="assets/favicon.svg" alt="Logo">
+      <span id="loginBrandName">Checklist ML</span>
+    </div>
+
+    <!-- Tabs Login / Cadastro -->
+    <div class="login-tabs">
+      <div class="login-tab active" data-tab="login" onclick="App.switchTab('login')">Entrar</div>
+      <div class="login-tab" data-tab="register" onclick="App.switchTab('register')">Criar conta</div>
+    </div>
+
+    <!-- FORM LOGIN -->
+    <form class="login-form" id="loginForm" onsubmit="App.handleLogin(event)">
+      <div class="form-group">
+        <label>Usuário ou e-mail</label>
+        <input type="text" id="loginUser" placeholder="Digite seu usuário ou e-mail" required autocomplete="username">
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <div class="input-group">
+          <input type="password" id="loginPass" placeholder="Sua senha" required autocomplete="current-password">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('loginPass', this)">👁</button>
+        </div>
+      </div>
+      <div class="form-error" id="loginError"></div>
+      <label class="form-check">
+        <input type="checkbox" id="rememberMe"> Lembrar meu login
+      </label>
+      <button type="submit" class="btn-primary">Entrar</button>
+      <button type="button" class="btn-google" onclick="App.loginGoogle()">
+        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Continuar com Google
+      </button>
+      <div class="login-footer">
+        Centro Logístico — <a href="#" onclick="App.switchTab('register')">Não tem conta? Cadastre-se</a>
+      </div>
+    </form>
+
+    <!-- FORM CADASTRO -->
+    <form class="login-form hidden" id="registerForm" onsubmit="App.handleRegister(event)">
+      <div class="form-group">
+        <label>Usuário</label>
+        <input type="text" id="regUser" placeholder="Escolha um nome de usuário" required minlength="3">
+      </div>
+      <div class="form-group">
+        <label>E-mail</label>
+        <input type="email" id="regEmail" placeholder="seu@email.com" required>
+      </div>
+      <div class="form-group">
+        <label>Senha</label>
+        <div class="input-group">
+          <input type="password" id="regPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" required oninput="App.checkPasswordStrength(this.value)">
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('regPass', this)">👁</button>
+        </div>
+        <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBar"></div></div>
+        <small class="text-muted" id="passStrengthText"></small>
+      </div>
+      <div class="form-group">
+        <label>Confirmar senha</label>
+        <div class="input-group">
+          <input type="password" id="regPassConfirm" placeholder="Repita a senha" required>
+          <button type="button" class="toggle-pass" onclick="App.togglePassword('regPassConfirm', this)">👁</button>
+        </div>
+      </div>
+      <div class="form-error" id="regError"></div>
+      <button type="submit" class="btn-primary">Criar conta</button>
+      <button type="button" class="btn-google" onclick="App.loginGoogle()">
+        <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
+        Cadastrar com Google
+      </button>
+      <div class="login-footer">
+        <a href="#" onclick="App.switchTab('login')">Já tem conta? Faça login</a>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ========== APLICATIVO PRINCIPAL ========== -->
+<div class="app hidden" id="appScreen">
+
+  <!-- Sidebar Overlay (mobile) -->
+  <div class="sidebar-overlay" id="sidebarOverlay" onclick="App.closeSidebar()"></div>
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <div class="sidebar-brand">
+        <img src="assets/favicon.svg" alt="Logo" id="sidebarLogo">
+        <span id="sidebarBrand">Checklist ML</span>
+      </div>
+    </div>
+
+    <button class="btn-new" onclick="App.quickNewTask()">
+      <span>＋</span> Nova atividade
+    </button>
+
+    <nav class="sidebar-nav" id="sidebarNav">
+      <!-- Populado dinamicamente pelo app.js -->
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="user-card" onclick="App.navigate('perfil')" style="cursor:pointer">
+        <div class="user-avatar" id="sidebarAvatar">👤</div>
+        <div class="user-info">
+          <div class="name" id="sidebarName">Usuário</div>
+          <div class="role" id="sidebarRole">membro</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <!-- CONTEÚDO PRINCIPAL -->
+  <div class="main">
+    <header class="topbar">
+      <button class="btn-mobile" onclick="App.toggleSidebar()">☰</button>
+      <span class="breadcrumb" id="breadcrumb">📊 Visão geral</span>
+      <div class="topbar-actions">
+        <button onclick="App.toggleTheme()" title="Alternar tema" id="btnTheme">🌙</button>
+        <button onclick="App.handleLogout()" title="Sair">🚪</button>
+      </div>
+      <div class="topbar-user" onclick="App.navigate('perfil')" id="topbarUser">
+        <div class="avatar" id="topbarAvatar">👤</div>
+        <span class="uname" id="topbarName">Usuário</span>
+      </div>
+    </header>
+
+    <iframe class="page-frame" id="pageFrame" title="Conteúdo da página" src="pages/home.html"></iframe>
+  </div>
+</div>
+
+<!-- ========== TOAST CONTAINER ========== -->
+<div class="toast-container" id="toastContainer"></div>
+
+<!-- ========== MODAL CONTAINER ========== -->
+<div id="modalContainer"></div>
+
+<!-- Scripts -->
+<script src="js/firebase.js"></script>
+<script src="js/core.js"></script>
+<script src="js/seed.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

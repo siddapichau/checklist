@@ -1,1 +1,595 @@
-<!doctype html><link rel="stylesheet" href="../css/page.css"><body><div class="wrap"><small>ADMINISTRAÇÃO</small><h1>Configurações do sistema</h1><div class="card"><h2>Marca e aparência</h2><label>Nome da aplicação<input id="brand"></label><label>Tema<select id="theme"><option value="ocean">Operação Azul</option><option value="amber">Turno Âmbar</option><option value="emerald">Estoque Verde</option></select></label><label>DeepSeek API Key (será usada por Cloud Function)<input id="key" type="password"></label><button class="primary" onclick="save()">Salvar configurações</button></div><div class="card"><h2>Usuários</h2><div id="users"></div><h2>Publicar notícia</h2><input id="pt" placeholder="Título"><textarea id="pb" placeholder="Conteúdo"></textarea><input id="pc" placeholder="Categoria"><button class="primary" onclick="post()">Publicar</button></div></div><script src="../js/page.js"></script><script>d=core.getDB();brand.value=d.settings.brand;theme.value=d.settings.theme;function save(){d.settings.brand=brand.value;d.settings.theme=theme.value;d.settings.deepseekKey=key.value;core.saveDB(d);parent.postMessage({toast:'Configurações salvas'},'*');location.reload()}users.innerHTML=d.users.map(u=>`<div class="item"><b>${core.esc(u.name||u.user)}</b> · ${u.email} <select onchange="role('${u.id}',this.value)"><option ${u.role==='member'?'selected':''}>member</option><option ${u.role==='editor'?'selected':''}>editor</option><option ${u.role==='admin'?'selected':''}>admin</option></select> <button onclick="ban('${u.id}')">${u.banned?'Desbanir':'Banir'}</button></div>`).join('');function role(id,r){d.users.find(x=>x.id===id).role=r;core.saveDB(d)}function ban(id){let u=d.users.find(x=>x.id===id);u.banned=!u.banned;core.saveDB(d);location.reload()}function post(){d.posts.unshift({id:Date.now(),title:pt.value,body:pb.value,category:pc.value,publishedAt:Date.now()});core.saveDB(d);pt.value=pb.value=pc.value='';parent.postMessage({toast:'Notícia publicada'},'*')}</script></body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Administração</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>ADMINISTRAÇÃO</small>
+    <h1>⚙️ Painel Administrativo</h1>
+    <p>Controle total do sistema — tudo é editável</p>
+  </div>
+</div>
+
+<!-- TABS -->
+<div class="tabs">
+  <button class="tab active" onclick="switchTab('appearance',this)">🎨 Aparência</button>
+  <button class="tab" onclick="switchTab('users',this)">👥 Usuários</button>
+  <button class="tab" onclick="switchTab('menu',this)">📋 Menu</button>
+  <button class="tab" onclick="switchTab('posts',this)">📰 Notícias</button>
+  <button class="tab" onclick="switchTab('files',this)">📁 Arquivos</button>
+  <button class="tab" onclick="switchTab('categories',this)">🏷️ Categorias</button>
+  <button class="tab" onclick="switchTab('api',this)">🔑 API / IA</button>
+  <button class="tab" onclick="switchTab('logs',this)">📜 Logs</button>
+</div>
+
+<!-- TAB: APARÊNCIA -->
+<div class="tab-content active" id="tab-appearance">
+  <div class="card">
+    <h2>🎨 Marca e aparência</h2>
+    <label><span>Nome da aplicação</span>
+      <input type="text" id="setBrand" placeholder="Checklist ML">
+    </label>
+    <label><span>Tema</span>
+      <select id="setTheme">
+        <option value="ocean">🌊 Ocean Blue (profissional)</option>
+        <option value="mercado">💛 Mercado Livre (amarelo/azul)</option>
+        <option value="forest">🌲 Forest (verde/esmeralda)</option>
+      </select>
+    </label>
+    <label><span>Modo</span>
+      <select id="setMode">
+        <option value="light">☀️ Claro</option>
+        <option value="dark">🌙 Escuro</option>
+      </select>
+    </label>
+    <label><span>Logo (URL ou base64)</span>
+      <input type="text" id="setLogo" placeholder="URL da imagem ou deixe vazio para padrão">
+    </label>
+    <label><span>Favicon (URL ou base64)</span>
+      <input type="text" id="setFavicon" placeholder="URL do ícone ou deixe vazio para padrão">
+    </label>
+    <label><span>Upload de Logo</span>
+      <input type="file" id="logoUpload" accept="image/*" onchange="uploadAsset('logo', event)">
+    </label>
+    <label><span>Upload de Favicon</span>
+      <input type="file" id="faviconUpload" accept="image/*" onchange="uploadAsset('favicon', event)">
+    </label>
+    <button class="btn btn-primary" onclick="saveAppearance()">💾 Salvar aparência</button>
+  </div>
+</div>
+
+<!-- TAB: USUÁRIOS -->
+<div class="tab-content" id="tab-users">
+  <div class="card">
+    <h2>👥 Gerenciar usuários</h2>
+    <div style="overflow-x:auto">
+      <table id="usersTable">
+        <thead>
+          <tr><th>Usuário</th><th>E-mail</th><th>Cargo</th><th>Status</th><th>Ações</th></tr>
+        </thead>
+        <tbody id="usersBody"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- TAB: MENU -->
+<div class="tab-content" id="tab-menu">
+  <div class="card">
+    <h2>📋 Ordem e visibilidade do menu</h2>
+    <p class="text-muted mb-2">Arraste para reordenar. Desmarque para ocultar.</p>
+    <div id="menuList"></div>
+    <button class="btn btn-primary mt-2" onclick="saveMenu()">💾 Salvar menu</button>
+  </div>
+</div>
+
+<!-- TAB: NOTÍCIAS / POSTS -->
+<div class="tab-content" id="tab-posts">
+  <div class="card">
+    <h2>📰 Publicar notícia</h2>
+    <p class="text-muted mb-2">Editor estilo Blogspot — formate com negrito, itálico, listas e imagens</p>
+    <label><span>Título</span>
+      <input type="text" id="postTitle" placeholder="Título da notícia">
+    </label>
+    <label><span>Categoria</span>
+      <select id="postCategory"></select>
+    </label>
+    <label><span>Imagem (URL ou upload)</span>
+      <input type="text" id="postImage" placeholder="URL da imagem">
+      <input type="file" accept="image/*" onchange="uploadPostImage(event)" style="margin-top:6px">
+    </label>
+    <div style="display:flex;gap:4px;margin-bottom:6px">
+      <button class="btn btn-secondary btn-sm" onclick="insertFormat('**','**')"><b>B</b></button>
+      <button class="btn btn-secondary btn-sm" onclick="insertFormat('*','*')"><i>I</i></button>
+      <button class="btn btn-secondary btn-sm" onclick="insertFormat('\n- ','')">• Lista</button>
+      <button class="btn btn-secondary btn-sm" onclick="insertFormat('\n## ','')">H2</button>
+      <button class="btn btn-secondary btn-sm" onclick="insertFormat('\n### ','')">H3</button>
+    </div>
+    <label><span>Conteúdo</span>
+      <textarea id="postBody" rows="8" placeholder="Escreva o conteúdo da notícia..."></textarea>
+    </label>
+    <button class="btn btn-primary" onclick="publishPost()">📢 Publicar</button>
+  </div>
+
+  <div class="card">
+    <h2>📋 Notícias publicadas</h2>
+    <div class="filters">
+      <select id="filterPostCat" onchange="renderPosts()">
+        <option value="all">Todas categorias</option>
+      </select>
+    </div>
+    <div id="postsList"></div>
+  </div>
+</div>
+
+<!-- TAB: ARQUIVOS -->
+<div class="tab-content" id="tab-files">
+  <div class="card">
+    <h2>📁 Adicionar arquivo/link</h2>
+    <label><span>Título</span>
+      <input type="text" id="fileTitle" placeholder="Nome do arquivo">
+    </label>
+    <label><span>URL</span>
+      <input type="text" id="fileUrl" placeholder="https://...">
+    </label>
+    <label><span>Categoria</span>
+      <select id="fileCategory"></select>
+    </label>
+    <label><span>Descrição</span>
+      <input type="text" id="fileDesc" placeholder="Descrição breve">
+    </label>
+    <label><span>Imagem/Thumbnail (URL ou upload)</span>
+      <input type="text" id="fileImage" placeholder="URL da thumbnail">
+      <input type="file" accept="image/*" onchange="uploadFileImage(event)" style="margin-top:6px">
+    </label>
+    <button class="btn btn-primary" onclick="addFile()">＋ Adicionar</button>
+  </div>
+
+  <div class="card">
+    <h2>📋 Arquivos cadastrados</h2>
+    <div id="filesList"></div>
+  </div>
+</div>
+
+<!-- TAB: CATEGORIAS -->
+<div class="tab-content" id="tab-categories">
+  <div class="card">
+    <h2>🏷️ Gerenciar categorias</h2>
+    <p class="text-muted mb-2">Categorias são usadas em atividades, posts e arquivos</p>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input type="text" id="newCategory" placeholder="Nome da nova categoria">
+      <button class="btn btn-primary" onclick="addCategory()">＋ Adicionar</button>
+    </div>
+    <div id="categoriesList"></div>
+  </div>
+</div>
+
+<!-- TAB: API / IA -->
+<div class="tab-content" id="tab-api">
+  <div class="card">
+    <h2>🔑 Configurações de API</h2>
+    <label><span>DeepSeek API Key</span>
+      <input type="password" id="setDeepseekKey" placeholder="sk-...">
+    </label>
+    <p class="text-muted">⚠️ <b>IMPORTANTE:</b> Para uso em produção, a chave deve ser usada por uma Cloud Function (backend). Esta configuração é apenas para testes locais.</p>
+    <button class="btn btn-primary mt-2" onclick="saveAPI()">💾 Salvar API Key</button>
+  </div>
+</div>
+
+<!-- TAB: LOGS -->
+<div class="tab-content" id="tab-logs">
+  <div class="card">
+    <h2>📜 Logs do sistema</h2>
+    <button class="btn btn-danger btn-sm mb-2" onclick="clearLogs()">🗑️ Limpar logs</button>
+    <div id="logsList"></div>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const user = page.getUser();
+if (!user || user.role !== 'admin') {
+  document.body.innerHTML = '<div class="empty"><div class="icon">🔒</div><p>Acesso restrito a administradores</p></div>';
+}
+
+let data = page.getDB();
+
+// Inicializar campos
+document.getElementById('setBrand').value = data.settings.brand;
+document.getElementById('setTheme').value = data.settings.theme;
+document.getElementById('setMode').value = data.settings.mode;
+document.getElementById('setLogo').value = data.settings.logo || '';
+document.getElementById('setFavicon').value = data.settings.favicon || '';
+document.getElementById('setDeepseekKey').value = data.settings.deepseekKey || '';
+
+// Popular selects de categorias
+function populateCategorySelects() {
+  const cats = data.settings.categories || [];
+  ['postCategory','fileCategory','filterPostCat'].forEach(id => {
+    const sel = document.getElementById(id);
+    const first = sel.options[0];
+    sel.innerHTML = '';
+    if (first) sel.appendChild(first);
+    cats.forEach(c => { sel.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`; });
+  });
+}
+populateCategorySelects();
+
+// Renderizar tudo
+renderUsers();
+renderMenu();
+renderPosts();
+renderFiles();
+renderCategories();
+renderLogs();
+
+/* ========== TABS ========== */
+function switchTab(id, btn) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('tab-' + id).classList.add('active');
+}
+
+/* ========== APARÊNCIA ========== */
+function saveAppearance() {
+  data.settings.brand = document.getElementById('setBrand').value.trim();
+  data.settings.theme = document.getElementById('setTheme').value;
+  data.settings.mode = document.getElementById('setMode').value;
+  data.settings.logo = document.getElementById('setLogo').value.trim();
+  data.settings.favicon = document.getElementById('setFavicon').value.trim();
+  page.saveDB(data);
+  core.log('settings_update', user.id, 'Aparência');
+
+  // Aplicar tema no parent
+  window.parent.postMessage({ type: 'themeChanged', theme: data.settings.theme, mode: data.settings.mode }, '*');
+  window.parent.postMessage({ type: 'reload' }, '*');
+  page.toast('Aparência salva! 🎨', 'success');
+}
+
+async function uploadAsset(type, e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const compressed = await core.compressImage(file, type === 'favicon' ? 64 : 200, 0.8);
+  if (type === 'logo') {
+    document.getElementById('setLogo').value = compressed;
+  } else {
+    document.getElementById('setFavicon').value = compressed;
+  }
+  page.toast('Imagem carregada! Salve para aplicar.', 'info');
+}
+
+/* ========== USUÁRIOS ========== */
+function renderUsers() {
+  data = page.getDB();
+  const users = data.users || [];
+  document.getElementById('usersBody').innerHTML = users.map(u => `
+    <tr>
+      <td><b>${page.esc(u.name || u.username || u.user || 'N/A')}</b></td>
+      <td>${page.esc(u.email || '')}</td>
+      <td>
+        <select onchange="changeRole('${u.id}',this.value)" ${u.id === user.id ? 'disabled' : ''}>
+          <option value="member" ${u.role==='member'?'selected':''}>👤 Membro</option>
+          <option value="editor" ${u.role==='editor'?'selected':''}>✏️ Editor</option>
+          <option value="admin" ${u.role==='admin'?'selected':''}>⚙️ Admin</option>
+        </select>
+      </td>
+      <td>
+        ${u.banned ? '<span class="badge notdone">Banido</span>' : '<span class="badge finished">Ativo</span>'}
+      </td>
+      <td>
+        <button class="btn-icon" onclick="toggleBan('${u.id}')" title="${u.banned ? 'Desbanir' : 'Banir'}">${u.banned ? '✅' : '🚫'}</button>
+        <button class="btn-icon" onclick="resetPassword('${u.id}')" title="Resetar senha">🔑</button>
+        ${u.id !== user.id ? `<button class="btn-icon" onclick="deleteUser('${u.id}')" title="Excluir">🗑️</button>` : ''}
+      </td>
+    </tr>
+  `).join('');
+}
+
+function changeRole(id, role) {
+  data = page.getDB();
+  const u = data.users.find(u => u.id === id);
+  if (u) { u.role = role; page.saveDB(data); core.log('user_role', user.id, `${u.username} → ${role}`); page.toast('Cargo atualizado', 'success'); }
+}
+
+function toggleBan(id) {
+  data = page.getDB();
+  const u = data.users.find(u => u.id === id);
+  if (u) { u.banned = !u.banned; page.saveDB(data); core.log('user_ban', user.id, `${u.username} ${u.banned ? 'banido' : 'desbanido'}`); renderUsers(); page.toast(u.banned ? 'Usuário banido' : 'Usuário desbanido', 'info'); }
+}
+
+async function resetPassword(id) {
+  const newPass = prompt('Digite a nova senha para este usuário:');
+  if (!newPass) return;
+  const validation = core.validatePassword(newPass);
+  if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
+  data = page.getDB();
+  const u = data.users.find(u => u.id === id);
+  if (u) {
+    u.passHash = await core.hashPassword(newPass);
+    page.saveDB(data);
+    core.log('password_reset', user.id, u.username);
+    page.toast('Senha resetada! 🔑', 'success');
+  }
+}
+
+function deleteUser(id) {
+  if (!confirm('Excluir este usuário permanentemente?')) return;
+  data = page.getDB();
+  const u = data.users.find(u => u.id === id);
+  data.users = data.users.filter(u => u.id !== id);
+  page.saveDB(data);
+  core.log('user_delete', user.id, u?.username || '');
+  renderUsers();
+  page.toast('Usuário excluído', 'info');
+}
+
+/* ========== MENU ========== */
+function renderMenu() {
+  data = page.getDB();
+  const items = data.settings.menuItems || [];
+  const order = data.settings.menuOrder || items.map(i => i.id);
+
+  // Ordenar pela ordem salva
+  const sorted = order.map(id => items.find(i => i.id === id)).filter(Boolean);
+
+  document.getElementById('menuList').innerHTML = sorted.map((item, idx) => `
+    <div class="item" draggable="true" data-id="${item.id}"
+         ondragstart="dragStart(event)" ondragover="dragOver(event)" ondrop="drop(event)">
+      <span style="cursor:grab;font-size:16px">☰</span>
+      <span style="font-size:18px">${item.icon}</span>
+      <div class="item-info">
+        <b>${page.esc(item.label)}</b>
+        <small>${item.id}${item.adminOnly ? ' (admin)' : ''}</small>
+      </div>
+      <label style="margin:0"><input type="checkbox" ${item.visible ? 'checked' : ''} onchange="toggleMenuItem('${item.id}',this.checked)"> Visível</label>
+    </div>
+  `).join('');
+}
+
+let draggedId = null;
+function dragStart(e) { draggedId = e.currentTarget.dataset.id; e.currentTarget.style.opacity = '0.5'; }
+function dragOver(e) { e.preventDefault(); }
+function drop(e) {
+  e.preventDefault();
+  e.currentTarget.style.opacity = '1';
+  const targetId = e.currentTarget.dataset.id;
+  if (draggedId && targetId && draggedId !== targetId) {
+    data = page.getDB();
+    const order = data.settings.menuOrder || data.settings.menuItems.map(i => i.id);
+    const fromIdx = order.indexOf(draggedId);
+    const toIdx = order.indexOf(targetId);
+    order.splice(fromIdx, 1);
+    order.splice(toIdx, 0, draggedId);
+    data.settings.menuOrder = order;
+    page.saveDB(data);
+    renderMenu();
+  }
+  draggedId = null;
+}
+
+function toggleMenuItem(id, visible) {
+  data = page.getDB();
+  const item = data.settings.menuItems.find(i => i.id === id);
+  if (item) { item.visible = visible; page.saveDB(data); }
+}
+
+function saveMenu() {
+  window.parent.postMessage({ type: 'reload' }, '*');
+  page.toast('Menu salvo! 📋', 'success');
+}
+
+/* ========== POSTS ========== */
+function publishPost() {
+  const title = document.getElementById('postTitle').value.trim();
+  const body = document.getElementById('postBody').value.trim();
+  if (!title) return page.toast('Digite um título', 'warning');
+
+  data = page.getDB();
+  data.posts.unshift({
+    id: Date.now(),
+    title, body,
+    category: document.getElementById('postCategory').value,
+    image: document.getElementById('postImage').value.trim(),
+    author: user.name || user.username,
+    publishedAt: Date.now()
+  });
+  page.saveDB(data);
+  core.log('post_create', user.id, title);
+
+  document.getElementById('postTitle').value = '';
+  document.getElementById('postBody').value = '';
+  document.getElementById('postImage').value = '';
+  renderPosts();
+  page.toast('Notícia publicada! 📢', 'success');
+}
+
+function insertFormat(before, after) {
+  const ta = document.getElementById('postBody');
+  const start = ta.selectionStart, end = ta.selectionEnd;
+  const text = ta.value;
+  const selected = text.slice(start, end) || 'texto';
+  ta.value = text.slice(0, start) + before + selected + after + text.slice(end);
+  ta.focus();
+  ta.selectionStart = start + before.length;
+  ta.selectionEnd = start + before.length + selected.length;
+}
+
+async function uploadPostImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const compressed = await core.compressImage(file, 800, 0.8);
+  document.getElementById('postImage').value = compressed;
+  page.toast('Imagem carregada!', 'info');
+}
+
+function renderPosts() {
+  data = page.getDB();
+  const posts = data.posts || [];
+  const filterCat = document.getElementById('filterPostCat').value;
+  const filtered = filterCat === 'all' ? posts : posts.filter(p => p.category === filterCat);
+
+  document.getElementById('postsList').innerHTML = filtered.length > 0
+    ? filtered.map(p => `
+      <article>
+        <div style="display:flex;justify-content:space-between;align-items:start">
+          <div>
+            <b>${page.esc(p.title)}</b>
+            <small style="display:block;margin-top:2px">${page.esc(p.category || 'Geral')} · ${core.formatDateTime(p.publishedAt)} · ${page.esc(p.author || '')}</small>
+          </div>
+          <button class="btn-icon" onclick="deletePost(${p.id})" title="Excluir">🗑️</button>
+        </div>
+        ${p.image ? `<img src="${p.image}" alt="">` : ''}
+        <p>${page.esc(p.body || '').slice(0, 200)}${(p.body || '').length > 200 ? '...' : ''}</p>
+      </article>
+    `).join('')
+    : '<div class="empty"><p>Nenhuma notícia publicada</p></div>';
+}
+
+function deletePost(id) {
+  if (!confirm('Excluir esta notícia?')) return;
+  data = page.getDB();
+  data.posts = data.posts.filter(p => p.id !== id);
+  page.saveDB(data);
+  renderPosts();
+  page.toast('Notícia excluída', 'info');
+}
+
+/* ========== ARQUIVOS ========== */
+async function uploadFileImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const compressed = await core.compressImage(file, 200, 0.7);
+  document.getElementById('fileImage').value = compressed;
+  page.toast('Thumbnail carregada!', 'info');
+}
+
+function addFile() {
+  const title = document.getElementById('fileTitle').value.trim();
+  const url = document.getElementById('fileUrl').value.trim();
+  if (!title || !url) return page.toast('Preencha título e URL', 'warning');
+
+  data = page.getDB();
+  data.files.push({
+    id: Date.now(),
+    title, url,
+    category: document.getElementById('fileCategory').value,
+    description: document.getElementById('fileDesc').value.trim(),
+    image: document.getElementById('fileImage').value.trim(),
+  });
+  page.saveDB(data);
+  core.log('file_add', user.id, title);
+
+  document.getElementById('fileTitle').value = '';
+  document.getElementById('fileUrl').value = '';
+  document.getElementById('fileDesc').value = '';
+  document.getElementById('fileImage').value = '';
+  renderFiles();
+  page.toast('Arquivo adicionado! 📁', 'success');
+}
+
+function renderFiles() {
+  data = page.getDB();
+  const files = data.files || [];
+  document.getElementById('filesList').innerHTML = files.length > 0
+    ? files.map(f => `
+      <div class="item">
+        ${f.image ? `<img src="${f.image}" style="width:40px;height:40px;border-radius:6px;object-fit:cover">` : '<span style="font-size:22px">📄</span>'}
+        <div class="item-info">
+          <b>${page.esc(f.title)}</b>
+          <small>${page.esc(f.category || 'Geral')} · <a href="${page.esc(f.url)}" target="_blank">Abrir</a></small>
+        </div>
+        <button class="btn-icon" onclick="deleteFile(${f.id})">🗑️</button>
+      </div>
+    `).join('')
+    : '<div class="empty"><p>Nenhum arquivo cadastrado</p></div>';
+}
+
+function deleteFile(id) {
+  if (!confirm('Excluir este arquivo?')) return;
+  data = page.getDB();
+  data.files = data.files.filter(f => f.id !== id);
+  page.saveDB(data);
+  renderFiles();
+  page.toast('Arquivo excluído', 'info');
+}
+
+/* ========== CATEGORIAS ========== */
+function addCategory() {
+  const name = document.getElementById('newCategory').value.trim();
+  if (!name) return;
+  data = page.getDB();
+  if (!data.settings.categories) data.settings.categories = [];
+  if (data.settings.categories.includes(name)) return page.toast('Categoria já existe', 'warning');
+  data.settings.categories.push(name);
+  page.saveDB(data);
+  document.getElementById('newCategory').value = '';
+  renderCategories();
+  populateCategorySelects();
+  page.toast('Categoria adicionada! 🏷️', 'success');
+}
+
+function renderCategories() {
+  data = page.getDB();
+  const cats = data.settings.categories || [];
+  document.getElementById('categoriesList').innerHTML = cats.map(c => `
+    <div class="item">
+      <span style="font-size:18px">🏷️</span>
+      <div class="item-info"><b>${page.esc(c)}</b></div>
+      <button class="btn-icon" onclick="deleteCategory('${page.esc(c)}')">🗑️</button>
+    </div>
+  `).join('');
+}
+
+function deleteCategory(name) {
+  if (!confirm(`Excluir categoria "${name}"?`)) return;
+  data = page.getDB();
+  data.settings.categories = data.settings.categories.filter(c => c !== name);
+  page.saveDB(data);
+  renderCategories();
+  populateCategorySelects();
+  page.toast('Categoria excluída', 'info');
+}
+
+/* ========== API ========== */
+function saveAPI() {
+  data.settings.deepseekKey = document.getElementById('setDeepseekKey').value.trim();
+  page.saveDB(data);
+  core.log('api_update', user.id, 'DeepSeek key');
+  page.toast('API Key salva! 🔑', 'success');
+}
+
+/* ========== LOGS ========== */
+function renderLogs() {
+  data = page.getDB();
+  const logs = data.logs || [];
+  document.getElementById('logsList').innerHTML = logs.length > 0
+    ? logs.slice(0, 100).map(l => `
+      <div class="item">
+        <div class="item-info">
+          <b>${page.esc(l.action)}</b>
+          <small>${core.formatDateTime(l.timestamp)} · User: ${page.esc(l.userId || 'system')}${l.details ? ' · ' + page.esc(l.details) : ''}</small>
+        </div>
+      </div>
+    `).join('')
+    : '<div class="empty"><p>Nenhum log registrado</p></div>';
+}
+
+function clearLogs() {
+  if (!confirm('Limpar todos os logs?')) return;
+  data = page.getDB();
+  data.logs = [];
+  page.saveDB(data);
+  renderLogs();
+  page.toast('Logs limpos', 'info');
+}
+</script>
+</body>
+</html>
