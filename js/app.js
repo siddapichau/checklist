@@ -1,6 +1,7 @@
 /* =========================================================
-   CHECKLIST ML — app.js  (Parte 1/3)
-   Controlador principal: auth, navegação, tema, sidebar
+   CHECKLIST ML — app.js  (Parte 2/3)
+   Controlador principal: auth, navegação, tema, sidebar,
+   atalhos de teclado, busca global, sync, PWA
    ========================================================= */
 
 const App = {
@@ -10,6 +11,9 @@ const App = {
 
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
+    // Registrar Service Worker
+    this.registerSW();
+
     // Carregar configurações
     const data = core.getLocalDB();
     this.settings = data.settings;
@@ -31,9 +35,29 @@ const App = {
 
     // Listener do Firebase Auth
     auth.onAuthStateChanged(async (fbUser) => {
-      if (fbUser && !this.currentUser) {
-        // Usuário logado via Firebase mas não temos sessão local
-        await this.syncFirebaseUser(fbUser);
+      if (fbUser) {
+        if (!this.currentUser) {
+          await this.syncFirebaseUser(fbUser);
+        }
+        // Iniciar sync se não foi iniciado ainda
+        if (this.currentUser && !fireSync._syncing) {
+          fireSync.start(this.currentUser.uid || this.currentUser.id);
+        }
+      }
+    });
+
+    // Iniciar sync para usuário logado (mesmo local)
+    if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
+      fireSync.start(this.currentUser.uid || this.currentUser.id);
+    }
+
+    // Keyboard shortcuts
+    this.setupKeyboardShortcuts();
+
+    // Firebase Sync event listener
+    window.addEventListener('firebaseSync', (e) => {
+      if (e.detail.type === 'tasks') {
+        this.renderSidebar();
       }
     });
 
@@ -45,6 +69,113 @@ const App = {
     } else {
       this.showLogin();
     }
+  },
+
+  /* ========== SERVICE WORKER & PWA ========== */
+  registerSW() {
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
+        .then((reg) => {
+          console.log('✅ Service Worker registrado:', reg.scope);
+          
+          // Check for updates
+          reg.addEventListener('updatefound', () => {
+            const newWorker = reg.installing;
+            newWorker.addEventListener('statechange', () => {
+              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                core.toast('Nova versão disponível! Recarregue para atualizar.', 'info');
+              }
+            });
+          });
+
+          // Request push notification permission
+          this.requestPushPermission(reg);
+        })
+        .catch(err => console.warn('SW registration failed:', err));
+    }
+
+    // PWA install prompt
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      deferredPrompt = e;
+      
+      // Show install button after 5 seconds if not installed
+      setTimeout(() => {
+        if (deferredPrompt && !window.matchMedia('(display-mode: standalone)').matches) {
+          this.showInstallBanner();
+        }
+      }, 5000);
+    });
+
+    // Store for install
+    window._pwaInstall = () => {
+      if (deferredPrompt) {
+        deferredPrompt.prompt();
+        deferredPrompt.userChoice.then(result => {
+          console.log('PWA install:', result.outcome);
+          deferredPrompt = null;
+          const banner = document.getElementById('pwaBanner');
+          if (banner) banner.remove();
+        });
+      }
+    };
+  },
+
+  /* Request push notification permission */
+  requestPushPermission(swReg) {
+    if (!('Notification' in window) || !('PushManager' in window)) return;
+
+    // Check current permission
+    if (Notification.permission === 'granted') {
+      this.subscribeToPush(swReg);
+    } else if (Notification.permission !== 'denied') {
+      // Ask after user has been using the app for a while
+      setTimeout(() => {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            this.subscribeToPush(swReg);
+          }
+        });
+      }, 30000); // 30 seconds delay before asking
+    }
+  },
+
+  async subscribeToPush(swReg) {
+    try {
+      // Using VAPID would require a server, so we use a simple approach:
+      // Store that user wants notifications
+      localStorage.setItem('cl-push-enabled', 'true');
+      console.log('🔔 Push notifications enabled');
+
+      // Note: Full FCM integration requires a server-side component
+      // to send messages via Firebase Admin SDK. The service worker
+      // is already configured to receive and display push notifications.
+      // To send notifications, use Firebase Cloud Messaging API with
+      // the server key from Firebase Console > Cloud Messaging.
+
+    } catch (err) {
+      console.warn('Push subscription failed:', err);
+    }
+  },
+
+  showInstallBanner() {
+    const banner = document.createElement('div');
+    banner.id = 'pwaBanner';
+    banner.style.cssText = `
+      position:fixed;bottom:20px;left:50%;transform:translateX(-50%);z-index:9998;
+      background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:12px;
+      padding:14px 20px;display:flex;align-items:center;gap:12px;
+      box-shadow:0 10px 25px rgba(0,0,0,.15);font-size:14px;color:var(--text);
+      animation:slideUp .4s ease;
+    `;
+    banner.innerHTML = `
+      <span style="font-size:24px">📱</span>
+      <span style="flex:1"><b>Instalar app</b><br><small style="color:var(--muted)">Use como aplicativo no seu celular</small></span>
+      <button onclick="window._pwaInstall()" style="background:var(--primary);color:#fff;border:0;border-radius:8px;padding:8px 16px;font-weight:600;cursor:pointer;white-space:nowrap">Instalar</button>
+      <button onclick="this.parentElement.remove()" style="border:0;background:none;cursor:pointer;font-size:18px;color:var(--muted)">×</button>
+    `;
+    document.body.appendChild(banner);
   },
 
   /* ========== TELAS ========== */
@@ -112,7 +243,6 @@ const App = {
 
     // Tentar login Firebase primeiro
     try {
-      // Procurar email pelo username ou usar como email
       let email = username;
       if (!username.includes('@')) {
         const data = core.getLocalDB();
@@ -147,6 +277,7 @@ const App = {
           if (remember) core.setRememberedUser(this.currentUser);
           core.log('login', this.currentUser.id, 'Login local');
           this.showApp();
+          fireSync.start(this.currentUser.uid || this.currentUser.id);
           core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
           return;
         }
@@ -157,7 +288,6 @@ const App = {
   },
 
   async loginSuccess(fbUser, remember) {
-    // Buscar/criar perfil no Firestore
     const docRef = db.collection('users').doc(fbUser.uid);
     let doc = await docRef.get();
     let profile;
@@ -165,7 +295,6 @@ const App = {
     if (doc.exists) {
       profile = doc.data();
     } else {
-      // Primeiro login — criar perfil básico
       profile = {
         username: fbUser.email.split('@')[0],
         email: fbUser.email,
@@ -213,6 +342,10 @@ const App = {
 
     core.log('login', this.currentUser.id, 'Login Firebase');
     this.showApp();
+    
+    // Iniciar Firebase sync
+    fireSync.start(this.currentUser.uid || this.currentUser.id);
+    
     core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
   },
 
@@ -225,26 +358,20 @@ const App = {
     const password = document.getElementById('regPass').value;
     const passConfirm = document.getElementById('regPassConfirm').value;
 
-    // Validações
     if (username.length < 3) return this.showError('regError', 'Usuário deve ter pelo menos 3 caracteres');
     if (password !== passConfirm) return this.showError('regError', 'As senhas não coincidem');
 
     const validation = core.validatePassword(password);
     if (!validation.valid) return this.showError('regError', validation.errors.join(', '));
 
-    // Verificar se usuário já existe localmente
     const data = core.getLocalDB();
     if (data.users.find(u => u.username === username || u.user === username))
       return this.showError('regError', 'Este nome de usuário já está em uso');
 
     try {
-      // Criar no Firebase Auth
       const cred = await auth.createUserWithEmailAndPassword(email, password);
-
-      // Atualizar displayName
       await cred.user.updateProfile({ displayName: username });
 
-      // Criar perfil no Firestore
       const profile = {
         username, email,
         name: username, lastName: '', phone: '', address: '',
@@ -255,7 +382,6 @@ const App = {
       };
       await db.collection('users').doc(cred.user.uid).set(profile);
 
-      // Salvar localmente
       data.users.push({ id: cred.user.uid, ...profile });
       core.saveLocalDB(data);
 
@@ -303,6 +429,7 @@ const App = {
           };
           core.setCurrentUser(this.currentUser);
           this.showApp();
+          fireSync.start(this.currentUser.uid || this.currentUser.id);
         }
       }
     } catch (err) {
@@ -312,6 +439,7 @@ const App = {
 
   async handleLogout() {
     core.log('logout', this.currentUser?.id || 'unknown');
+    fireSync.stop();
     try { await auth.signOut(); } catch {}
     core.setCurrentUser(null);
     core.setRememberedUser(null);
@@ -324,7 +452,6 @@ const App = {
   navigate(page) {
     if (!this.currentUser) return;
 
-    // Verificar permissão de admin
     if (page === 'admin' && this.currentUser.role !== 'admin') {
       core.toast('Acesso restrito a administradores', 'warning');
       page = 'home';
@@ -334,21 +461,26 @@ const App = {
     const frame = document.getElementById('pageFrame');
     frame.src = `pages/${page}.html`;
 
-    // Atualizar breadcrumb
+    // Animação de transição
+    frame.style.opacity = '0';
+    frame.style.transform = 'translateY(6px)';
+    frame.style.transition = 'opacity .2s ease, transform .2s ease';
+    frame.onload = () => {
+      frame.style.opacity = '1';
+      frame.style.transform = 'none';
+      frame.onload = null;
+    };
+
     const items = this.settings.menuItems;
     const item = items.find(i => i.id === page);
     const icon = item ? item.icon : '📄';
     const label = item ? item.label : page;
     document.getElementById('breadcrumb').textContent = `${icon} ${label}`;
 
-    // Atualizar nav ativa
     document.querySelectorAll('.nav-item').forEach(n =>
       n.classList.toggle('active', n.dataset.page === page));
 
-    // Fechar sidebar no mobile
     this.closeSidebar();
-
-    // Hash URL
     history.replaceState({}, '', '#' + page);
   },
 
@@ -378,16 +510,12 @@ const App = {
     html += '</div>';
     nav.innerHTML = html;
 
-    // Aplicar configurações de marca
     document.getElementById('sidebarBrand').textContent = this.settings.brand;
     document.title = this.settings.brand;
 
-    // Logo customizado
     if (this.settings.logo) {
       document.getElementById('sidebarLogo').src = this.settings.logo;
     }
-
-    // Favicon customizado
     if (this.settings.favicon) {
       document.querySelector('link[rel="icon"]').href = this.settings.favicon;
     }
@@ -406,7 +534,6 @@ const App = {
     const u = this.currentUser;
     const initial = (u.name || u.username || '?')[0].toUpperCase();
 
-    // Sidebar
     const sidebarAvatar = document.getElementById('sidebarAvatar');
     if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
       sidebarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
@@ -418,7 +545,6 @@ const App = {
     document.getElementById('sidebarName').textContent = u.name || u.username;
     document.getElementById('sidebarRole').textContent = u.role;
 
-    // Topbar
     const topbarAvatar = document.getElementById('topbarAvatar');
     if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
       topbarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
@@ -429,7 +555,6 @@ const App = {
     }
     document.getElementById('topbarName').textContent = u.name || u.username;
 
-    // Botão de tema
     document.getElementById('btnTheme').textContent = this.settings.mode === 'dark' ? '☀️' : '🌙';
   },
 
@@ -452,7 +577,6 @@ const App = {
     this.settings.theme = theme;
     this.settings.mode = mode;
 
-    // Salvar
     const data = core.getLocalDB();
     data.settings.theme = theme;
     data.settings.mode = mode;
@@ -463,7 +587,6 @@ const App = {
     const newMode = this.settings.mode === 'dark' ? 'light' : 'dark';
     this.applyTheme(this.settings.theme, newMode);
     document.getElementById('btnTheme').textContent = newMode === 'dark' ? '☀️' : '🌙';
-    // Notificar iframes
     const frame = document.getElementById('pageFrame');
     if (frame.contentWindow) {
       frame.contentWindow.postMessage({ type: 'themeChanged', theme: this.settings.theme, mode: newMode }, '*');
@@ -478,13 +601,241 @@ const App = {
   /* ========== QUICK NEW TASK ========== */
   quickNewTask() {
     this.navigate('atividades');
-    // Avisar o iframe para abrir o modal
     setTimeout(() => {
       const frame = document.getElementById('pageFrame');
       if (frame.contentWindow) {
         frame.contentWindow.postMessage({ type: 'newTask' }, '*');
       }
     }, 500);
+  },
+
+  /* ========== KEYBOARD SHORTCUTS ========== */
+  setupKeyboardShortcuts() {
+    let gKeyPressed = false;
+    let gKeyTimeout = null;
+
+    document.addEventListener('keydown', (e) => {
+      // Ignorar se foco está em input/textarea
+      const tag = document.activeElement?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+
+      const key = e.key.toLowerCase();
+      const ctrl = e.ctrlKey || e.metaKey;
+
+      // Ctrl+K: Busca global
+      if (ctrl && key === 'k') {
+        e.preventDefault();
+        this.openGlobalSearch();
+        return;
+      }
+
+      // Ctrl+? ou apenas ?: Mostrar ajuda
+      if (key === '?' || (ctrl && key === '/')) {
+        e.preventDefault();
+        this.showShortcutHelp();
+        return;
+      }
+
+      // G + H: Ir para home
+      if (key === 'g') {
+        gKeyPressed = true;
+        clearTimeout(gKeyTimeout);
+        gKeyTimeout = setTimeout(() => { gKeyPressed = false; }, 1000);
+        return;
+      }
+
+      if (gKeyPressed && key === 'h') {
+        e.preventDefault();
+        gKeyPressed = false;
+        this.navigate('home');
+        return;
+      }
+
+      if (gKeyPressed && key === 'a') {
+        e.preventDefault();
+        gKeyPressed = false;
+        this.navigate('atividades');
+        return;
+      }
+
+      gKeyPressed = false;
+
+      // N: Nova atividade
+      if (key === 'n') {
+        e.preventDefault();
+        this.quickNewTask();
+        return;
+      }
+
+      // T: Alternar tema
+      if (key === 't') {
+        e.preventDefault();
+        this.toggleTheme();
+        return;
+      }
+    });
+  },
+
+  openGlobalSearch() {
+    const existing = document.getElementById('globalSearchModal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'globalSearchModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);
+      display:flex;align-items:flex-start;justify-content:center;padding-top:15vh;
+      animation:fadeIn .2s ease;
+    `;
+    overlay.onclick = function(e) { if (e.target === this) this.remove(); };
+
+    overlay.innerHTML = `
+      <div style="background:var(--card,#fff);border-radius:16px;width:min(600px,95vw);box-shadow:0 25px 60px rgba(0,0,0,.3);overflow:hidden;animation:slideUp .25s ease">
+        <div style="display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line,#E2E8F0)">
+          <span style="font-size:20px">🔍</span>
+          <input type="text" id="globalSearchInput" placeholder="Buscar em atividades, arquivos e notícias..."
+            style="flex:1;border:0;outline:none;font-size:16px;background:transparent;color:var(--text,#1E293B)"
+            oninput="App.performGlobalSearch(this.value)">
+          <kbd style="background:var(--bg-secondary,#F1F5F9);padding:4px 8px;border-radius:6px;font-size:11px;color:var(--muted)">ESC</kbd>
+        </div>
+        <div id="globalSearchResults" style="max-height:50vh;overflow-y:auto;padding:8px">
+          <div class="empty"><p>Digite para buscar...</p></div>
+        </div>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    setTimeout(() => {
+      const input = document.getElementById('globalSearchInput');
+      if (input) input.focus();
+    }, 100);
+
+    // Close on ESC
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        overlay.remove();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
+  },
+
+  performGlobalSearch(query) {
+    const results = document.getElementById('globalSearchResults');
+    if (!results) return;
+
+    const q = query.toLowerCase().trim();
+
+    if (q.length < 2) {
+      results.innerHTML = '<div class="empty"><p>Digite pelo menos 2 caracteres...</p></div>';
+      return;
+    }
+
+    const data = core.getLocalDB();
+    let html = '';
+
+    // Buscar em tasks
+    const matchedTasks = (data.tasks || []).filter(t =>
+      t.title.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)
+    ).slice(0, 5);
+
+    if (matchedTasks.length > 0) {
+      html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">✅ Atividades</div>';
+      matchedTasks.forEach(t => {
+        html += `<div class="search-result-item" onclick="App.navigate('atividades');document.getElementById('globalSearchModal').remove()"
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;cursor:pointer;transition:.15s">
+          <span>${t.status === 'finished' ? '✅' : '⬜'}</span>
+          <div style="flex:1"><b style="font-size:14px">${core.escapeHTML(t.title)}</b>
+          <small style="display:block;color:var(--muted)">${core.formatDate(t.date)} · ${core.escapeHTML(t.category || 'Geral')}</small></div>
+        </div>`;
+      });
+    }
+
+    // Buscar em arquivos
+    const matchedFiles = (data.files || []).filter(f =>
+      f.title.toLowerCase().includes(q) || (f.description || '').toLowerCase().includes(q)
+    ).slice(0, 3);
+
+    if (matchedFiles.length > 0) {
+      html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">📁 Arquivos</div>';
+      matchedFiles.forEach(f => {
+        html += `<a href="${f.url}" target="_blank" class="search-result-item"
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;cursor:pointer;text-decoration:none;color:inherit;transition:.15s">
+          <span>📄</span><div style="flex:1"><b style="font-size:14px">${core.escapeHTML(f.title)}</b>
+          <small style="display:block;color:var(--muted)">${core.escapeHTML(f.category || 'Geral')}</small></div></a>`;
+      });
+    }
+
+    // Buscar em posts
+    const matchedPosts = (data.posts || []).filter(p =>
+      p.title.toLowerCase().includes(q) || (p.body || '').toLowerCase().includes(q)
+    ).slice(0, 3);
+
+    if (matchedPosts.length > 0) {
+      html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">📰 Notícias</div>';
+      matchedPosts.forEach(p => {
+        html += `<div class="search-result-item"
+          style="display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;cursor:pointer;transition:.15s">
+          <span>📰</span><div style="flex:1"><b style="font-size:14px">${core.escapeHTML(p.title)}</b>
+          <small style="display:block;color:var(--muted)">${p.category || 'Geral'} · ${core.formatDateTime(p.publishedAt)}</small></div></div>`;
+      });
+    }
+
+    if (!html) {
+      html = '<div class="empty"><div class="icon">🔍</div><p>Nenhum resultado para <b>' + core.escapeHTML(q) + '</b></p></div>';
+    }
+
+    results.innerHTML = html;
+  },
+
+  showShortcutHelp() {
+    const existing = document.getElementById('shortcutHelpModal');
+    if (existing) existing.remove();
+
+    const overlay = document.createElement('div');
+    overlay.id = 'shortcutHelpModal';
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:10000;background:rgba(0,0,0,.6);
+      display:flex;align-items:center;justify-content:center;
+      animation:fadeIn .2s ease;
+    `;
+    overlay.onclick = function(e) { if (e.target === this) this.remove(); };
+
+    const shortcuts = [
+      ['Ctrl + K', 'Busca global', '🔍'],
+      ['N', 'Nova atividade', '✅'],
+      ['T', 'Alternar tema claro/escuro', '🌙'],
+      ['G H', 'Ir para Home', '📊'],
+      ['G A', 'Ir para Atividades', '✅'],
+      ['?', 'Mostrar esta ajuda', '❓'],
+      ['ESC', 'Fechar modais', '✕'],
+    ];
+
+    overlay.innerHTML = `
+      <div style="background:var(--card,#fff);border-radius:16px;width:min(440px,95vw);box-shadow:0 25px 60px rgba(0,0,0,.3);overflow:hidden;animation:slideUp .25s ease;padding:28px">
+        <h2 style="margin:0 0 4px;font-size:20px;color:var(--text)">⌨️ Atalhos de teclado</h2>
+        <p style="color:var(--muted);margin-bottom:20px">Dicas para usar o Checklist ML mais rápido</p>
+        <div style="display:grid;gap:8px">
+          ${shortcuts.map(s => `
+            <div style="display:flex;align-items:center;gap:12px;padding:8px 12px;border-radius:8px;background:var(--bg-secondary,#F1F5F9)">
+              <kbd style="background:var(--card,#fff);border:1px solid var(--line);padding:4px 10px;border-radius:6px;font-size:13px;font-weight:700;font-family:monospace;min-width:60px;text-align:center;color:var(--text)">${s[0]}</kbd>
+              <span style="font-size:18px;width:28px;text-align:center">${s[2]}</span>
+              <span style="color:var(--text-secondary)">${s[1]}</span>
+            </div>
+          `).join('')}
+        </div>
+        <button onclick="this.closest('#shortcutHelpModal').remove()" class="btn btn-primary" style="width:100%;margin-top:20px">Entendi!</button>
+      </div>
+    `;
+
+    document.body.appendChild(overlay);
+
+    // ESC to close
+    const escHandler = (e) => {
+      if (e.key === 'Escape') { overlay.remove(); document.removeEventListener('keydown', escHandler); }
+    };
+    document.addEventListener('keydown', escHandler);
   },
 
   /* ========== MENSAGENS DOS IFRAMES ========== */
@@ -513,11 +864,16 @@ const App = {
         this.closeModal();
         break;
       case 'getUser':
-        // iframe pedindo dados do usuário
         if (e.source) e.source.postMessage({ type: 'userData', user: this.currentUser }, '*');
         break;
       case 'updateBadge':
         this.renderSidebar();
+        break;
+      case 'firebaseSync':
+        // Forward to fireSync
+        if (msg.collection && msg.data) {
+          fireSync.pushDocument(msg.collection, msg.id, msg.data);
+        }
         break;
     }
   },

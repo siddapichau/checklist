@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <title>Relatórios</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>RELATÓRIOS</small>
+    <h1>📊 Relatórios e análises</h1>
+    <p>Visualize dados de produtividade, status e tendências</p>
+  </div>
+</div>
+
+<!-- MÉTRICAS -->
+<div class="metrics" id="metrics"></div>
+
+<!-- GRÁFICOS -->
+<div class="cols">
+  <!-- Pizza: Atividades por status -->
+  <div class="card">
+    <h2>🍩 Atividades por status</h2>
+    <canvas id="chartStatus" height="260"></canvas>
+  </div>
+
+  <!-- Barras: Atividades por categoria -->
+  <div class="card">
+    <h2>📊 Atividades por categoria</h2>
+    <canvas id="chartCategory" height="260"></canvas>
+  </div>
+</div>
+
+<div class="cols">
+  <!-- Linha: Produtividade semanal -->
+  <div class="card">
+    <h2>📈 Produtividade semanal</h2>
+    <canvas id="chartWeekly" height="260"></canvas>
+  </div>
+
+  <!-- Tempo médio de conclusão -->
+  <div class="card">
+    <h2>⏱️ Tempo médio de conclusão</h2>
+    <div id="avgTime"></div>
+    <canvas id="chartTime" height="200" style="margin-top:12px"></canvas>
+  </div>
+</div>
+
+<!-- ATIVIDADES POR PRIORIDADE -->
+<div class="card">
+  <h2>🎯 Atividades por prioridade</h2>
+  <canvas id="chartPriority" height="100"></canvas>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+(function() {
+  const data = page.getDB();
+  const tasks = data.tasks || [];
+  const today = core.today();
+  const now = new Date();
+  const user = page.getUser();
+
+  // ---------- MÉTRICAS ----------
+  const total = tasks.length;
+  const finished = tasks.filter(t => t.status === 'finished').length;
+  const pending = tasks.filter(t => t.status === 'pending').length;
+  const analyzing = tasks.filter(t => t.status === 'analyzing').length;
+  const notdone = tasks.filter(t => t.status === 'notdone').length;
+  const late = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  const pct = total > 0 ? Math.round(finished / total * 100) : 0;
+
+  // Calcula tempo médio de conclusão
+  let avgHours = 0;
+  let completedWithTime = 0;
+  tasks.forEach(t => {
+    if (t.status === 'finished' && t.createdAt && t.finishedAt) {
+      const created = new Date(t.createdAt);
+      const finished = new Date(t.finishedAt);
+      const diff = (finished - created) / (1000 * 60 * 60); // horas
+      if (diff > 0 && diff < 720) { // ignorar > 30 dias
+        avgHours += diff;
+        completedWithTime++;
+      }
+    }
+  });
+  avgHours = completedWithTime > 0 ? avgHours / completedWithTime : 0;
+
+  document.getElementById('metrics').innerHTML = `
+    <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total</small><strong>${total}</strong></div></div>
+    <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong></div></div>
+    <div class="metric"><div class="icon-box yellow">⏳</div><div class="data"><small>Pendentes</small><strong>${pending}</strong></div></div>
+    <div class="metric"><div class="icon-box red">⚠️</div><div class="data"><small>Atrasadas</small><strong>${late.length}</strong></div></div>
+    <div class="metric"><div class="icon-box purple">⏱️</div><div class="data"><small>Tempo médio</small><strong>${avgHours.toFixed(1)}h</strong></div></div>
+    <div class="metric"><div class="icon-box green">📈</div><div class="data"><small>Conclusão</small><strong>${pct}%</strong></div></div>
+  `;
+
+  // ---------- CORES ----------
+  const colors = {
+    finished: '#10B981',
+    pending: '#F59E0B',
+    analyzing: '#3B82F6',
+    notdone: '#EF4444',
+  };
+
+  const colorsLight = {
+    finished: '#D1FAE5',
+    pending: '#FEF3C7',
+    analyzing: '#DBEAFE',
+    notdone: '#FEE2E2',
+  };
+
+  // ---------- CHART: PIZZA STATUS ----------
+  new Chart(document.getElementById('chartStatus'), {
+    type: 'doughnut',
+    data: {
+      labels: ['Pendentes', 'Analisando', 'Finalizadas', 'Não realizadas'],
+      datasets: [{
+        data: [pending, analyzing, finished, notdone],
+        backgroundColor: [colors.pending, colors.analyzing, colors.finished, colors.notdone],
+        borderColor: '#fff',
+        borderWidth: 2,
+        hoverBorderWidth: 3,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'bottom',
+          labels: { padding: 20, usePointStyle: true, pointStyleWidth: 10 }
+        }
+      },
+      animation: { animateScale: true, animateRotate: true, duration: 1200 }
+    }
+  });
+
+  // ---------- CHART: BARRAS CATEGORIA ----------
+  const cats = data.settings.categories || [];
+  const catData = {};
+  cats.forEach(c => { catData[c] = 0; });
+  tasks.forEach(t => {
+    if (t.category && catData[t.category] !== undefined) catData[t.category]++;
+  });
+
+  const catLabels = cats.filter(c => catData[c] > 0);
+  const catValues = catLabels.map(c => catData[c]);
+
+  const barColors = catLabels.map((_, i) => {
+    const palette = ['#2563EB','#06B6D4','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#F97316'];
+    return palette[i % palette.length];
+  });
+
+  new Chart(document.getElementById('chartCategory'), {
+    type: 'bar',
+    data: {
+      labels: catLabels,
+      datasets: [{
+        label: 'Atividades',
+        data: catValues,
+        backgroundColor: barColors.map(c => c + '99'),
+        borderColor: barColors,
+        borderWidth: 2,
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        x: { grid: { display: false } }
+      },
+      animation: { duration: 1000 }
+    }
+  });
+
+  // ---------- CHART: LINHA PRODUTIVIDADE SEMANAL ----------
+  const weekDays = [];
+  const weekDoneData = [];
+  const weekTotalData = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(d.getDate() - i);
+    const ds = d.toISOString().slice(0, 10);
+    const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
+    weekDays.push(dayName);
+
+    const dayTasks = tasks.filter(t => t.date === ds);
+    weekDoneData.push(dayTasks.filter(t => t.status === 'finished').length);
+    weekTotalData.push(dayTasks.length);
+  }
+
+  new Chart(document.getElementById('chartWeekly'), {
+    type: 'line',
+    data: {
+      labels: weekDays,
+      datasets: [
+        {
+          label: 'Concluídas',
+          data: weekDoneData,
+          borderColor: '#10B981',
+          backgroundColor: 'rgba(16,185,129,.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointBackgroundColor: '#10B981',
+          borderWidth: 3,
+        },
+        {
+          label: 'Total',
+          data: weekTotalData,
+          borderColor: '#3B82F6',
+          backgroundColor: 'rgba(59,130,246,.05)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: '#3B82F6',
+          borderWidth: 2,
+          borderDash: [5, 5],
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true } }
+      },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        x: { grid: { display: false } }
+      },
+      animation: { duration: 1200 }
+    }
+  });
+
+  // ---------- CHART: TEMPO DE CONCLUSÃO ----------
+  // Agrupar por categoria
+  const timeByCat = {};
+  const countByCat = {};
+  tasks.forEach(t => {
+    if (t.status === 'finished' && t.createdAt && t.finishedAt && t.category) {
+      const created = new Date(t.createdAt);
+      const finished = new Date(t.finishedAt);
+      const diff = (finished - created) / (1000 * 60 * 60);
+      if (diff > 0 && diff < 720) {
+        timeByCat[t.category] = (timeByCat[t.category] || 0) + diff;
+        countByCat[t.category] = (countByCat[t.category] || 0) + 1;
+      }
+    }
+  });
+
+  const timeLabels = [];
+  const timeValues = [];
+  Object.keys(timeByCat).forEach(cat => {
+    timeLabels.push(cat);
+    timeValues.push(Math.round((timeByCat[cat] / countByCat[cat]) * 10) / 10);
+  });
+
+  // Mostrar tabela de tempos
+  let timeHtml = '<div style="overflow-x:auto"><table><thead><tr><th>Categoria</th><th>Atividades</th><th>Tempo médio</th></tr></thead><tbody>';
+  timeLabels.forEach((cat, i) => {
+    const h = timeValues[i];
+    const display = h >= 24 ? `${(h/24).toFixed(1)} dias` : `${h}h`;
+    timeHtml += `<tr><td><b>${cat}</b></td><td>${countByCat[cat]}</td><td>${display}</td></tr>`;
+  });
+  timeHtml += '</tbody></table></div>';
+  document.getElementById('avgTime').innerHTML = timeHtml || '<div class="empty"><p>Sem dados de conclusão</p></div>';
+
+  if (timeLabels.length > 0) {
+    new Chart(document.getElementById('chartTime'), {
+      type: 'bar',
+      data: {
+        labels: timeLabels,
+        datasets: [{
+          label: 'Horas médias',
+          data: timeValues,
+          backgroundColor: timeValues.map(v => v < 24 ? '#10B98199' : v < 72 ? '#F59E0B99' : '#EF444499'),
+          borderColor: timeValues.map(v => v < 24 ? '#10B981' : v < 72 ? '#F59E0B' : '#EF4444'),
+          borderWidth: 2,
+          borderRadius: 6,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        plugins: { legend: { display: false } },
+        scales: {
+          x: { beginAtZero: true, title: { display: true, text: 'Horas' }, grid: { color: 'var(--line,#E2E8F0)' } },
+          y: { grid: { display: false } }
+        }
+      }
+    });
+  }
+
+  // ---------- CHART: PRIORIDADE ----------
+  const prioCount = { urgent: 0, high: 0, medium: 0, low: 0 };
+  tasks.forEach(t => {
+    if (prioCount[t.priority] !== undefined) prioCount[t.priority]++;
+  });
+
+  new Chart(document.getElementById('chartPriority'), {
+    type: 'bar',
+    data: {
+      labels: ['Urgente 🚨', 'Alta 🔴', 'Média 🟡', 'Baixa 🟢'],
+      datasets: [{
+        label: 'Atividades',
+        data: [prioCount.urgent, prioCount.high, prioCount.medium, prioCount.low],
+        backgroundColor: ['#EF444499','#F9731699','#F59E0B99','#10B98199'],
+        borderColor: ['#EF4444','#F97316','#F59E0B','#10B981'],
+        borderWidth: 2,
+        borderRadius: 8,
+        borderSkipped: false,
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: true,
+      plugins: { legend: { display: false } },
+      scales: {
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        x: { grid: { display: false } }
+      },
+      animation: { duration: 800 }
+    }
+  });
+
+})();
+</script>
+</body>
+</html>

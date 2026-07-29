@@ -15,7 +15,27 @@
     <p>Acompanhe seu turno e não deixe nada para trás.</p>
   </div>
   <button class="btn btn-primary" onclick="page.navigate('atividades')">＋ Nova atividade</button>
+  <button class="btn btn-secondary" onclick="page.navigate('relatorios')" style="margin-left:8px">📊 Relatórios</button>
 </div>
+
+<!-- SKELETON LOADING -->
+<div id="skeletonLoad" style="display:block">
+  <div class="metrics" style="margin-bottom:24px">
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+    <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
+  </div>
+  <div class="cols">
+    <div class="card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+    <div class="card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
+  </div>
+</div>
+
+<!-- CONTEÚDO REAL (oculto até carregar) -->
+<div id="realContent" style="display:none">
 
 <!-- MÉTRICAS -->
 <div class="metrics" id="metrics"></div>
@@ -49,6 +69,8 @@
   <h2>📰 Notícias e comunicados</h2>
   <div id="postsList"></div>
 </div>
+
+</div><!-- /#realContent -->
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
@@ -219,6 +241,12 @@ function finishTask(id) {
     window.parent.postMessage({ type: 'updateBadge' }, '*');
   }
 }
+
+// Show real content, hide skeleton
+setTimeout(() => {
+  document.getElementById('skeletonLoad').style.display = 'none';
+  document.getElementById('realContent').style.display = 'block';
+}, 300);
 </script>
 </body>
 </html>

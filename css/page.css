@@ -163,3 +163,113 @@ tr:hover td{background:var(--bg-secondary,#F8FAFC)}
   .metrics{grid-template-columns:1fr 1fr}
   .page-header h1{font-size:20px}
 }
+
+/* ---------- ANIMAÇÕES ---------- */
+
+/* Metric cards hover */
+.metric {
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.metric:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0,0,0,.08);
+}
+
+/* Page load animations */
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.page-header { animation: fadeInUp .4s ease; }
+.metrics .metric:nth-child(1) { animation: fadeInUp .4s ease .05s backwards; }
+.metrics .metric:nth-child(2) { animation: fadeInUp .4s ease .1s backwards; }
+.metrics .metric:nth-child(3) { animation: fadeInUp .4s ease .15s backwards; }
+.metrics .metric:nth-child(4) { animation: fadeInUp .4s ease .2s backwards; }
+.metrics .metric:nth-child(5) { animation: fadeInUp .4s ease .25s backwards; }
+.metrics .metric:nth-child(6) { animation: fadeInUp .4s ease .3s backwards; }
+
+.card:nth-child(2) { animation: fadeInUp .4s ease .15s backwards; }
+.card:nth-child(3) { animation: fadeInUp .4s ease .2s backwards; }
+.card:nth-child(4) { animation: fadeInUp .4s ease .25s backwards; }
+.card:nth-child(5) { animation: fadeInUp .4s ease .3s backwards; }
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-secondary,#F1F5F9) 25%, var(--line,#E2E8F0) 50%, var(--bg-secondary,#F1F5F9) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-text { height: 14px; margin-bottom: 8px; width: 100%; }
+.skeleton-text.short { width: 60%; }
+.skeleton-title { height: 20px; margin-bottom: 12px; width: 80%; }
+.skeleton-card { height: 80px; margin-bottom: 10px; border-radius: 8px; }
+
+/* Button micro-interactions */
+.btn:active, .btn-primary:active, .btn-danger:active {
+  transform: scale(.97);
+}
+
+/* Modal entry */
+.modal-overlay {
+  animation: fadeIn .2s ease;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.modal {
+  animation: slideUp .3s ease;
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Tab transition */
+.tab-content {
+  animation: fadeInUp .3s ease;
+}
+.tab-content.active {
+  animation: fadeInUp .35s ease;
+}
+
+/* Item stagger delay */
+.item:nth-child(1) { animation-delay: 0s; }
+.item:nth-child(2) { animation-delay: .03s; }
+.item:nth-child(3) { animation-delay: .06s; }
+.item:nth-child(4) { animation-delay: .09s; }
+.item:nth-child(5) { animation-delay: .12s; }
+.item:nth-child(6) { animation-delay: .15s; }
+.item:nth-child(7) { animation-delay: .18s; }
+.item:nth-child(8) { animation-delay: .21s; }
+.item:nth-child(9) { animation-delay: .24s; }
+.item:nth-child(10) { animation-delay: .27s; }
+
+/* Chart canvas transitions */
+canvas {
+  transition: opacity .4s ease;
+}
+
+/* Hover for links in items */
+.item .item-info b:hover {
+  color: var(--primary);
+}
+
+/* Focus visible */
+button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--primary,#2563EB);
+  outline-offset: 2px;
+}
+
+/* Smooth progress bar */
+.progress-bar {
+  transition: width .7s cubic-bezier(.4,0,.2,1);
+}
