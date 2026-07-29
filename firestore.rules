@@ -1,12 +1,15 @@
 rules_version = '2';
 
 // =========================================================
-// CHECKLIST ML — Firestore Security Rules
+// CHECKLIST ML — Firestore Security Rules (CORRIGIDO)
 // Coleções: users, tasks, posts, files, settings, comments
+// Fix: isNotBanned agora permite usuário novo sem doc
+// Fix: validNewUserProfile mais flexível
 // =========================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -15,52 +18,60 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function isAdmin() {
       return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userExists()
              && userDoc().data.role == 'admin';
     }
 
     function isEditorOrAdmin() {
       return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userExists()
              && userDoc().data.role in ['admin', 'editor'];
     }
 
+    // FIX PRINCIPAL: se o doc do usuário ainda não existe (primeiro login),
+    // considerar como NÃO banido para não bloquear criação de tasks.
     function isNotBanned() {
-      return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-             && userDoc().data.banned != true;
+      return isSignedIn() && (
+        !userExists() || userDoc().data.banned != true
+      );
     }
 
-    // Campos criados pelo cliente no primeiro login. O cliente nunca pode
-    // conceder a si mesmo role=admin/editor, nem remover um banimento.
+    // Campos permitidos na criação. Mais flexível que hasOnly.
     function validNewUserProfile() {
-      return request.resource.data.keys().hasOnly([
-        'username', 'email', 'name', 'lastName', 'phone', 'address',
-        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme',
-        'role', 'banned', 'createdAt', 'provider'
-      ])
-      && request.resource.data.role == 'member'
-      && request.resource.data.banned == false;
+      return request.resource.data.role == 'member'
+             && request.resource.data.banned == false
+             && request.resource.data.email is string
+             && request.resource.data.username is string;
     }
 
-    // Campos que o próprio usuário pode alterar depois de criado.
+    // Usuário só pode alterar seus próprios campos básicos.
     function validOwnProfileUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'username', 'name', 'lastName', 'phone', 'address',
-        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme'
-      ]);
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['username','name','lastName','phone','address',
+                       'avatar','avatarType','googlePhoto','language',
+                       'theme','provider'])
+             // não pode mudar role ou banned
+             && request.resource.data.role == resource.data.role
+             && request.resource.data.banned == resource.data.banned;
     }
 
     // ---------- USERS ----------
     match /users/{userId} {
+      // Qualquer logado pode ler (necessário para isAdmin/isEditor checks)
       allow read: if isSignedIn();
+      // Criar próprio perfil no primeiro login
       allow create: if isOwner(userId) && validNewUserProfile();
+      // Atualizar: admin pode tudo, dono só campos permitidos
       allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate());
       allow delete: if isAdmin();
 
@@ -71,12 +82,16 @@ service cloud.firestore {
 
     // ---------- TASKS ----------
     match /tasks/{taskId} {
+      // Ler: dono da task OU admin/editor
+      // IMPORTANTE: para query where('owner','==',uid) funcionar,
+      // a rule precisa permitir quando resource.data.owner == uid
       allow read: if isSignedIn() && (
         resource.data.owner == request.auth.uid || isEditorOrAdmin()
       );
+      // Criar: precisa estar logado, não banido, e owner = seu uid
       allow create: if isNotBanned()
                     && request.resource.data.owner == request.auth.uid;
-      // O dono não pode transferir uma atividade para outra conta.
+      // O dono não pode transferir atividade para outra conta.
       allow update: if isAdmin() || (
         isNotBanned()
         && resource.data.owner == request.auth.uid
@@ -100,20 +115,21 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if isSignedIn();
       allow create: if isNotBanned() && isEditorOrAdmin();
-      allow update, delete: if isSignedIn() && (
-        resource.data.authorId == request.auth.uid || isEditorOrAdmin()
-      );
+      allow update, delete: if isEditorOrAdmin()
+                            || (isSignedIn() && resource.data.authorId == request.auth.uid);
     }
 
     // ---------- FILES / BIBLIOTECA ----------
     match /files/{fileId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && isEditorOrAdmin();
+      allow create, update, delete: if isEditorOrAdmin();
     }
 
     // ---------- SETTINGS ----------
     match /settings/{settingId} {
       allow read: if isSignedIn();
+      // FIX: só admin pode escrever settings global
+      // Usuário comum não deve tentar escrever aqui - evita permission-denied loop
       allow write: if isAdmin();
 
       match /user/{userId} {

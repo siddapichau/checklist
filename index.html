@@ -26,8 +26,35 @@
 <div class="loading-screen" id="loadingScreen">
   <img src="assets/favicon.svg" alt="" width="56" height="56">
   <div class="spinner"></div>
-  <p class="text-muted">Carregando...</p>
+  <p class="text-muted" id="loadingText">Carregando...</p>
+  <div id="loadingRecovery" class="hidden" style="margin-top:20px;text-align:center;max-width:300px">
+    <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Parece que o carregamento está demorando...</p>
+    <button onclick="localStorage.clear(); sessionStorage.clear(); indexedDB.deleteDatabase('firebaseLocalStorageDb'); navigator.serviceWorker.getRegistrations().then(r=>r.forEach(reg=>reg.unregister())); setTimeout(()=>location.reload(),500)" style="background:#EF4444;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600">🧹 Limpar cache e recarregar</button>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px">Use se a página travou no login Google</p>
+  </div>
 </div>
+<script>
+// Se loading ficar mais de 5s, mostrar botão de recuperação (evita travamento total)
+setTimeout(function(){
+  var loading = document.getElementById('loadingScreen');
+  var recovery = document.getElementById('loadingRecovery');
+  var loadingText = document.getElementById('loadingText');
+  if (loading && !loading.classList.contains('hidden')) {
+    if (recovery) recovery.classList.remove('hidden');
+    if (loadingText) loadingText.textContent = 'Ainda carregando...';
+    console.warn('Loading demorou >5s, mostrando recuperação');
+  }
+}, 5000);
+// ESC sempre libera a página travada
+document.addEventListener('keydown', function(e){
+  if (e.key === 'Escape') {
+    var loading = document.getElementById('loadingScreen');
+    if (loading) loading.classList.add('hidden');
+    var login = document.getElementById('loginScreen');
+    if (login) login.classList.remove('hidden');
+  }
+});
+</script>
 
 <!-- ========== TELA DE LOGIN / CADASTRO ========== -->
 <div class="login-screen hidden" id="loginScreen">

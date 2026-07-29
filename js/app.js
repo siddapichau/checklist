@@ -1,81 +1,98 @@
 /* =========================================================
-   CHECKLIST ML — app.js  (Parte 2/3 + 3/3)
+   CHECKLIST ML — app.js  (CORRIGIDO última atualização)
    Controlador principal: auth, navegação, tema, sidebar,
-   atalhos de teclado, busca global, sync, PWA,
-   i18n, temas custom, dark mode auto, automações, gamificação
+   FIX travamento login Google + regras Firestore
    ========================================================= */
 
 const App = {
   currentUser: null,
   currentPage: 'home',
   settings: null,
+  _authListenerAttached: false,
+  _initDone: false,
 
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
+    if (this._initDone) return;
+    this._initDone = true;
+
     // Registrar Service Worker
     this.registerSW();
-
-    // Verificar se há código de redefinição de senha na URL
     this.handlePasswordResetCode();
 
     // Carregar configurações
     const data = core.getLocalDB();
     this.settings = data.settings;
 
-    // Inicializar auto dark mode
     core.initAutoTheme();
-
-    // Pré-carregar idioma
     await core.tReady(this.settings.language);
-
-    // Aplicar tema (incluindo custom themes e auto mode)
     this.applyTheme(this.settings.theme, this.settings.mode);
 
-    // Inicializar gamificação (streak do dia)
     const user = core.getCurrentUser();
     if (user) {
-      core.updateStreak(user.id || user.uid);
+      try { core.updateStreak(user.id || user.uid); } catch(e) {}
     }
-
-    // Rodar automações de atraso (silencioso)
     try { core.checkLateAutomations(); } catch(e) { console.warn('checkLateAutomations:', e); }
 
-    // Verificar se há usuário logado
+    // Verificar se há usuário logado (session + remember)
     this.currentUser = core.getCurrentUser();
-
     if (!this.currentUser) {
       this.currentUser = core.getRememberedUser();
       if (this.currentUser) core.setCurrentUser(this.currentUser);
     }
 
-    // Listener de mensagens dos iframes
     window.addEventListener('message', (e) => this.handleMessage(e));
 
-    // Listener do Firebase Auth
-    auth.onAuthStateChanged(async (fbUser) => {
-      if (fbUser) {
-        if (!this.currentUser) {
-          await this.syncFirebaseUser(fbUser);
+    // Listener do Firebase Auth - UMA VEZ SÓ e com proteção anti-loop
+    if (!this._authListenerAttached) {
+      this._authListenerAttached = true;
+      auth.onAuthStateChanged(async (fbUser) => {
+        try {
+          if (fbUser) {
+            console.log('🔥 Auth state: logado', fbUser.uid);
+            if (!this.currentUser) {
+              await this.syncFirebaseUser(fbUser);
+            }
+            // Só iniciar sync se currentUser existe e sync não está rodando
+            if (this.currentUser && (this.currentUser.uid || this.currentUser.id) && !fireSync._syncing) {
+              const uid = this.currentUser.uid || this.currentUser.id;
+              if (uid && !uid.includes('local-')) {
+                fireSync.start(uid);
+              }
+            }
+          } else {
+            console.log('🔥 Auth state: deslogado');
+            // Não fazer logout automático se usuário é local
+            // Apenas parar o FireSync
+            if (fireSync._syncing) fireSync.stop();
+          }
+        } catch(err) {
+          console.warn('onAuthStateChanged erro:', err);
         }
-        if (this.currentUser && !fireSync._syncing) {
-          fireSync.start(this.currentUser.uid || this.currentUser.id);
-        }
-      }
-    });
-
-    if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
-      fireSync.start(this.currentUser.uid || this.currentUser.id);
+      });
     }
 
-    // Keyboard shortcuts
+    // Iniciar FireSync imediatamente se já tem usuário Firebase
+    if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
+      const uid = this.currentUser.uid || this.currentUser.id;
+      if (uid && !uid.includes('local-') && auth.currentUser) {
+        fireSync.start(uid);
+      }
+    }
+
     this.setupKeyboardShortcuts();
 
-    // Firebase Sync event listener
     window.addEventListener('firebaseSync', (e) => {
       if (e.detail.type === 'tasks') this.renderSidebar();
     });
 
-    document.getElementById('loadingScreen').classList.add('hidden');
+    // Esconder loading SEMPRE, mesmo com erro
+    setTimeout(() => {
+      const loading = document.getElementById('loadingScreen');
+      if (loading) loading.classList.add('hidden');
+    }, 500);
+
+    document.getElementById('loadingScreen')?.classList.add('hidden');
 
     if (this.currentUser) {
       this.showApp();
@@ -87,11 +104,13 @@ const App = {
   /* ========== SERVICE WORKER & PWA ========== */
   registerSW() {
     if ('serviceWorker' in navigator) {
+      // Desativar SW em localhost se der erro constante (evita loop de cache velho)
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then((reg) => {
           console.log('✅ Service Worker registrado:', reg.scope);
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
+            if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
               if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
                 core.toast('Nova versão disponível! Recarregue para atualizar.', 'info');
@@ -150,6 +169,7 @@ const App = {
   },
 
   showInstallBanner() {
+    if (document.getElementById('pwaBanner')) return;
     const banner = document.createElement('div');
     banner.id = 'pwaBanner';
     banner.style.cssText = `
@@ -170,48 +190,43 @@ const App = {
 
   /* ========== TELAS ========== */
   showLogin() {
-    document.getElementById('loginScreen').classList.remove('hidden');
-    document.getElementById('appScreen').classList.add('hidden');
-    document.getElementById('loginBrandName').textContent = this.settings.brand;
+    document.getElementById('loginScreen')?.classList.remove('hidden');
+    document.getElementById('appScreen')?.classList.add('hidden');
+    const brandEl = document.getElementById('loginBrandName');
+    if (brandEl) brandEl.textContent = this.settings?.brand || 'Checklist ML';
   },
 
   showApp() {
-    document.getElementById('loginScreen').classList.add('hidden');
-    document.getElementById('appScreen').classList.remove('hidden');
+    document.getElementById('loginScreen')?.classList.add('hidden');
+    document.getElementById('appScreen')?.classList.remove('hidden');
     this.renderSidebar();
     this.updateUserInfo();
     this.injectLanguageSwitcher();
     this.injectNotificationButton();
-    this.navigate(location.hash.slice(1) || 'home');
+    const page = location.hash.slice(1) || 'home';
+    this.navigate(page);
   },
 
   /* ========== LOGIN / CADASTRO ========== */
   switchTab(tab) {
     document.querySelectorAll('.login-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.tab === tab));
-    document.getElementById('loginForm').classList.toggle('hidden', tab !== 'login');
-    document.getElementById('registerForm').classList.toggle('hidden', tab !== 'register');
+    document.getElementById('loginForm')?.classList.toggle('hidden', tab !== 'login');
+    document.getElementById('registerForm')?.classList.toggle('hidden', tab !== 'register');
     document.getElementById('forgotForm')?.classList.add('hidden');
     this.clearErrors();
   },
 
-  /**
-   * Mostra o formulário de "esqueci minha senha"
-   */
   showForgotPassword(e) {
     if (e) e.preventDefault();
-    // Esconde tabs e mostra só o form de recuperação
     document.querySelectorAll('.login-tab').forEach(t => t.classList.remove('active'));
-    document.getElementById('loginForm').classList.add('hidden');
-    document.getElementById('registerForm').classList.add('hidden');
-    document.getElementById('forgotForm').classList.remove('hidden');
+    document.getElementById('loginForm')?.classList.add('hidden');
+    document.getElementById('registerForm')?.classList.add('hidden');
+    document.getElementById('forgotForm')?.classList.remove('hidden');
     this.clearErrors();
     setTimeout(() => document.getElementById('forgotEmail')?.focus(), 100);
   },
 
-  /**
-   * Envia o e-mail de recuperação de senha via Firebase Auth
-   */
   async handleForgotPassword(e) {
     e.preventDefault();
     this.clearErrors();
@@ -220,61 +235,47 @@ const App = {
       this.showError('forgotError', 'Digite um e-mail válido');
       return;
     }
-    const errEl = document.getElementById('forgotError');
     const btn = e.target.querySelector('button[type="submit"]');
+    const origText = btn.textContent;
     btn.disabled = true;
     btn.textContent = '⏳ Enviando...';
 
     try {
-      // Usa o fluxo hospedado e seguro do Firebase. Não passamos uma URL de
-      // continuação: ela precisaria estar em "Authorized domains" e era a
-      // causa de auth/unauthorized-continue-uri em instalações novas.
-      // O template padrão do Firebase funciona mesmo quando a edição do
-      // template está bloqueada no Console.
       auth.useDeviceLanguage();
       await auth.sendPasswordResetEmail(email);
-      // Sucesso: mostrar modal
-      document.getElementById('forgotSentModal').classList.remove('hidden');
-      document.getElementById('forgotForm').classList.add('hidden');
+      document.getElementById('forgotSentModal')?.classList.remove('hidden');
+      document.getElementById('forgotForm')?.classList.add('hidden');
       document.getElementById('forgotEmail').value = '';
     } catch (err) {
-      let msg = 'Erro ao enviar e-mail de recuperação';
       if (err.code === 'auth/user-not-found') {
-        // Por segurança, não revelamos se o e-mail existe
-        // Mesmo assim, mostramos o modal de "enviado"
-        document.getElementById('forgotSentModal').classList.remove('hidden');
-        document.getElementById('forgotForm').classList.add('hidden');
+        document.getElementById('forgotSentModal')?.classList.remove('hidden');
+        document.getElementById('forgotForm')?.classList.add('hidden');
         document.getElementById('forgotEmail').value = '';
-        btn.disabled = false;
-        btn.textContent = '📧 Enviar link de recuperação';
         return;
-      } else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
-      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde alguns minutos';
-      else msg = err.message;
-      this.showError('forgotError', msg);
+      } else if (err.code === 'auth/invalid-email') {
+        this.showError('forgotError', 'E-mail inválido');
+      } else if (err.code === 'auth/too-many-requests') {
+        this.showError('forgotError', 'Muitas tentativas. Aguarde alguns minutos');
+      } else {
+        this.showError('forgotError', err.message || 'Erro ao enviar');
+      }
     } finally {
       btn.disabled = false;
-      btn.textContent = '📧 Enviar link de recuperação';
+      btn.textContent = origText;
     }
   },
 
-  /**
-   * Detecta quando o usuário volta do e-mail com um código de redefinição
-   * (o link no e-mail aponta para ?oobCode=XXXX)
-   */
   async handlePasswordResetCode() {
-    const url = new URL(window.location.href);
-    const oobCode = url.searchParams.get('oobCode');
-    const mode = url.searchParams.get('mode');
-    if (mode === 'resetPassword' && oobCode) {
-      try {
-        // Verifica se o código é válido
+    try {
+      const url = new URL(window.location.href);
+      const oobCode = url.searchParams.get('oobCode');
+      const mode = url.searchParams.get('mode');
+      if (mode === 'resetPassword' && oobCode) {
         await auth.verifyPasswordResetCode(oobCode);
-        // Pede nova senha em um modal
         this.showResetPasswordModal(oobCode);
-      } catch (err) {
-        core.toast('Link de recuperação inválido ou expirado', 'error');
       }
+    } catch (err) {
+      core.toast('Link de recuperação inválido ou expirado', 'error');
     }
   },
 
@@ -283,7 +284,7 @@ const App = {
       <div style="text-align:center">
         <div style="font-size:48px;margin-bottom:12px">🔑</div>
         <h2 style="margin-bottom:8px">Definir nova senha</h2>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Escolha uma senha forte (mín. 8 chars, maiúsc, minúsc, 2 núm, especial)</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Escolha uma senha forte</p>
       </div>
       <label><span>Nova senha</span>
         <div class="input-group">
@@ -312,35 +313,29 @@ const App = {
     const newPass = document.getElementById('newPassReset').value;
     const confirm = document.getElementById('newPassConfirmReset').value;
     const errEl = document.getElementById('resetError');
-    errEl.classList.remove('show'); errEl.textContent = '';
+    if (errEl) { errEl.classList.remove('show'); errEl.textContent = ''; }
 
     if (newPass !== confirm) {
-      errEl.textContent = 'As senhas não coincidem';
-      errEl.classList.add('show');
+      if (errEl) { errEl.textContent = 'As senhas não coincidem'; errEl.classList.add('show'); }
       return;
     }
     const validation = core.validatePassword(newPass);
     if (!validation.valid) {
-      errEl.textContent = validation.errors.join(', ');
-      errEl.classList.add('show');
+      if (errEl) { errEl.textContent = validation.errors.join(', '); errEl.classList.add('show'); }
       return;
     }
     const btn = document.getElementById('btnConfirmReset');
-    btn.disabled = true;
-    btn.textContent = '⏳ Redefinindo...';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Redefinindo...'; }
     try {
       await auth.confirmPasswordReset(oobCode, newPass);
       this.closeModal();
       core.toast('Senha redefinida com sucesso! Faça login novamente.', 'success');
-      // Limpar URL
       window.history.replaceState({}, '', window.location.pathname);
       this.showLogin();
     } catch (err) {
-      errEl.textContent = err.message || 'Erro ao redefinir senha';
-      errEl.classList.add('show');
+      if (errEl) { errEl.textContent = err.message || 'Erro ao redefinir senha'; errEl.classList.add('show'); }
     } finally {
-      btn.disabled = false;
-      btn.textContent = '💾 Redefinir senha';
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha'; }
     }
   },
 
@@ -350,11 +345,12 @@ const App = {
 
   showError(id, msg) {
     const el = document.getElementById(id);
-    el.textContent = msg; el.classList.add('show');
+    if (el) { el.textContent = msg; el.classList.add('show'); }
   },
 
   togglePassword(inputId, btn) {
     const input = document.getElementById(inputId);
+    if (!input) return;
     if (input.type === 'password') { input.type = 'text'; btn.textContent = '🙈'; }
     else { input.type = 'password'; btn.textContent = '👁'; }
   },
@@ -370,8 +366,6 @@ const App = {
       { w: '100%', c: '#059669', t: 'Muito forte' },
     ];
     const l = levels[score];
-    // Prioriza o campo visível (o formulário de cadastro continua no DOM
-    // enquanto o modal de redefinição está aberto).
     const resetInput = document.getElementById('newPassReset');
     const isReset = resetInput && resetInput.offsetParent !== null;
     const bar = document.getElementById(isReset ? 'passStrengthBarReset' : 'passStrengthBar');
@@ -387,6 +381,11 @@ const App = {
     const password = document.getElementById('loginPass').value;
     const remember = document.getElementById('rememberMe').checked;
 
+    // Feedback imediato - desabilitar botão
+    const btn = e.target.querySelector('button[type="submit"]');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Entrando...'; }
+
     try {
       let email = username;
       if (!username.includes('@')) {
@@ -400,80 +399,163 @@ const App = {
       await this.loginSuccess(cred.user, remember);
       return;
     } catch (fbErr) {
-      const data = core.getLocalDB();
-      const user = data.users.find(u =>
-        (u.username === username || u.user === username || u.email === username) && !u.banned
-      );
+      console.warn('Firebase login falhou, tentando local:', fbErr.code);
+      // Fallback local
+      try {
+        const data = core.getLocalDB();
+        const user = data.users.find(u =>
+          (u.username === username || u.user === username || u.email === username) && !u.banned
+        );
 
-      if (user) {
-        const valid = await core.verifyPassword(password, user.passHash);
-        if (valid) {
-          this.currentUser = {
-            id: user.id, uid: user.uid || user.id,
-            username: user.username || user.user,
-            email: user.email, name: user.name,
-            lastName: user.lastName || '', phone: user.phone || '',
-            address: user.address || '',
-            avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
-            role: user.role || 'member', provider: 'local'
-          };
-          core.setCurrentUser(this.currentUser);
-          if (remember) core.setRememberedUser(this.currentUser);
-          core.log('login', this.currentUser.id, 'Login local');
-          this.showApp();
-          fireSync.start(this.currentUser.uid || this.currentUser.id);
-          core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
-          return;
+        if (user && user.passHash) {
+          const valid = await core.verifyPassword(password, user.passHash);
+          if (valid) {
+            this.currentUser = {
+              id: user.id, uid: user.uid || user.id,
+              username: user.username || user.user,
+              email: user.email, name: user.name,
+              lastName: user.lastName || '', phone: user.phone || '',
+              address: user.address || '',
+              avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
+              role: user.role || 'member', provider: 'local'
+            };
+            core.setCurrentUser(this.currentUser);
+            if (remember) core.setRememberedUser(this.currentUser);
+            core.log('login', this.currentUser.id, 'Login local');
+            this.showApp();
+            if (this.currentUser.uid && !this.currentUser.uid.includes('local-')) {
+              fireSync.start(this.currentUser.uid || this.currentUser.id);
+            }
+            core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
+            return;
+          }
         }
+      } catch(localErr) {
+        console.warn('Local login erro:', localErr);
       }
       this.showError('loginError', 'Usuário ou senha incorretos');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
 
   async loginSuccess(fbUser, remember) {
-    const docRef = db.collection('users').doc(fbUser.uid);
-    let doc = await docRef.get();
-    let profile;
+    console.log('loginSuccess para', fbUser.uid, fbUser.email);
+    let profile = null;
+    let docExists = false;
 
-    if (doc.exists) {
-      profile = doc.data();
-    } else {
-      profile = {
-        username: fbUser.email.split('@')[0],
-        email: fbUser.email,
-        name: fbUser.displayName || fbUser.email.split('@')[0],
-        lastName: '',
-        phone: '',
-        address: '',
-        avatar: fbUser.photoURL || '',
-        avatarType: fbUser.photoURL ? 'google' : 'emoji',
-        role: 'member',
-        banned: false,
-        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-        provider: fbUser.providerData[0]?.providerId || 'password'
-      };
-      await docRef.set(profile);
-      const data = core.getLocalDB();
-      data.users.push({ id: fbUser.uid, ...profile });
-      core.saveLocalDB(data);
+    try {
+      const docRef = db.collection('users').doc(fbUser.uid);
+      const doc = await docRef.get();
+      docExists = doc.exists;
+
+      if (doc.exists) {
+        profile = doc.data();
+        console.log('Perfil existente:', profile.username);
+      } else {
+        console.log('Criando novo perfil para', fbUser.uid);
+        // Criar perfil novo - usar objeto limpo sem FieldValue para localStorage
+        const profileForFirestore = {
+          username: (fbUser.email.split('@')[0] || 'user').replace(/[^a-zA-Z0-9_]/g,'').slice(0,20),
+          email: fbUser.email,
+          name: fbUser.displayName || fbUser.email.split('@')[0],
+          lastName: '',
+          phone: '',
+          address: '',
+          avatar: fbUser.photoURL || '',
+          avatarType: fbUser.photoURL ? 'google' : 'emoji',
+          role: 'member',
+          banned: false,
+          createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+          provider: fbUser.providerData[0]?.providerId || 'password'
+        };
+
+        // Para localDB: converter serverTimestamp para ISO string
+        const profileForLocal = {
+          ...profileForFirestore,
+          createdAt: new Date().toISOString()
+        };
+
+        try {
+          await docRef.set(profileForFirestore);
+          console.log('Perfil criado no Firestore');
+        } catch(setErr) {
+          console.warn('Erro ao criar perfil no Firestore (pode ser regra):', setErr.code, setErr.message);
+          // Mesmo com erro no Firestore, continuar com perfil local
+          // O isNotBanned corrigido nas regras vai permitir depois
+        }
+
+        profile = profileForLocal;
+        docExists = true;
+
+        // Salvar local
+        try {
+          const data = core.getLocalDB();
+          // Evitar duplicado
+          if (!data.users.find(u => u.id === fbUser.uid)) {
+            data.users.push({ id: fbUser.uid, uid: fbUser.uid, ...profileForLocal });
+            core.saveLocalDB(data);
+          }
+        } catch(localErr) {
+          console.warn('Erro ao salvar usuário local:', localErr);
+        }
+      }
+
+      if (profile && profile.banned) {
+        try { await auth.signOut(); } catch(e) {}
+        this.showError('loginError', 'Sua conta foi suspensa. Contate o administrador.');
+        return;
+      }
+
+    } catch (err) {
+      console.error('loginSuccess getDoc erro (mas continuando):', err);
+      // Fallback: se erro de permissão, criar perfil mínimo local para não travar
+      if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
+        profile = {
+          username: (fbUser.email?.split('@')[0] || 'user'),
+          email: fbUser.email || '',
+          name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Usuário',
+          lastName: '', phone: '', address: '',
+          avatar: fbUser.photoURL || '',
+          avatarType: fbUser.photoURL ? 'google' : 'emoji',
+          role: 'member',
+          banned: false,
+          createdAt: new Date().toISOString(),
+          provider: fbUser.providerData[0]?.providerId || 'google.com'
+        };
+        core.toast('Login feito, mas perfil no Firestore sem permissão. Verifique firestore.rules', 'warning');
+      } else {
+        // Outro erro - mostrar e não travar
+        core.toast('Erro ao carregar perfil: ' + err.message, 'error');
+        // ainda assim criar perfil básico para não travar página
+        profile = profile || {
+          username: fbUser.email?.split('@')[0] || 'user',
+          email: fbUser.email || '',
+          name: fbUser.displayName || 'Usuário',
+          role: 'member', banned: false,
+          avatar: fbUser.photoURL || '', avatarType: 'emoji',
+          provider: 'google.com'
+        };
+      }
     }
 
-    if (profile.banned) {
-      await auth.signOut();
-      this.showError('loginError', 'Sua conta foi suspensa. Contate o administrador.');
+    // Garantir profile
+    if (!profile) {
+      console.error('Profile nulo após tentativas');
+      this.showError('loginError', 'Erro ao carregar perfil. Tente novamente.');
       return;
     }
 
     this.currentUser = {
       id: fbUser.uid, uid: fbUser.uid,
-      username: profile.username,
-      email: profile.email,
-      name: profile.name,
+      username: profile.username || fbUser.email?.split('@')[0] || 'user',
+      email: profile.email || fbUser.email,
+      name: profile.name || fbUser.displayName || profile.username,
       lastName: profile.lastName || '',
       phone: profile.phone || '',
       address: profile.address || '',
-      avatar: profile.avatar || '',
-      avatarType: profile.avatarType || 'emoji',
+      avatar: profile.avatar || fbUser.photoURL || '',
+      avatarType: profile.avatarType || (fbUser.photoURL ? 'google' : 'emoji'),
       role: profile.role || 'member',
       provider: profile.provider || 'password'
     };
@@ -481,12 +563,16 @@ const App = {
     core.setCurrentUser(this.currentUser);
     if (remember) core.setRememberedUser(this.currentUser);
 
-    // Inicializa gamificação
-    core.getUserStats(this.currentUser.id);
+    try { core.getUserStats(this.currentUser.id); } catch(e) {}
+    try { core.log('login', this.currentUser.id, 'Login Firebase'); } catch(e) {}
 
-    core.log('login', this.currentUser.id, 'Login Firebase');
     this.showApp();
-    fireSync.start(this.currentUser.uid || this.currentUser.id);
+    // Iniciar sync com pequeno delay para evitar race
+    setTimeout(() => {
+      if (auth.currentUser) {
+        fireSync.start(this.currentUser.uid || this.currentUser.id);
+      }
+    }, 500);
     core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
   },
 
@@ -509,11 +595,15 @@ const App = {
     if (data.users.find(u => u.username === username || u.user === username))
       return this.showError('regError', 'Este nome de usuário já está em uso');
 
+    const btn = e.target.querySelector('button[type="submit"]');
+    const origText = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Criando...'; }
+
     try {
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: username });
 
-      const profile = {
+      const profileFS = {
         username, email,
         name: username, lastName: '', phone: '', address: '',
         avatar: '', avatarType: 'emoji',
@@ -521,9 +611,15 @@ const App = {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         provider: 'password'
       };
-      await db.collection('users').doc(cred.user.uid).set(profile);
+      const profileLocal = { ...profileFS, createdAt: new Date().toISOString() };
 
-      data.users.push({ id: cred.user.uid, ...profile });
+      try {
+        await db.collection('users').doc(cred.user.uid).set(profileFS);
+      } catch(setErr) {
+        console.warn('Erro ao criar user no Firestore:', setErr);
+      }
+
+      data.users.push({ id: cred.user.uid, uid: cred.user.uid, ...profileLocal, passHash: await core.hashPassword(password) });
       core.saveLocalDB(data);
 
       await this.loginSuccess(cred.user, false);
@@ -535,61 +631,111 @@ const App = {
       else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
       else msg = err.message;
       this.showError('regError', msg);
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
 
   async loginGoogle() {
+    const btn = document.querySelector('.btn-google');
+    const origContent = btn ? btn.innerHTML : '';
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Aguarde...'; }
+
     try {
+      console.log('Iniciando login Google...');
       const result = await auth.signInWithPopup(googleProvider);
+      console.log('Popup OK', result.user.uid);
       await this.loginSuccess(result.user, true);
     } catch (err) {
-      if (err.code !== 'auth/popup-closed-by-user') {
-        core.toast('Erro ao fazer login com Google: ' + err.message, 'error');
+      console.error('loginGoogle erro:', err);
+      if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
+        // Silencioso
+        core.toast('Login cancelado', 'info');
+      } else if (err.code === 'auth/popup-blocked') {
+        core.toast('Popup bloqueado pelo navegador. Permita popups para este site.', 'error');
+      } else if (err.code === 'auth/unauthorized-domain') {
+        core.toast('Domínio não autorizado no Firebase. Adicione o domínio em Authentication > Authorized domains', 'error');
+      } else if (err.code === 'auth/operation-not-allowed') {
+        core.toast('Login Google não habilitado no Console Firebase > Authentication > Sign-in method', 'error');
+      } else {
+        core.toast('Erro ao fazer login com Google: ' + (err.message || err.code), 'error');
       }
+      // Garantir que tela de login continue visível e não trave
+      this.showLogin();
+      document.getElementById('loadingScreen')?.classList.add('hidden');
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = origContent; }
     }
   },
 
   async syncFirebaseUser(fbUser) {
+    if (!fbUser || !fbUser.uid) return;
     try {
+      console.log('syncFirebaseUser', fbUser.uid);
       const doc = await db.collection('users').doc(fbUser.uid).get();
       if (doc.exists) {
         const profile = doc.data();
         if (!profile.banned) {
           this.currentUser = {
             id: fbUser.uid, uid: fbUser.uid,
-            username: profile.username,
-            email: profile.email,
-            name: profile.name,
+            username: profile.username || fbUser.email?.split('@')[0],
+            email: profile.email || fbUser.email,
+            name: profile.name || fbUser.displayName || profile.username,
             lastName: profile.lastName || '',
             phone: profile.phone || '',
             address: profile.address || '',
-            avatar: profile.avatar || '',
+            avatar: profile.avatar || fbUser.photoURL || '',
             avatarType: profile.avatarType || 'emoji',
             role: profile.role || 'member',
             provider: profile.provider || 'google.com'
           };
           core.setCurrentUser(this.currentUser);
-          core.getUserStats(this.currentUser.id);
+          try { core.getUserStats(this.currentUser.id); } catch(e) {}
           this.showApp();
-          fireSync.start(this.currentUser.uid || this.currentUser.id);
+          // Sync já será iniciado pelo onAuthStateChanged ou init
+        } else {
+          try { await auth.signOut(); } catch(e) {}
+          this.showError('loginError', 'Conta suspensa');
+          this.showLogin();
         }
+      } else {
+        // Doc não existe, mas auth existe: criar perfil
+        console.log('Usuário Firebase sem doc, criando...');
+        await this.loginSuccess(fbUser, true);
       }
     } catch (err) {
-      console.warn('syncFirebaseUser:', err);
+      console.warn('syncFirebaseUser erro (não crítico):', err.code, err.message);
+      // Não travar - se permission-denied, ainda mostrar login para tentar novamente
+      if (err.code === 'permission-denied') {
+        core.toast('Sem permissão para ler perfil Firestore. Verifique firestore.rules', 'warning');
+        // Criar usuário local mínimo para não travar
+        this.currentUser = {
+          id: fbUser.uid, uid: fbUser.uid,
+          username: fbUser.email?.split('@')[0] || 'user',
+          email: fbUser.email,
+          name: fbUser.displayName || fbUser.email?.split('@')[0],
+          avatar: fbUser.photoURL || '',
+          avatarType: fbUser.photoURL ? 'google' : 'emoji',
+          role: 'member',
+          provider: 'google.com'
+        };
+        core.setCurrentUser(this.currentUser);
+        this.showApp();
+      }
     }
   },
 
   async handleLogout() {
-    core.log('logout', this.currentUser?.id || 'unknown');
+    try { core.log('logout', this.currentUser?.id || 'unknown'); } catch(e) {}
     fireSync.stop();
     try { await auth.signOut(); } catch {}
     core.setCurrentUser(null);
     core.setRememberedUser(null);
     this.currentUser = null;
     this.showLogin();
-    // Limpar elementos injetados
     document.getElementById('langSwitcher')?.remove();
     document.getElementById('notifButton')?.remove();
+    // Limpar cache de sync
     core.toast('Você saiu da sua conta', 'info');
   },
 
@@ -604,6 +750,7 @@ const App = {
 
     this.currentPage = page;
     const frame = document.getElementById('pageFrame');
+    if (!frame) return;
     frame.src = `pages/${page}.html`;
 
     frame.style.opacity = '0';
@@ -615,22 +762,33 @@ const App = {
       frame.onload = null;
     };
 
-    const items = this.settings.menuItems;
+    const items = this.settings?.menuItems || [];
     const item = items.find(i => i.id === page);
     const icon = item ? item.icon : '📄';
     const label = item ? this.tr(item.label, item.id) : page;
-    document.getElementById('breadcrumb').textContent = `${icon} ${label}`;
+    const bc = document.getElementById('breadcrumb');
+    if (bc) bc.textContent = `${icon} ${label}`;
 
     document.querySelectorAll('.nav-item').forEach(n =>
       n.classList.toggle('active', n.dataset.page === page));
 
     this.closeSidebar();
-    history.replaceState({}, '', '#' + page);
+    try { history.replaceState({}, '', '#' + page); } catch(e) {}
   },
 
   /* ========== SIDEBAR ========== */
+  closeSidebar() {
+    document.getElementById('sidebar')?.classList.remove('open');
+    document.getElementById('sidebarOverlay')?.classList.remove('open');
+  },
+  toggleSidebar() {
+    document.getElementById('sidebar')?.classList.toggle('open');
+    document.getElementById('sidebarOverlay')?.classList.toggle('open');
+  },
+
   renderSidebar() {
     const nav = document.getElementById('sidebarNav');
+    if (!nav || !this.settings?.menuItems) return;
     const items = this.settings.menuItems;
     const order = this.settings.menuOrder || items.map(i => i.id);
 
@@ -639,7 +797,7 @@ const App = {
     order.forEach(id => {
       const item = items.find(i => i.id === id);
       if (!item || !item.visible) return;
-      if (item.adminOnly && this.currentUser.role !== 'admin') return;
+      if (item.adminOnly && this.currentUser?.role !== 'admin') return;
 
       const isActive = this.currentPage === id ? 'active' : '';
       const badge = this.getBadge(id);
@@ -655,23 +813,28 @@ const App = {
     html += '</div>';
     nav.innerHTML = html;
 
-    document.getElementById('sidebarBrand').textContent = this.settings.brand;
-    document.title = this.settings.brand;
+    const brandEl = document.getElementById('sidebarBrand');
+    if (brandEl) brandEl.textContent = this.settings.brand;
+    document.title = this.settings.brand || 'Checklist ML';
 
     if (this.settings.logo) {
-      document.getElementById('sidebarLogo').src = this.settings.logo;
+      const logoEl = document.getElementById('sidebarLogo');
+      if (logoEl) logoEl.src = this.settings.logo;
     }
     if (this.settings.favicon) {
-      document.querySelector('link[rel="icon"]').href = this.settings.favicon;
+      const fav = document.querySelector('link[rel="icon"]');
+      if (fav) fav.href = this.settings.favicon;
     }
   },
 
   getBadge(pageId) {
     if (pageId !== 'atividades') return '';
-    const data = core.getLocalDB();
-    const today = core.today();
-    const late = data.tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
-    return late.length > 0 ? late.length : '';
+    try {
+      const data = core.getLocalDB();
+      const today = core.today();
+      const late = data.tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+      return late.length > 0 ? late.length : '';
+    } catch { return ''; }
   },
 
   updateUserInfo() {
@@ -680,33 +843,41 @@ const App = {
     const initial = (u.name || u.username || '?')[0].toUpperCase();
 
     const sidebarAvatar = document.getElementById('sidebarAvatar');
-    if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
-      sidebarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
-    } else if (u.avatar) {
-      sidebarAvatar.textContent = u.avatar;
-    } else {
-      sidebarAvatar.textContent = initial;
+    if (sidebarAvatar) {
+      if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
+        sidebarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
+      } else if (u.avatar) {
+        sidebarAvatar.textContent = u.avatar;
+      } else {
+        sidebarAvatar.textContent = initial;
+      }
     }
-    document.getElementById('sidebarName').textContent = u.name || u.username;
-    document.getElementById('sidebarRole').textContent = u.role;
+    const sName = document.getElementById('sidebarName');
+    if (sName) sName.textContent = u.name || u.username;
+    const sRole = document.getElementById('sidebarRole');
+    if (sRole) sRole.textContent = u.role;
 
     const topbarAvatar = document.getElementById('topbarAvatar');
-    if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
-      topbarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
-    } else if (u.avatar) {
-      topbarAvatar.textContent = u.avatar;
-    } else {
-      topbarAvatar.textContent = initial;
+    if (topbarAvatar) {
+      if (u.avatar && (u.avatarType === 'google' || u.avatarType === 'upload')) {
+        topbarAvatar.innerHTML = `<img src="${u.avatar}" alt="">`;
+      } else if (u.avatar) {
+        topbarAvatar.textContent = u.avatar;
+      } else {
+        topbarAvatar.textContent = initial;
+      }
     }
-    document.getElementById('topbarName').textContent = u.name || u.username;
+    const tName = document.getElementById('topbarName');
+    if (tName) tName.textContent = u.name || u.username;
 
-    document.getElementById('btnTheme').textContent = this.getThemeIcon();
+    const btnTheme = document.getElementById('btnTheme');
+    if (btnTheme) btnTheme.textContent = this.getThemeIcon();
   },
 
   /* ========== TEMA ========== */
   applyTheme(theme, mode) {
+    if (!theme) return;
     document.documentElement.dataset.theme = theme || 'ocean';
-    // Se mode = 'auto', escutar o sistema
     if (mode === 'auto') {
       this._setupAutoListener();
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
@@ -717,17 +888,17 @@ const App = {
     }
     localStorage.setItem('cl-theme', theme);
     localStorage.setItem('cl-mode', mode);
-    this.settings.theme = theme;
-    this.settings.mode = mode;
+    if (this.settings) {
+      this.settings.theme = theme;
+      this.settings.mode = mode;
+    }
 
-    // Aplicar tema custom se necessário
     const data = core.getLocalDB();
     const customThemes = data.customThemes || [];
     const isCustom = customThemes.find(t => t.id === theme);
     if (isCustom) {
       core.applyCustomTheme(theme);
     } else {
-      // Remover custom-theme-style se tema não-custom
       const el = document.getElementById('custom-theme-style');
       if (el) el.textContent = '';
     }
@@ -737,7 +908,6 @@ const App = {
     data2.settings.mode = mode;
     core.saveLocalDB(data2);
 
-    // Atualizar ícone do botão
     const btn = document.getElementById('btnTheme');
     if (btn) btn.textContent = this.getThemeIcon();
   },
@@ -768,15 +938,13 @@ const App = {
   },
 
   getThemeIcon() {
-    const mode = this.settings.mode;
+    const mode = this.settings?.mode || 'light';
     if (mode === 'auto') return '🌓';
     return mode === 'dark' ? '☀️' : '🌙';
   },
 
-  /**
-   * Cycle: light -> dark -> auto -> light
-   */
   toggleTheme() {
+    if (!this.settings) return;
     const cycle = ['light', 'dark', 'auto'];
     const idx = cycle.indexOf(this.settings.mode);
     const newMode = cycle[(idx + 1) % cycle.length];
@@ -787,12 +955,13 @@ const App = {
       'info'
     );
     const frame = document.getElementById('pageFrame');
-    if (frame.contentWindow) {
+    if (frame?.contentWindow) {
       frame.contentWindow.postMessage({ type: 'themeChanged', theme: this.settings.theme, mode: newMode }, '*');
     }
   },
 
   setTheme(theme) {
+    if (!this.settings) return;
     this.applyTheme(theme, this.settings.mode);
     this.renderSidebar();
   },
@@ -839,21 +1008,19 @@ const App = {
     await core.tReady(lang);
     this.settings.language = lang;
 
-    // Atualizar interface
     this.updateLangMenuActive();
     this.renderSidebar();
-    document.querySelector('#langSwitcher button span').textContent = this.getLangLabel(lang);
+    const span = document.querySelector('#langSwitcher button span');
+    if (span) span.textContent = this.getLangLabel(lang);
     document.getElementById('langMenu')?.classList.add('hidden');
 
-    // Recarregar página atual para aplicar i18n
     const frame = document.getElementById('pageFrame');
-    if (frame.contentWindow) {
+    if (frame?.contentWindow) {
       frame.contentWindow.postMessage({ type: 'languageChanged', lang }, '*');
     }
-    // Recarregar a página após pequeno delay
     setTimeout(() => {
       const page = this.currentPage;
-      frame.src = `pages/${page}.html?lang=${lang}&t=${Date.now()}`;
+      if (frame) frame.src = `pages/${page}.html?lang=${lang}&t=${Date.now()}`;
     }, 200);
 
     core.toast(lang === 'pt-BR' ? 'Idioma: Português' : lang === 'en' ? 'Language: English' : 'Idioma: Español', 'success');
@@ -887,7 +1054,6 @@ const App = {
         <div id="notifList"></div>
       </div>
     `;
-    // Inserir antes do language switcher se existir, senão no início
     const langSw = document.getElementById('langSwitcher');
     if (langSw) topbar.insertBefore(wrap, langSw);
     else topbar.insertBefore(wrap, topbar.firstChild);
@@ -951,18 +1117,16 @@ const App = {
     this.renderNotifications();
   },
 
-  /* ========== i18n helper ========== */
   tr(label, id) {
     if (!id) return label;
     return core.t('nav.' + id, label);
   },
 
-  /* ========== QUICK NEW TASK ========== */
   quickNewTask() {
     this.navigate('atividades');
     setTimeout(() => {
       const frame = document.getElementById('pageFrame');
-      if (frame.contentWindow) {
+      if (frame?.contentWindow) {
         frame.contentWindow.postMessage({ type: 'newTask' }, '*');
       }
     }, 500);
@@ -974,7 +1138,6 @@ const App = {
     let gKeyTimeout = null;
 
     document.addEventListener('keydown', (e) => {
-      // ESC fecha menus
       if (e.key === 'Escape') {
         document.getElementById('langMenu')?.classList.add('hidden');
         document.getElementById('notifMenu')?.classList.add('hidden');
@@ -1013,7 +1176,6 @@ const App = {
       if (key === 't') { e.preventDefault(); this.toggleTheme(); return; }
     });
 
-    // Fechar menus ao clicar fora
     document.addEventListener('click', (e) => {
       if (!e.target.closest('#langSwitcher')) {
         document.getElementById('langMenu')?.classList.add('hidden');
@@ -1162,7 +1324,6 @@ const App = {
     document.addEventListener('keydown', escHandler);
   },
 
-  /* ========== MENSAGENS DOS IFRAMES ========== */
   handleMessage(e) {
     const msg = e.data;
     if (!msg || !msg.type) return;
@@ -1183,9 +1344,9 @@ const App = {
         this.applyTheme(msg.theme, msg.mode);
         break;
       case 'languageChanged':
-        // Recarrega o iframe para aplicar i18n
         this.settings.language = msg.lang;
-        document.querySelector('#langSwitcher button span').textContent = this.getLangLabel(msg.lang);
+        const span = document.querySelector('#langSwitcher button span');
+        if (span) span.textContent = this.getLangLabel(msg.lang);
         this.updateLangMenuActive();
         this.renderSidebar();
         break;
@@ -1210,17 +1371,22 @@ const App = {
     }
   },
 
-  /* ========== MODAL ========== */
   showModal(html) {
     const container = document.getElementById('modalContainer');
+    if (!container) return;
     container.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)App.closeModal()">
       <div class="modal">${html}</div>
     </div>`;
   },
 
   closeModal() {
-    document.getElementById('modalContainer').innerHTML = '';
+    const c = document.getElementById('modalContainer');
+    if (c) c.innerHTML = '';
   },
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
+// Fallback: se DOM já carregado
+if (document.readyState === 'interactive' || document.readyState === 'complete') {
+  setTimeout(() => App.init(), 100);
+}

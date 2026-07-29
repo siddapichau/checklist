@@ -4,7 +4,8 @@
    ========================================================= */
 
 // Altere a versão sempre que arquivos do app em cache forem modificados.
-const CACHE_NAME = 'checklist-ml-v5';
+// v6 = fix login Google travando + firestore.rules corrigido
+const CACHE_NAME = 'checklist-ml-v6-fix-login';
 const ASSETS = [
   '/',
   '/index.html',
