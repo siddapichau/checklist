@@ -1,25 +1,67 @@
-# Checklist ML — manual de produto
+# ✓ Checklist ML
 
-Este repositório contém o manual visual (`index.html`) da especificação do Checklist ML: um checklist operacional responsivo para uso em computador e celular. O manual detalha telas, permissões, arquitetura por `pages/`, `js/`, `css/` e `assets/`, modelo Firebase, segurança da DeepSeek, temas editáveis e plano de implementação.
+Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist, TickTick e Any.do.
 
-## Visualizar
+## 🚀 Funcionalidades
 
-Abra `index.html` diretamente ou rode:
+- **Dashboard** com métricas, progresso semanal e alertas de atraso
+- **Atividades** com CRUD completo, filtros, recorrência e prioridades
+- **Autenticação** com Firebase (email/senha + Google), validação de senha forte
+- **3 Temas** (Ocean Blue, Mercado Livre, Forest) × 2 modos (claro/escuro)
+- **Perfil** com 20 avatares, upload de imagem (comprimida para WebP), foto Google
+- **Administração total** — tudo editável: temas, logo, favicon, menu, categorias, usuários, posts, arquivos, API keys
+- **IA DeepSeek** integrada para análise e sugestões
+- **Notícias/Posts** com editor estilo Blogspot
+- **Biblioteca de arquivos** com categorias e thumbnails
+- **Sistema de cargos** — Membro, Editor, Admin (banir, resetar senha, excluir)
+- **Logs** de todas as ações do sistema
+- **Responsivo** — funciona em desktop e celular
+- **PWA-ready** — pode ser instalado como app
 
-```bash
-python3 -m http.server 8000
+## 📂 Estrutura
+
+```
+/
+├── index.html          # Página principal (login + app shell)
+├── assets/             # Logo, favicon (SVG)
+├── css/
+│   ├── style.css       # CSS do app shell + temas
+│   └── page.css        # CSS compartilhado das páginas
+├── js/
+│   ├── firebase.js     # Configuração Firebase
+│   ├── core.js         # Utilitários centrais
+│   ├── seed.js         # Dados iniciais
+│   ├── app.js          # Controlador principal
+│   └── page.js         # Helpers para páginas (iframes)
+└── pages/
+    ├── home.html       # Dashboard
+    ├── atividades.html # CRUD de atividades
+    ├── arquivos.html   # Biblioteca de arquivos
+    ├── IA.html         # Assistente DeepSeek
+    ├── perfil.html     # Perfil do usuário
+    └── admin.html      # Painel administrativo
 ```
 
-Acesse http://localhost:8000. O projeto é um manual estático; não é o APK nem uma integração Firebase pronta.
+## 🔐 Credenciais padrão
 
-## Conteúdo
+- **Usuário:** admin
+- **Senha:** Admin@1234
 
-- Visão do produto e estados de atividade.
-- Mapa de `login`, `cadastro`, `home`, `atividades`, `arquivos`, `perfil`, `IA` e `admin`.
-- Três temas com variantes claro/escuro totalmente configuráveis pelo Admin.
-- Estrutura proposta com shell e páginas em iframe.
-- Cargos membro, editor e admin, com regras de segurança.
-- Benchmark de Todoist, TickTick, Trello, Asana, ClickUp, Notion, Microsoft To Do, Google Tasks, Motion e Sunsama.
-- Roadmap incremental e critérios de pronto.
+## ⚡ Como usar
 
-> A chave web do Firebase identifica o projeto, mas não deve ser tratada como segredo. Regras do Firebase, App Check e uma Cloud Function para a chave DeepSeek são obrigatórios antes de produção.
+1. Abra `index.html` no navegador ou use:
+   ```bash
+   python3 -m http.server 8000
+   ```
+2. Faça login com `admin` / `Admin@1234`
+3. Configure temas, logo e preferências em Administração
+
+## 🔥 Firebase
+
+- Projeto: `checklist-3e70c`
+- Auth + Firestore + Storage configurados
+- Persistência offline habilitada
+
+## 🤖 IA DeepSeek
+
+Configure a API Key em Administração > API / IA. A IA analisa suas atividades e sugere prioridades, organização e resumos.

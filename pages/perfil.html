@@ -1,1 +1,244 @@
-<!doctype html><link rel="stylesheet" href="../css/page.css"><body><div class="wrap"><small>CONTA</small><h1>Meu perfil</h1><div class="card"><h2>Dados pessoais</h2><label>Nome<input id="name"></label><label>Sobrenome<input id="last"></label><label>E-mail (não editável)<input id="email" disabled></label><label>Telefone<input id="phone"></label><label>Avatar (emoji, foto ou URL)<input id="avatar"></label><button class="primary" onclick="save()">Salvar perfil</button></div></div><script src="../js/page.js"></script><script>let u=core.user();name.value=u.name||'';email.value=u.email;avatar.value=u.avatar||'';function save(){let d=core.getDB(),x=d.users.find(x=>x.id===u.id);x.name=name.value;x.avatar=avatar.value;x.phone=phone.value;core.saveDB(d);sessionStorage.setItem('user',JSON.stringify(x));parent.postMessage({toast:'Perfil atualizado'},'*')}</script></body>
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Meu Perfil</title>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>CONTA</small>
+    <h1>Meu Perfil</h1>
+    <p>Gerencie suas informações pessoais</p>
+  </div>
+</div>
+
+<div class="cols">
+  <!-- DADOS PESSOAIS -->
+  <div class="card">
+    <h2>👤 Dados pessoais</h2>
+    <form onsubmit="saveProfile(event)">
+      <label><span>Nome</span>
+        <input type="text" id="pName" placeholder="Seu nome">
+      </label>
+      <label><span>Sobrenome</span>
+        <input type="text" id="pLastName" placeholder="Seu sobrenome">
+      </label>
+      <label><span>E-mail</span>
+        <input type="email" id="pEmail" disabled>
+      </label>
+      <label><span>Telefone</span>
+        <input type="tel" id="pPhone" placeholder="(00) 00000-0000">
+      </label>
+      <label><span>Endereço</span>
+        <input type="text" id="pAddress" placeholder="Rua, número, bairro, cidade">
+      </label>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px">💾 Salvar perfil</button>
+    </form>
+  </div>
+
+  <!-- AVATAR -->
+  <div>
+    <div class="card">
+      <h2>🖼️ Avatar</h2>
+      <div style="text-align:center;margin-bottom:16px">
+        <div id="currentAvatar" style="width:100px;height:100px;border-radius:50%;background:var(--primary-light,#DBEAFE);
+          display:inline-flex;align-items:center;justify-content:center;font-size:48px;overflow:hidden;
+          border:4px solid var(--primary,#2563EB)"></div>
+      </div>
+
+      <h3>📷 Usar foto do Google</h3>
+      <button class="btn btn-secondary" onclick="useGooglePhoto()" style="width:100%;margin-bottom:16px" id="btnGooglePhoto">
+        Usar foto do Google
+      </button>
+
+      <h3>📤 Enviar imagem</h3>
+      <input type="file" id="avatarUpload" accept="image/*" onchange="uploadAvatar(event)" style="margin-bottom:16px">
+      <small class="text-muted">A imagem será comprimida automaticamente para WebP</small>
+
+      <h3 style="margin-top:16px">😀 Escolher avatar (20 opções)</h3>
+      <div class="avatar-grid" id="avatarGrid"></div>
+    </div>
+
+    <!-- SENHA -->
+    <div class="card">
+      <h2>🔒 Alterar senha</h2>
+      <form onsubmit="changePassword(event)">
+        <label><span>Senha atual</span>
+          <input type="password" id="oldPass" required>
+        </label>
+        <label><span>Nova senha</span>
+          <input type="password" id="newPass" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial">
+        </label>
+        <label><span>Confirmar nova senha</span>
+          <input type="password" id="confirmPass" required>
+        </label>
+        <button type="submit" class="btn btn-primary" style="width:100%">Alterar senha</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const user = page.getUser();
+const avatars = core.defaultAvatars;
+let selectedAvatar = user?.avatar || '';
+let selectedAvatarType = user?.avatarType || 'emoji';
+
+// Popular dados
+document.getElementById('pName').value = user?.name || '';
+document.getElementById('pLastName').value = user?.lastName || '';
+document.getElementById('pEmail').value = user?.email || '';
+document.getElementById('pPhone').value = user?.phone || '';
+document.getElementById('pAddress').value = user?.address || '';
+
+// Mostrar avatar atual
+updateAvatarDisplay();
+
+// Botão Google foto
+if (user?.provider !== 'google.com' && user?.provider !== 'google') {
+  document.getElementById('btnGooglePhoto').disabled = true;
+  document.getElementById('btnGooglePhoto').textContent = 'Login via Google necessário';
+}
+
+// Grid de avatares
+const grid = document.getElementById('avatarGrid');
+grid.innerHTML = avatars.map((a, i) => `
+  <div class="avatar-option ${selectedAvatar === a ? 'selected' : ''}"
+       onclick="selectAvatar('${a}', this)" data-emoji="${a}">${a}</div>
+`).join('');
+
+function updateAvatarDisplay() {
+  const el = document.getElementById('currentAvatar');
+  if (selectedAvatarType === 'google' || selectedAvatarType === 'upload') {
+    el.innerHTML = `<img src="${selectedAvatar}" style="width:100%;height:100%;object-fit:cover">`;
+  } else {
+    el.textContent = selectedAvatar || (user?.name || '?')[0].toUpperCase();
+  }
+}
+
+function selectAvatar(emoji, el) {
+  selectedAvatar = emoji;
+  selectedAvatarType = 'emoji';
+  document.querySelectorAll('.avatar-option').forEach(a => a.classList.remove('selected'));
+  el.classList.add('selected');
+  updateAvatarDisplay();
+  saveAvatarToDB();
+}
+
+async function uploadAvatar(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  try {
+    const compressed = await core.compressImage(file, 256, 0.7);
+    selectedAvatar = compressed;
+    selectedAvatarType = 'upload';
+    document.querySelectorAll('.avatar-option').forEach(a => a.classList.remove('selected'));
+    updateAvatarDisplay();
+    saveAvatarToDB();
+    page.toast('Avatar atualizado! 📸', 'success');
+  } catch (err) {
+    page.toast('Erro ao processar imagem', 'error');
+  }
+}
+
+function useGooglePhoto() {
+  // Tentar pegar foto do perfil Google
+  const data = page.getDB();
+  const userData = data.users.find(u => u.id === user.id);
+  if (userData && userData.googlePhoto) {
+    selectedAvatar = userData.googlePhoto;
+    selectedAvatarType = 'google';
+    document.querySelectorAll('.avatar-option').forEach(a => a.classList.remove('selected'));
+    updateAvatarDisplay();
+    saveAvatarToDB();
+    page.toast('Foto do Google aplicada!', 'success');
+  } else {
+    page.toast('Nenhuma foto do Google disponível. Faça login com Google.', 'warning');
+  }
+}
+
+function saveAvatarToDB() {
+  const data = page.getDB();
+  const u = data.users.find(u => u.id === user.id);
+  if (u) {
+    u.avatar = selectedAvatar;
+    u.avatarType = selectedAvatarType;
+    page.saveDB(data);
+
+    // Atualizar sessão
+    const sessionUser = { ...user, avatar: selectedAvatar, avatarType: selectedAvatarType };
+    core.setCurrentUser(sessionUser);
+
+    // Atualizar parent
+    window.parent.postMessage({ type: 'reload' }, '*');
+  }
+}
+
+function saveProfile(e) {
+  e.preventDefault();
+  const data = page.getDB();
+  const u = data.users.find(u => u.id === user.id);
+  if (!u) return;
+
+  u.name = document.getElementById('pName').value.trim();
+  u.lastName = document.getElementById('pLastName').value.trim();
+  u.phone = document.getElementById('pPhone').value.trim();
+  u.address = document.getElementById('pAddress').value.trim();
+
+  page.saveDB(data);
+
+  // Atualizar sessão
+  const sessionUser = { ...user, name: u.name, lastName: u.lastName, phone: u.phone, address: u.address };
+  core.setCurrentUser(sessionUser);
+
+  core.log('profile_update', user.id, `${u.name} ${u.lastName}`);
+  page.toast('Perfil atualizado! ✅', 'success');
+  window.parent.postMessage({ type: 'reload' }, '*');
+}
+
+async function changePassword(e) {
+  e.preventDefault();
+  const oldP = document.getElementById('oldPass').value;
+  const newP = document.getElementById('newPass').value;
+  const confP = document.getElementById('confirmPass').value;
+
+  if (newP !== confP) return page.toast('As senhas não coincidem', 'error');
+
+  const validation = core.validatePassword(newP);
+  if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
+
+  // Verificar senha atual
+  const data = page.getDB();
+  const u = data.users.find(u => u.id === user.id);
+  if (!u) return;
+
+  const valid = await core.verifyPassword(oldP, u.passHash);
+  if (!valid) return page.toast('Senha atual incorreta', 'error');
+
+  // Atualizar
+  u.passHash = await core.hashPassword(newP);
+  page.saveDB(data);
+
+  // Tentar atualizar no Firebase também
+  try {
+    const fbUser = firebase.auth().currentUser;
+    if (fbUser && fbUser.email === u.email) {
+      await fbUser.updatePassword(newP);
+    }
+  } catch {}
+
+  core.log('password_change', user.id);
+  page.toast('Senha alterada com sucesso! 🔒', 'success');
+  document.getElementById('oldPass').value = '';
+  document.getElementById('newPass').value = '';
+  document.getElementById('confirmPass').value = '';
+}
+</script>
+</body>
+</html>
