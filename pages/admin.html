@@ -25,6 +25,7 @@
   <button class="tab" onclick="switchTab('files',this)">📁 Arquivos</button>
   <button class="tab" onclick="switchTab('categories',this)">🏷️ Categorias</button>
   <button class="tab" onclick="switchTab('api',this)">🔑 API / IA</button>
+  <button class="tab" onclick="switchTab('backup',this)">💾 Backup</button>
   <button class="tab" onclick="switchTab('logs',this)">📜 Logs</button>
 </div>
 
@@ -179,6 +180,36 @@
     </label>
     <p class="text-muted">⚠️ <b>IMPORTANTE:</b> Para uso em produção, a chave deve ser usada por uma Cloud Function (backend). Esta configuração é apenas para testes locais.</p>
     <button class="btn btn-primary mt-2" onclick="saveAPI()">💾 Salvar API Key</button>
+  </div>
+</div>
+
+<!-- TAB: BACKUP / EXPORT-IMPORT -->
+<div class="tab-content" id="tab-backup">
+  <div class="card">
+    <h2>💾 Exportar dados</h2>
+    <p class="text-muted mb-2">Faça backup de todos os dados do sistema (atividades, usuários, posts, arquivos, configurações).</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;margin-bottom:16px">
+      <button class="btn btn-primary" onclick="exportFull()">📥 Exportar tudo (JSON)</button>
+      <button class="btn btn-secondary" onclick="exportTasks()">📋 Exportar só atividades</button>
+      <button class="btn btn-secondary" onclick="exportUsers()">👥 Exportar só usuários</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>📤 Importar dados</h2>
+    <p class="text-muted mb-2" style="color:var(--danger)!important">⚠️ <b>Atenção:</b> A importação irá <b>mesclar</b> os dados importados com os existentes. IDs duplicados serão sobrescritos. Faça backup antes!</p>
+    <label><span>Arquivo JSON de backup</span>
+      <input type="file" id="importFile" accept=".json" onchange="handleImport(event)">
+    </label>
+    <button class="btn btn-primary mt-2" onclick="document.getElementById('importFile').click()">📤 Selecionar arquivo e importar</button>
+    <div id="importStatus" style="margin-top:12px"></div>
+  </div>
+
+  <div class="card">
+    <h2>🔄 Sincronizar com Firebase</h2>
+    <p class="text-muted mb-2">Força o envio de todos os dados locais para o Firestore.</p>
+    <button class="btn btn-primary" onclick="syncToFirebase()" id="btnSync">🔄 Sincronizar agora</button>
+    <span id="syncStatus" style="margin-left:12px;font-size:13px;color:var(--muted)"></span>
   </div>
 </div>
 
@@ -589,6 +620,213 @@ function clearLogs() {
   page.saveDB(data);
   renderLogs();
   page.toast('Logs limpos', 'info');
+}
+
+/* ========== EXPORT / IMPORT ========== */
+function exportFull() {
+  const data = page.getDB();
+  const exportData = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    exportedBy: user?.username || 'unknown',
+    settings: data.settings,
+    users: data.users,
+    tasks: data.tasks,
+    files: data.files,
+    posts: data.posts,
+    logs: data.logs,
+  };
+  downloadJSON(exportData, `checklist-ml-backup-${core.today()}.json`);
+  core.log('export_full', user.id, 'Backup completo');
+  page.toast('Backup exportado com sucesso! 📥', 'success');
+}
+
+function exportTasks() {
+  const data = page.getDB();
+  const exportData = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    tasks: data.tasks,
+  };
+  downloadJSON(exportData, `checklist-ml-tasks-${core.today()}.json`);
+  page.toast('Atividades exportadas! 📋', 'success');
+}
+
+function exportUsers() {
+  const data = page.getDB();
+  const exportData = {
+    version: '2.0',
+    exportedAt: new Date().toISOString(),
+    users: data.users.map(u => ({ ...u, passHash: undefined, pass: undefined })), // não exportar senhas
+  };
+  downloadJSON(exportData, `checklist-ml-users-${core.today()}.json`);
+  page.toast('Usuários exportados! 👥', 'success');
+}
+
+function downloadJSON(obj, filename) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+async function handleImport(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const statusEl = document.getElementById('importStatus');
+
+  try {
+    const text = await file.text();
+    const imported = JSON.parse(text);
+
+    if (!imported.version) {
+      statusEl.innerHTML = '<span style="color:var(--danger)">❌ Arquivo inválido — não é um backup do Checklist ML</span>';
+      return;
+    }
+
+    let count = { tasks: 0, posts: 0, files: 0, users: 0, settings: false };
+
+    if (!confirm(
+      `Dados encontrados no backup:\n` +
+      `- Atividades: ${(imported.tasks || []).length}\n` +
+      `- Posts: ${(imported.posts || []).length}\n` +
+      `- Arquivos: ${(imported.files || []).length}\n` +
+      `- Usuários: ${(imported.users || []).length}\n\n` +
+      `Deseja importar? Dados com IDs iguais serão sobrescritos.`
+    )) return;
+
+    data = page.getDB();
+
+    // Importar tasks
+    if (imported.tasks && imported.tasks.length > 0) {
+      const existingIds = new Set(data.tasks.map(t => String(t.id)));
+      imported.tasks.forEach(t => {
+        const idx = data.tasks.findIndex(lt => String(lt.id) === String(t.id));
+        if (idx >= 0) {
+          data.tasks[idx] = { ...t };
+        } else {
+          data.tasks.push(t);
+        }
+        count.tasks++;
+      });
+    }
+
+    // Importar posts
+    if (imported.posts && imported.posts.length > 0) {
+      const existingIds = new Set(data.posts.map(p => String(p.id)));
+      imported.posts.forEach(p => {
+        const idx = data.posts.findIndex(lp => String(lp.id) === String(p.id));
+        if (idx >= 0) {
+          data.posts[idx] = { ...p };
+        } else {
+          data.posts.push(p);
+        }
+        count.posts++;
+      });
+    }
+
+    // Importar files
+    if (imported.files && imported.files.length > 0) {
+      const existingIds = new Set(data.files.map(f => String(f.id)));
+      imported.files.forEach(f => {
+        const idx = data.files.findIndex(lf => String(lf.id) === String(f.id));
+        if (idx >= 0) {
+          data.files[idx] = { ...f };
+        } else {
+          data.files.push(f);
+        }
+        count.files++;
+      });
+    }
+
+    // Importar users (sem sobrescrever senhas existentes)
+    if (imported.users && imported.users.length > 0) {
+      imported.users.forEach(u => {
+        const existing = data.users.find(lu => lu.id === u.id || lu.uid === u.uid || lu.email === u.email);
+        if (!existing) {
+          data.users.push({ ...u, passHash: u.passHash || '', pass: '' });
+          count.users++;
+        }
+      });
+    }
+
+    // Importar settings (apenas se marcado)
+    if (imported.settings && confirm('Importar também as configurações de aparência?')) {
+      data.settings = { ...data.settings, ...imported.settings };
+      count.settings = true;
+    }
+
+    page.saveDB(data);
+    core.log('import_data', user.id, `tasks:${count.tasks} posts:${count.posts} files:${count.files} users:${count.users}`);
+
+    statusEl.innerHTML = `<span style="color:var(--success)">✅ Importação concluída! ${count.tasks} atividades, ${count.posts} posts, ${count.files} arquivos, ${count.users} usuários${count.settings ? ', configurações' : ''}.</span>`;
+
+    // Recarregar todas as views
+    renderUsers();
+    renderPosts();
+    renderFiles();
+    renderCategories();
+    populateCategorySelects();
+
+    // Recarregar parent
+    window.parent.postMessage({ type: 'reload' }, '*');
+
+    page.toast('Dados importados com sucesso! 📤', 'success');
+
+  } catch (err) {
+    statusEl.innerHTML = `<span style="color:var(--danger)">❌ Erro ao processar arquivo: ${err.message}</span>`;
+    page.toast('Erro na importação: ' + err.message, 'error');
+  }
+}
+
+async function syncToFirebase() {
+  const data = page.getDB();
+  const btn = document.getElementById('btnSync');
+  const status = document.getElementById('syncStatus');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Sincronizando...';
+  status.textContent = 'Enviando dados para o Firestore...';
+
+  try {
+    // Push settings
+    await fireSync.pushSettings(data.settings);
+    status.textContent = 'Settings ✓';
+
+    // Push tasks
+    const tasks = data.tasks.filter(t => t.owner === user.id);
+    for (const t of tasks) {
+      await fireSync.pushDocument('tasks', String(t.id), t);
+    }
+    status.textContent = `Settings ✓ Tasks (${tasks.length}) ✓`;
+
+    // Push posts
+    for (const p of (data.posts || [])) {
+      await fireSync.pushDocument('posts', String(p.id), p);
+    }
+    status.textContent = `Settings ✓ Tasks ✓ Posts (${data.posts.length}) ✓`;
+
+    // Push files
+    for (const f of (data.files || [])) {
+      await fireSync.pushDocument('files', String(f.id), f);
+    }
+    status.textContent = `✅ Tudo sincronizado!`;
+
+    core.log('sync_firebase', user.id);
+    page.toast('Dados sincronizados com Firebase! 🔄', 'success');
+  } catch (err) {
+    status.textContent = '❌ Erro: ' + err.message;
+    page.toast('Erro na sincronização', 'error');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔄 Sincronizar agora';
 }
 </script>
 </body>

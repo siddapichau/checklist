@@ -324,6 +324,129 @@ input,select,textarea{font:inherit}
   .topbar{padding:0 16px}
 }
 
+/* ---------- ANIMAÇÕES & MICRO-INTERAÇÕES ---------- */
+
+/* Page transition for iframe */
+.page-frame {
+  transition: opacity .2s ease, transform .2s ease;
+}
+
+/* Button hover ripple */
+.btn-primary, .btn, .btn-new, .nav-item, .btn-icon {
+  position: relative;
+  overflow: hidden;
+}
+
+.btn-primary:active::after,
+.btn:active::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,.2);
+  animation: ripple .4s ease-out;
+}
+@keyframes ripple {
+  from { transform: scale(0); opacity: 1; border-radius: 50%; }
+  to { transform: scale(2); opacity: 0; border-radius: 50%; }
+}
+
+/* Pulse for badges */
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.15); }
+}
+.nav-item .badge {
+  animation: pulse 2s ease-in-out infinite;
+}
+
+/* Hover scale for cards */
+.metric, .card {
+  transition: transform .2s ease, box-shadow .2s ease;
+}
+.metric:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+/* Item entry animation */
+.item {
+  animation: itemIn .35s ease backwards;
+}
+@keyframes itemIn {
+  from { opacity: 0; transform: translateX(-10px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* Skeleton loading */
+.skeleton {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--line) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+@keyframes shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+.skeleton-text { height: 14px; margin-bottom: 8px; width: 100%; }
+.skeleton-text.short { width: 60%; }
+.skeleton-title { height: 20px; margin-bottom: 12px; width: 80%; }
+.skeleton-card { height: 80px; margin-bottom: 10px; border-radius: 8px; }
+.skeleton-metric { height: 80px; border-radius: 12px; flex: 1; min-width: 150px; }
+
+/* Fade transitions */
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes fadeOut {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-12px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Global search result hover */
+.search-result-item:hover {
+  background: var(--primary-light) !important;
+}
+
+/* Kbd styling */
+kbd {
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+/* Focus visible ring */
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* Floating animation for new task button */
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); }
+}
+
+/* Smooth checkbox transition */
+input[type="checkbox"] {
+  transition: transform .15s ease;
+  cursor: pointer;
+}
+input[type="checkbox"]:active {
+  transform: scale(.9);
+}
+
 /* ---------- UTILITIES ---------- */
 .text-center{text-align:center}
 .text-muted{color:var(--muted)}

@@ -14,12 +14,13 @@ const Core = {
       mode: 'light',          // light | dark
       logo: '',               // URL ou base64
       favicon: '',            // URL ou base64
-      menuOrder: ['home','atividades','arquivos','IA','perfil','admin'],
+      menuOrder: ['home','atividades','arquivos','relatorios','IA','perfil','admin'],
       deepseekKey: '',
       menuItems: [
         { id:'home',       label:'Visão geral',   icon:'📊', visible:true },
         { id:'atividades', label:'Atividades',    icon:'✅', visible:true },
         { id:'arquivos',   label:'Arquivos',      icon:'📁', visible:true },
+        { id:'relatorios', label:'Relatórios',    icon:'📈', visible:true },
         { id:'IA',         label:'IA Assistente', icon:'🤖', visible:true },
         { id:'perfil',     label:'Meu Perfil',    icon:'👤', visible:true },
         { id:'admin',      label:'Administração', icon:'⚙️', visible:true, adminOnly:true },

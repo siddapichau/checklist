@@ -186,6 +186,7 @@ function render() {
         ${t.description ? `<small style="display:block;margin-top:2px;color:var(--text-secondary)">${page.esc(t.description).slice(0,100)}</small>` : ''}
       </div>
       <div class="item-actions">
+        <button class="btn-icon" onclick="shareTask(${t.id})" title="Compartilhar">🔗</button>
         <button class="btn-icon" onclick="editTask(${t.id})" title="Editar">✏️</button>
         <button class="btn-icon" onclick="deleteTask(${t.id})" title="Excluir">🗑️</button>
       </div>
@@ -296,6 +297,92 @@ function toggleStatus(id) {
 function closeModal() {
   document.getElementById('taskModal').classList.add('hidden');
 }
+
+/* ========== SHARE ========== */
+function shareTask(id) {
+  const data = page.getDB();
+  const task = data.tasks.find(t => t.id === id);
+  if (!task) return;
+
+  const shareText = `📋 *${task.title}*\n📅 ${core.formatDate(task.date)}\n📌 ${task.category || 'Geral'} | ${statusLabel(task.status)}\n${task.description ? '📝 ' + task.description : ''}`;
+  
+  // Criar link compartilhável (base64 encoded)
+  const shareData = { t: task.title, d: task.date, c: task.category, s: task.status, desc: task.description };
+  const shareUrl = `${window.location.origin}/index.html#share=${btoa(JSON.stringify(shareData))}`;
+
+  // Modal de compartilhamento
+  const modalHtml = `
+    <h2>🔗 Compartilhar atividade</h2>
+    <div style="margin-bottom:16px;padding:12px;background:var(--bg-secondary,#F1F5F9);border-radius:8px">
+      <b>${page.esc(task.title)}</b><br>
+      <small style="color:var(--muted)">${core.formatDate(task.date)} · ${page.esc(task.category || 'Geral')}</small>
+    </div>
+
+    <label><span>Link para compartilhar</span>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="shareLink" value="${shareUrl}" readonly style="flex:1;font-size:12px" onclick="this.select()">
+        <button class="btn btn-primary btn-sm" onclick="copyShareLink()">📋 Copiar</button>
+      </div>
+    </label>
+
+    <div style="text-align:center;margin:20px 0">
+      <div id="qrCode" style="display:inline-block"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Escaneie para abrir no celular</p>
+    </div>
+
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="shareNative()">📱 Compartilhar</button>
+      <button class="btn btn-secondary" onclick="shareWhatsApp()">💬 WhatsApp</button>
+      <button class="btn btn-secondary" onclick="shareEmail()">📧 E-mail</button>
+    </div>
+
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="page.closeModal()">Fechar</button>
+    </div>
+  `;
+
+  page.openModal(modalHtml);
+
+  // Gerar QR code após o modal aparecer
+  setTimeout(() => {
+    const qrEl = document.getElementById('qrCode');
+    if (qrEl && typeof QRCode !== 'undefined') {
+      qrEl.innerHTML = '';
+      new QRCode(qrEl, {
+        text: shareUrl,
+        width: 160,
+        height: 160,
+        colorDark: '#1E293B',
+        colorLight: '#FFFFFF',
+      });
+    }
+  }, 300);
+
+  // Funções auxiliares no escopo do modal
+  window.copyShareLink = function() {
+    const input = document.getElementById('shareLink');
+    input.select();
+    document.execCommand('copy');
+    page.toast('Link copiado! 📋', 'success');
+  };
+
+  window.shareNative = function() {
+    if (navigator.share) {
+      navigator.share({ title: task.title, text: shareText, url: shareUrl }).catch(() => {});
+    } else {
+      copyShareLink();
+    }
+  };
+
+  window.shareWhatsApp = function() {
+    window.open(`https://wa.me/?text=${encodeURIComponent(shareText + '\n' + shareUrl)}`, '_blank');
+  };
+
+  window.shareEmail = function() {
+    window.open(`mailto:?subject=${encodeURIComponent(task.title)}&body=${encodeURIComponent(shareText + '\n\n' + shareUrl)}`, '_blank');
+  };
+}
 </script>
+<script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
 </body>
 </html>
