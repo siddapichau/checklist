@@ -1,11 +1,11 @@
 /* =========================================================
-   CHECKLIST ML — service-worker.js  (Parte 2/3)
-   PWA: cache offline + push notifications
+   CHECKLIST ML — service-worker.js
+   PWA resiliente: shell offline, atualização segura e push
    ========================================================= */
 
-// Altere a versão sempre que arquivos do app em cache forem modificados.
-// v7 = correção de loop de notificações + configurações privadas no Firestore
-const CACHE_NAME = 'checklist-ml-v7-notification-loop';
+// v8 = recuperação de navegação no APK e cache de instalação resiliente.
+const CACHE_NAME = 'checklist-ml-v8-resilient-shell';
+const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
   '/index.html',
@@ -18,6 +18,7 @@ const ASSETS = [
   '/js/seed.js',
   '/assets/favicon.svg',
   '/assets/logo.svg',
+  '/assets/logo-modern.png',
   '/assets/icon-192.png',
   '/assets/icon-512.png',
   '/assets/apple-touch-icon.png',
@@ -45,71 +46,107 @@ const ASSETS = [
   'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'
 ];
 
-/* ========== INSTALL ========== */
-self.addEventListener('install', (event) => {
-  console.log('👷 Service Worker instalando...');
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('📦 Cacheando assets...');
-      return cache.addAll(ASSETS).catch(err => {
-        console.warn('⚠️ Alguns assets não puderam ser cacheados:', err);
-      });
-    })
-  );
-  self.skipWaiting();
+/* ========== CICLO DE VIDA ========== */
+self.addEventListener('install', event => {
+  // cache.addAll é atômico: se uma CDN estiver indisponível, nenhum arquivo era
+  // salvo e o APK podia ficar sem fallback. Cada arquivo agora é independente.
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    await Promise.all(ASSETS.map(async asset => {
+      try {
+        await cache.add(asset);
+      } catch (err) {
+        console.warn('Asset não cacheado nesta instalação:', asset, err);
+      }
+    }));
+    await self.skipWaiting();
+  })());
 });
 
-/* ========== ACTIVATE ========== */
-self.addEventListener('activate', (event) => {
-  console.log('✅ Service Worker ativo');
-  event.waitUntil(
-    caches.keys().then((keys) => {
-      return Promise.all(
-        keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))
-      );
-    })
-  );
-  self.clients.claim();
+self.addEventListener('activate', event => {
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
 
-/* ========== FETCH (Cache First, Network Fallback) ========== */
-self.addEventListener('fetch', (event) => {
-  // Não cachear requisições de API
-  if (event.request.url.includes('firestore') ||
-      event.request.url.includes('googleapis') ||
-      event.request.url.includes('deepseek.com') ||
-      event.request.url.includes('firebaseio.com') ||
-      event.request.method !== 'GET') {
+self.addEventListener('message', event => {
+  if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+});
+
+function isApiRequest(request) {
+  const url = request.url;
+  return url.includes('firestore') || url.includes('googleapis') ||
+    url.includes('deepseek.com') || url.includes('firebaseio.com');
+}
+
+async function fetchWithTimeout(request) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), NETWORK_TIMEOUT_MS);
+  try {
+    return await fetch(request, { signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function cacheResponse(request, response) {
+  if (!response || !response.ok) return;
+  const cache = await caches.open(CACHE_NAME);
+  await cache.put(request, response);
+}
+
+async function navigationResponse(request) {
+  // Network-first evita que uma tela HTML antiga/corrompida fique presa no APK.
+  // Em conexão lenta a tentativa tem timeout e volta para o shell já cacheado.
+  try {
+    const response = await fetchWithTimeout(request);
+    if (response && response.ok) {
+      cacheResponse(request, response.clone()).catch(() => {});
+      return response;
+    }
+    throw new Error('Resposta de navegação inválida');
+  } catch (err) {
+    const cached = await caches.match(request) || await caches.match('/index.html');
+    if (cached) return cached;
+    return new Response(
+      '<!doctype html><title>Sem conexão</title><meta name="viewport" content="width=device-width,initial-scale=1"><body style="font-family:system-ui;padding:24px"><h1>Sem conexão</h1><p>Verifique a internet e tente novamente.</p></body>',
+      { status: 503, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+    );
+  }
+}
+
+async function assetResponse(event) {
+  const request = event.request;
+  const cached = await caches.match(request);
+  if (cached) {
+    // Stale-while-revalidate mantém o app imediato, mas atualiza o próximo uso.
+    // Não usamos event.waitUntil aqui porque a resposta já está em uma função
+    // assíncrona; alguns WebViews rejeitam waitUntil fora do handler inicial.
+    fetch(request).then(response => cacheResponse(request, response)).catch(() => {});
+    return cached;
+  }
+  try {
+    const response = await fetchWithTimeout(request);
+    cacheResponse(request, response.clone()).catch(() => {});
+    return response;
+  } catch (err) {
+    return new Response('Offline', { status: 503, statusText: 'Offline' });
+  }
+}
+
+/* ========== FETCH ========== */
+self.addEventListener('fetch', event => {
+  const request = event.request;
+  if (request.method !== 'GET' || isApiRequest(request)) return;
+
+  if (request.mode === 'navigate') {
+    event.respondWith(navigationResponse(request));
     return;
   }
 
-  event.respondWith(
-    caches.match(event.request).then((cached) => {
-      if (cached) {
-        // Atualizar cache em background
-        fetch(event.request).then(response => {
-          if (response.ok) {
-            caches.open(CACHE_NAME).then(cache => cache.put(event.request, response));
-          }
-        }).catch(() => {});
-        return cached;
-      }
-      return fetch(event.request).then(response => {
-        if (!response || response.status !== 200 || response.type !== 'basic') {
-          return response;
-        }
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
-        return response;
-      }).catch(() => {
-        // Offline fallback - retornar página principal
-        if (event.request.mode === 'navigate') {
-          return caches.match('/index.html');
-        }
-        return new Response('Offline', { status: 503 });
-      });
-    })
-  );
+  event.respondWith(assetResponse(event));
 });
 
 /* ========== PUSH NOTIFICATIONS ========== */

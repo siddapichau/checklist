@@ -10,6 +10,9 @@ const App = {
   settings: null,
   _authListenerAttached: false,
   _initDone: false,
+  _swUpdateRequested: false,
+  _recoveryListenersAttached: false,
+  _lastConnectionRecovery: 0,
 
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
@@ -80,6 +83,7 @@ const App = {
     }
 
     this.setupKeyboardShortcuts();
+    this.setupAppRecovery();
 
     window.addEventListener('firebaseSync', (e) => {
       const type = e.detail?.type;
@@ -110,17 +114,34 @@ const App = {
   /* ========== SERVICE WORKER & PWA ========== */
   registerSW() {
     if ('serviceWorker' in navigator) {
-      // Desativar SW em localhost se der erro constante (evita loop de cache velho)
+      // Um update do shell deve assumir o controle e recarregar uma única vez.
+      // Isso evita que o APK fique preso em arquivos HTML/JS de versões diferentes.
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!this._swUpdateRequested) return;
+        this._swUpdateRequested = false;
+        try {
+          if (sessionStorage.getItem('cl-sw-reloaded') === '1') return;
+          sessionStorage.setItem('cl-sw-reloaded', '1');
+        } catch(e) {}
+        window.location.reload();
+      });
+
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then((reg) => {
           console.log('✅ Service Worker registrado:', reg.scope);
+          const activateUpdate = (worker) => {
+            if (!worker || !navigator.serviceWorker.controller) return;
+            this._swUpdateRequested = true;
+            core.toast('Atualizando o aplicativo para mantê-lo estável…', 'info');
+            worker.postMessage({ type: 'SKIP_WAITING' });
+          };
+
+          if (reg.waiting) activateUpdate(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                core.toast('Nova versão disponível! Recarregue para atualizar.', 'info');
-              }
+              if (newWorker.state === 'installed') activateUpdate(newWorker);
             });
           });
           this.requestPushPermission(reg);
@@ -150,6 +171,40 @@ const App = {
         });
       }
     };
+  },
+
+  /* ========== RECUPERAÇÃO APÓS PAUSA / REDE ========== */
+  setupAppRecovery() {
+    if (this._recoveryListenersAttached) return;
+    this._recoveryListenersAttached = true;
+
+    const recover = (reason) => {
+      const uid = this.currentUser?.uid || this.currentUser?.id;
+      // Android pode suspender WebViews e encerrar conexões do Firestore enquanto
+      // o app está em segundo plano. Ao voltar depois de algum tempo, renovamos
+      // os listeners mesmo se o SDK ainda marcar o sync como ativo.
+      const now = Date.now();
+      const staleConnection = reason === 'visible' && now - this._lastConnectionRecovery > 60000;
+      if (uid && auth.currentUser?.uid === uid && (!fireSync._syncing || staleConnection)) {
+        if (staleConnection) fireSync.stop();
+        fireSync.start(uid);
+        this._lastConnectionRecovery = now;
+      }
+
+      const frame = document.getElementById('pageFrame');
+      if (this.currentUser && frame && !frame.getAttribute('src')) {
+        this.navigate(this.currentPage || 'home');
+      }
+      console.log('♻️ Recuperação do app:', reason);
+    };
+
+    window.addEventListener('online', () => recover('online'));
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) recover('pageshow');
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') recover('visible');
+    });
   },
 
   requestPushPermission(swReg) {
