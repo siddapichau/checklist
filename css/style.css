@@ -92,6 +92,7 @@ input,select,textarea{font:inherit}
 /* Mercado light: botões com texto escuro no amarelo */
 [data-theme="mercado"][data-mode="light"] .btn-primary,
 [data-theme="mercado"][data-mode="light"] .btn-new,
+[data-theme="mercado"][data-mode="light"] .btn-new-top,
 [data-theme="mercado"][data-mode="light"] .sidebar .btn-new{color:#333!important}
 
 /* ---------- HIDDEN ---------- */
@@ -232,13 +233,80 @@ input,select,textarea{font:inherit}
 /* ---------- MAIN CONTENT ---------- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
 .topbar{
-  height:var(--header-h);background:var(--card);border-bottom:1px solid var(--line);
-  display:flex;align-items:center;padding:0 24px;gap:12px;flex-shrink:0;
+  min-height:var(--header-h);height:var(--header-h);background:var(--card);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;
 }
 .btn-mobile{
   display:none;border:0;background:none;font-size:22px;color:var(--text-secondary);padding:4px;
 }
-.topbar .breadcrumb{font-weight:700;font-size:18px;color:var(--text);flex:1;display:flex;align-items:center;gap:8px}
+.topbar .breadcrumb{font-weight:700;font-size:18px;color:var(--text);flex:1;display:flex;align-items:center;gap:8px;min-width:0}
+
+/* ---------- TOPBAR BRAND (desktop) ---------- */
+.topbar-brand{display:none;align-items:center;gap:9px;flex-shrink:0;cursor:pointer}
+.topbar-brand img{width:30px;height:30px}
+.topbar-brand span{font-weight:800;font-size:15px;color:var(--text);white-space:nowrap}
+
+/* ---------- BOTÃO NOVA ATIVIDADE (desktop, no topo) ---------- */
+.btn-new-top{
+  display:none;border:0;border-radius:var(--radius);background:var(--primary);color:#fff;
+  padding:9px 14px;font-weight:700;font-size:13px;align-items:center;gap:5px;
+  white-space:nowrap;transition:.2s;flex-shrink:0;
+}
+.btn-new-top:hover{background:var(--primary-hover);transform:translateY(-1px);box-shadow:var(--shadow-md)}
+.btn-new-top .plus{font-size:15px;line-height:1}
+
+/* ---------- MENU NO TOPO (desktop) com dropdowns ---------- */
+.topnav{display:none;align-items:center;gap:2px;flex:1;min-width:0;overflow:visible}
+.topnav-group{position:relative;flex-shrink:0}
+.topnav-trigger{
+  display:flex;align-items:center;gap:6px;border:0;background:transparent;
+  color:var(--text-secondary);font-weight:600;font-size:13.5px;
+  padding:9px 12px;border-radius:var(--radius);cursor:pointer;transition:.15s;
+  white-space:nowrap;position:relative;
+}
+.topnav-trigger:hover{background:var(--bg-secondary);color:var(--text)}
+.topnav-group.has-active .topnav-trigger{background:var(--primary-light);color:var(--primary)}
+.topnav-trigger .caret{font-size:9px;opacity:.7;transition:transform .2s}
+.topnav-group.open .topnav-trigger .caret{transform:rotate(180deg)}
+.topnav-trigger .trigger-badge{
+  background:var(--danger);color:#fff;font-size:10px;font-weight:700;
+  padding:0 6px;border-radius:10px;min-width:17px;height:17px;line-height:17px;text-align:center;
+}
+.topnav-menu{
+  position:absolute;top:calc(100% + 6px);left:0;min-width:228px;background:var(--card);
+  border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
+  padding:6px;z-index:300;display:none;
+}
+.topnav-group.open .topnav-menu{display:block;animation:slideDown .18s ease}
+.topnav-item{
+  display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;
+  color:var(--text-secondary);font-size:14px;font-weight:500;cursor:pointer;transition:.13s;
+}
+.topnav-item:hover{background:var(--bg-secondary);color:var(--text)}
+.topnav-item.active{background:var(--primary-light);color:var(--primary);font-weight:700}
+.topnav-item .icon{font-size:17px;width:22px;text-align:center;flex-shrink:0}
+.topnav-item .badge{
+  margin-left:auto;background:var(--danger);color:#fff;font-size:11px;font-weight:700;
+  padding:1px 7px;border-radius:10px;min-width:20px;text-align:center;
+}
+
+/* Desktop: menu no topo ganha largura — a sidebar some */
+@media(min-width:1025px){
+  .topbar-brand{display:flex}
+  .topnav{display:flex}
+  .btn-new-top{display:inline-flex}
+  .topbar .breadcrumb{display:none}
+  .sidebar{display:none!important}
+  .sidebar-overlay{display:none!important}
+  /* Desktop: abrir dropdown também no hover, sem precisar clicar */
+  .topnav-group:hover .topnav-menu{display:block;animation:slideDown .18s ease}
+  .topnav-group:hover .topnav-trigger .caret{transform:rotate(180deg)}
+}
+@media(min-width:1025px) and (max-width:1240px){
+  .topbar-brand span{display:none}
+  .btn-new-top .lbl{display:none}
+}
+
 .topbar-actions{display:flex;align-items:center;gap:8px}
 .topbar-actions button{
   border:0;background:var(--bg-secondary);color:var(--text-secondary);width:36px;height:36px;
@@ -405,16 +473,19 @@ input,select,textarea{font:inherit}
 }
 
 /* ---------- RESPONSIVE ---------- */
-@media(max-width:768px){
+/* Até 1024px o menu superior vira gaveta lateral (hambúrguer). */
+@media(max-width:1024px){
   :root{--sidebar-w:280px}
   .sidebar{position:fixed;top:0;left:0;height:100%;transform:translateX(-100%);box-shadow:var(--shadow-lg)}
   .sidebar.open{transform:none}
-  .sidebar-overlay.show{display:block}
+  .sidebar-overlay.open{display:block}
   .btn-mobile{display:flex}
-  .topbar-user .uname{display:none}
-  .topbar{padding:0 16px}
+  .topbar{padding:0 14px;gap:8px}
   .lang-switcher button span{display:none}
   .notif-dropdown{width:300px;right:-50px}
+}
+@media(max-width:768px){
+  .topbar-user .uname{display:none}
 }
 
 /* ---------- ANIMAÇÕES & MICRO-INTERAÇÕES ---------- */
@@ -550,6 +621,13 @@ input[type="checkbox"]:active {
 .grid{display:grid}
 
 @media(max-width:700px){
-  .app{height:100dvh}.sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:var(--shadow-lg)}
-  .sidebar.open{transform:translateX(0)}.sidebar-overlay{display:block}.topbar{height:56px;padding:0 12px;gap:8px}.btn-mobile{display:block;min-width:44px;min-height:44px}.topbar .breadcrumb{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.topbar-actions button{min-width:40px;min-height:40px}.topbar-user .uname{display:none}.topbar-user .avatar{width:32px;height:32px}.page-frame{height:calc(100dvh - 56px)}
+  .app{height:100dvh}
+  .sidebar.open{transform:translateX(0)}
+  .topbar{min-height:56px;height:56px;padding:0 12px;gap:8px}
+  .btn-mobile{display:block;min-width:44px;min-height:44px}
+  .topbar .breadcrumb{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .topbar-actions button{min-width:40px;min-height:40px}
+  .topbar-user .uname{display:none}
+  .topbar-user .avatar{width:32px;height:32px}
+  .page-frame{height:calc(100dvh - 56px)}
 }

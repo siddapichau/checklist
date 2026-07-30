@@ -39,10 +39,8 @@
   </select>
 </div>
 
-<!-- LISTA -->
-<div class="card">
-  <div id="taskList"></div>
-</div>
+<!-- LISTA AGRUPADA POR STATUS (cards compactos) -->
+<div id="taskList"></div>
 
 <!-- MODAL NOVA/EDITAR ATIVIDADE -->
 <div class="modal-overlay hidden" id="taskModal" onclick="if(event.target===this)closeModal()">
@@ -56,12 +54,18 @@
       <label><span>Descrição</span>
         <textarea id="taskDesc" rows="3" placeholder="Detalhes opcionais da atividade..."></textarea>
       </label>
+
+      <label><span>Categorias</span>
+        <div class="cat-check-grid" id="taskCategoryBoxes"></div>
+      </label>
+
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <label><span>Data</span>
+        <label><span>📅 Data</span>
           <input type="date" id="taskDate">
         </label>
-        <label><span>Categoria</span>
-          <select id="taskCategory" multiple size="3"></select>
+        <label><span>⏰ Horário do alerta</span>
+          <input type="time" id="taskAlertTime">
+          <small class="time-hint">Vazio = sem alerta. Com horário, o app avisa no dia da atividade.</small>
         </label>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -116,17 +120,34 @@
 const user = page.getUser();
 const settings = page.getDB().settings;
 
-// Popular filtro de categorias
+/* ========== CATEGORIAS POR CAIXA MARCÁVEL ========== */
 (function initCategories() {
   const cats = settings.categories || ['Geral'];
   const filterCat = document.getElementById('filterCategory');
-  const taskCat = document.getElementById('taskCategory');
   cats.forEach(c => {
     filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
-    taskCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
   });
+  buildCategoryBoxes([]);
   render();
 })();
+
+function buildCategoryBoxes(selectedNames) {
+  const cats = settings.categories || ['Geral'];
+  const selected = new Set(selectedNames);
+  const box = document.getElementById('taskCategoryBoxes');
+  box.innerHTML = cats.map(c => `
+    <label class="cat-check ${selected.has(c) ? 'checked' : ''}">
+      <input type="checkbox" value="${page.esc(c)}" ${selected.has(c) ? 'checked' : ''} onchange="this.closest('.cat-check').classList.toggle('checked', this.checked)">
+      <span class="check-dot">✓</span>
+      <span>${page.esc(c)}</span>
+    </label>
+  `).join('');
+}
+
+function getSelectedCategories() {
+  return Array.from(document.querySelectorAll('#taskCategoryBoxes input[type="checkbox"]:checked'))
+    .map(input => input.value);
+}
 
 // Algumas ações do core (pontos, recorrência e logs) salvam dados enquanto a
 // página ainda mantém uma cópia local. Preserve esses efeitos antes de salvar a
@@ -135,6 +156,10 @@ function preserveCoreSideEffects(data) {
   const latest = page.getDB();
   data.gamification = latest.gamification;
   data.logs = latest.logs;
+}
+
+function findTask(data, id) {
+  return data.tasks.find(t => String(t.id) === String(id));
 }
 
 // Listener para mensagem do parent (nova tarefa rápida)
@@ -149,6 +174,19 @@ if (recSel) recSel.addEventListener('change', () => {
   customLabel.style.display = recSel.value === 'custom' ? 'block' : 'none';
 });
 
+/* ========== RENDER: CARDS COMPACTOS AGRUPADOS POR STATUS ========== */
+const STATUS_GROUPS = [
+  { key: 'late',      icon: '⏰', label: 'Atrasadas' },
+  { key: 'analyzing', icon: '🔍', label: 'Analisando' },
+  { key: 'pending',   icon: '⏳', label: 'Pendentes' },
+  { key: 'finished',  icon: '✅', label: 'Finalizadas' },
+  { key: 'notdone',   icon: '❌', label: 'Não realizadas' },
+];
+
+function isLateTask(t, today) {
+  return t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
+}
+
 function render() {
   const data = page.getDB();
   const tasks = data.tasks || [];
@@ -159,17 +197,19 @@ function render() {
   const today = core.today();
   const now = new Date();
 
+  const taskCats = t => String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
+
   let filtered = tasks.filter(t => {
     if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
     if (status !== 'all' && t.status !== status) return false;
-    if (category !== 'all' && t.category !== category) return false;
+    if (category !== 'all' && !taskCats(t).includes(category)) return false;
     if (dateFilter === 'today' && t.date !== today) return false;
     if (dateFilter === 'week') {
       const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay());
       const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
       if (!t.date || t.date < weekStart.toISOString().slice(0,10) || t.date > weekEnd.toISOString().slice(0,10)) return false;
     }
-    if (dateFilter === 'late' && !(t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone')) return false;
+    if (dateFilter === 'late' && !isLateTask(t, today)) return false;
     if (dateFilter === 'month') {
       const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
       const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0,10);
@@ -178,84 +218,127 @@ function render() {
     return true;
   });
 
-  // Ordenar: atrasadas primeiro, depois por data, depois por prioridade
-  const prio = { urgent: 0, high: 1, medium: 2, low: 3 };
-  filtered.sort((a, b) => {
-    const aLate = a.date && a.date < today && a.status !== 'finished' && a.status !== 'notdone';
-    const bLate = b.date && b.date < today && b.status !== 'finished' && b.status !== 'notdone';
-    if (aLate && !bLate) return -1;
-    if (!aLate && bLate) return 1;
-    if (a.date && b.date) return a.date.localeCompare(b.date);
-    return (prio[a.priority] || 2) - (prio[b.priority] || 2);
+  // Separar em grupos por status (atrasadas é grupo virtual calculado)
+  const buckets = { late: [], analyzing: [], pending: [], finished: [], notdone: [] };
+  filtered.forEach(t => {
+    if (isLateTask(t, today)) buckets.late.push(t);
+    else if (buckets[t.status]) buckets[t.status].push(t);
+    else buckets.pending.push(t); // status desconhecido → pendente
   });
+
+  // Ordenar dentro de cada grupo: data mais próxima primeiro, depois prioridade
+  const prio = { urgent: 0, high: 1, medium: 2, low: 3 };
+  Object.values(buckets).forEach(list => list.sort((a, b) => {
+    const da = a.date || '9999', db_ = b.date || '9999';
+    if (da !== db_) return da.localeCompare(db_);
+    return (prio[a.priority] ?? 2) - (prio[b.priority] ?? 2);
+  }));
 
   const list = document.getElementById('taskList');
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div class="empty"><div class="icon">📋</div><p>Nenhuma atividade encontrada</p></div>';
+    list.innerHTML = '<div class="card"><div class="empty"><div class="icon">📋</div><p>Nenhuma atividade encontrada</p></div></div>';
     return;
   }
 
-  list.innerHTML = filtered.map(t => {
-    const isLate = t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
-    const prioIcons = { low: '🟢', medium: '🟡', high: '🔴', urgent: '🚨' };
+  list.innerHTML = STATUS_GROUPS.map(group => {
+    const items = buckets[group.key];
+    if (!items.length) return '';
     return `
-    <div class="item" style="${isLate ? 'border-left:3px solid var(--danger,#EF4444)' : ''}">
-      <div style="font-size:18px;cursor:pointer" onclick="toggleStatus(${t.id})">
-        ${t.status === 'finished' ? '✅' : t.status === 'notdone' ? '❌' : t.status === 'analyzing' ? '🔍' : '⬜'}
-      </div>
-      <div class="item-info">
-        <b style="${t.status === 'finished' ? 'text-decoration:line-through;opacity:.6' : ''}">${prioIcons[t.priority] || '🟡'} ${page.esc(t.title)}</b>
-        <small>
-          ${core.formatDate(t.date)} · ${page.esc(t.category || 'Geral')}
-          <span class="badge ${t.status}">${statusLabel(t.status)}</span>
-          ${t.recurrence && t.recurrence !== 'none' ? ` · 🔁 ${recLabel(t.recurrence)}` : ''}
-        </small>
-        ${t.description ? `<small style="display:block;margin-top:2px;color:var(--text-secondary)">${page.esc(t.description).slice(0,100)}</small>` : ''}
-      </div>
-      <div class="item-actions">
-        <button class="btn-icon" onclick="openComments(${t.id},'${page.esc(t.title).replace(/'/g, "\\'")}')" title="Comentários">💬</button>
-        <button class="btn-icon" onclick="shareTask(${t.id})" title="Compartilhar">🔗</button>
-        <button class="btn-icon" onclick="editTask(${t.id})" title="Editar">✏️</button>
-        <button class="btn-icon" onclick="deleteTask(${t.id})" title="Excluir">🗑️</button>
-      </div>
-    </div>`;
+      <div class="task-group" data-group="${group.key}">
+        <div class="task-group-header ${group.key}">
+          <span class="tg-icon">${group.icon}</span>
+          <span>${group.label}</span>
+          <span class="tg-count">${items.length}</span>
+        </div>
+        <div class="task-card-grid">
+          ${items.map(t => renderTaskCard(t, today, group.key === 'late')).join('')}
+        </div>
+      </div>`;
   }).join('');
+}
+
+function renderTaskCard(t, today, showLateBadge) {
+  const late = isLateTask(t, today);
+  const statusIcons = { finished: '✅', notdone: '❌', analyzing: '🔍' };
+  const icon = statusIcons[t.status] || '⬜';
+  const prioLabels = { low: 'Baixa', medium: 'Média', high: 'Alta', urgent: 'Urgente' };
+  const prio = t.priority || 'medium';
+  const cats = String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
+  const dateChip = t.date
+    ? `<span class="tc-chip ${late ? 'late' : ''}">📅 ${t.date.slice(8,10)}/${t.date.slice(5,7)}</span>`
+    : '<span class="tc-chip">📅 Sem data</span>';
+  const alertChip = (t.alertTime && t.status !== 'finished' && t.status !== 'notdone')
+    ? `<span class="tc-chip alert" title="Alerta agendado">⏰ ${page.esc(t.alertTime)}</span>` : '';
+  const recChip = (t.recurrence && t.recurrence !== 'none')
+    ? `<span class="tc-chip">🔁 ${recLabel(t.recurrence)}</span>` : '';
+  const catChips = cats.map(c => `<span class="tc-chip">🏷️ ${page.esc(c)}</span>`).join('');
+  const escTitleForAttr = page.esc(t.title).replace(/'/g, "\\'");
+
+  return `
+  <div class="task-card st-${t.status} ${late ? 'late' : ''}">
+    ${showLateBadge ? '<span class="tc-badge">Atrasada</span>' : ''}
+    <div class="tc-top">
+      <button class="tc-check" onclick="toggleStatus('${t.id}')" title="Avançar status (${statusLabel(t.status)})">${icon}</button>
+      <div class="tc-title" onclick="editTask('${t.id}')" title="Editar atividade">${page.esc(t.title)}</div>
+      <span class="tc-prio ${page.esc(prio)}" title="Prioridade: ${prioLabels[prio] || prio}"></span>
+    </div>
+    <div class="tc-meta">${dateChip}${alertChip}${recChip}${catChips}</div>
+    ${t.description ? `<div class="tc-desc">${page.esc(t.description)}</div>` : ''}
+    <div class="tc-actions">
+      <button class="btn-icon" onclick="openComments('${t.id}','${escTitleForAttr}')" title="Comentários">💬</button>
+      <button class="btn-icon" onclick="shareTask('${t.id}')" title="Compartilhar">🔗</button>
+      <button class="btn-icon" onclick="editTask('${t.id}')" title="Editar">✏️</button>
+      <button class="btn-icon" onclick="deleteTask('${t.id}')" title="Excluir">🗑️</button>
+    </div>
+  </div>`;
 }
 
 function statusLabel(s) {
   return { pending:'Pendente', analyzing:'Analisando', finished:'Finalizada', notdone:'Não realizada' }[s] || s;
 }
 function recLabel(r) {
-  return { daily:'Diária', weekly:'Semanal', monthly:'Mensal' }[r] || r;
+  return { daily:'Diária', weekly:'Semanal', monthly:'Mensal', custom:'Personalizada' }[r] || r;
 }
 
+/* ========== MODAL ========== */
 function openNewTask() {
   document.getElementById('modalTitle').textContent = 'Nova atividade';
   document.getElementById('taskId').value = '';
   document.getElementById('taskTitle').value = '';
   document.getElementById('taskDesc').value = '';
   document.getElementById('taskDate').value = core.today();
+  document.getElementById('taskAlertTime').value = '';
   document.getElementById('taskPriority').value = 'medium';
   document.getElementById('taskStatus').value = 'pending';
   document.getElementById('taskRecurrence').value = 'none';
+  customLabel.style.display = 'none';
+  document.querySelectorAll('#customDaysLabel input[type="checkbox"]').forEach(cb => { cb.checked = false; });
+  buildCategoryBoxes([]);
   document.getElementById('taskModal').classList.remove('hidden');
 }
 
 function editTask(id) {
   const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
+  const task = findTask(data, id);
   if (!task) return;
 
   document.getElementById('modalTitle').textContent = 'Editar atividade';
-  document.getElementById('taskId').value = id;
+  document.getElementById('taskId').value = task.id;
   document.getElementById('taskTitle').value = task.title;
   document.getElementById('taskDesc').value = task.description || '';
   document.getElementById('taskDate').value = task.date || '';
-  document.getElementById('taskCategory').value = task.category || 'Geral';
+  document.getElementById('taskAlertTime').value = task.alertTime || '';
   document.getElementById('taskPriority').value = task.priority || 'medium';
   document.getElementById('taskStatus').value = task.status || 'pending';
   document.getElementById('taskRecurrence').value = task.recurrence || 'none';
+  const cats = String(task.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
+  buildCategoryBoxes(cats);
+  // Recorrência custom: marcar dias salvos
+  document.querySelectorAll('#customDaysLabel input[type="checkbox"]').forEach(cb => {
+    cb.checked = Array.isArray(task.recurrenceDays) && task.recurrenceDays.includes(cb.value);
+  });
+  customLabel.style.display = (task.recurrence === 'custom') ? 'block' : 'none';
   document.getElementById('taskModal').classList.remove('hidden');
 }
 
@@ -264,20 +347,22 @@ function saveTask(e) {
   const data = page.getDB();
   const id = document.getElementById('taskId').value;
   const createdRecurrences = [];
+  const selectedCats = getSelectedCategories();
   const taskData = {
     title: document.getElementById('taskTitle').value.trim(),
     description: document.getElementById('taskDesc').value.trim(),
     date: document.getElementById('taskDate').value,
-    category: Array.from(document.getElementById('taskCategory').selectedOptions).map(o => o.value).join(',') || 'Geral',
+    category: selectedCats.join(',') || 'Geral',
     priority: document.getElementById('taskPriority').value,
     status: document.getElementById('taskStatus').value,
     recurrence: document.getElementById('taskRecurrence').value,
     recurrenceDays: document.getElementById('taskRecurrence').value === 'custom' ? Array.from(document.querySelectorAll('#customDaysLabel input[type="checkbox"]:checked')).map(c => c.value) : [],
+    alertTime: document.getElementById('taskAlertTime').value || '',
   };
 
   if (id) {
     // Editar
-    const task = data.tasks.find(t => t.id === parseInt(id));
+    const task = findTask(data, id);
     if (task) {
       const wasFinished = task.status === 'finished';
       Object.assign(task, taskData, { updatedAt: core.now() });
@@ -317,7 +402,9 @@ function saveTask(e) {
       if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
     }
     core.log('task_create', user?.id, taskData.title);
-    page.toast('Atividade criada! ✅', 'success');
+    page.toast(taskData.alertTime
+      ? `Atividade criada! ✅ Alerta agendado para ${taskData.alertTime}`
+      : 'Atividade criada! ✅', 'success');
   }
 
   preserveCoreSideEffects(data);
@@ -334,8 +421,8 @@ function saveTask(e) {
 function deleteTask(id) {
   if (!confirm('Excluir esta atividade?')) return;
   const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
-  data.tasks = data.tasks.filter(t => t.id !== id);
+  const task = findTask(data, id);
+  data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
   core.log('task_delete', user?.id, task?.title || '');
   preserveCoreSideEffects(data);
   page.saveDB(data);
@@ -347,7 +434,7 @@ function deleteTask(id) {
 
 function toggleStatus(id) {
   const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
+  const task = findTask(data, id);
   if (!task) return;
 
   const cycle = ['pending', 'analyzing', 'finished', 'notdone'];
@@ -389,7 +476,7 @@ function closeModal() {
 /* ========== SHARE ========== */
 function shareTask(id) {
   const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
+  const task = findTask(data, id);
   if (!task) return;
 
   const shareText = `📋 *${task.title}*\n📅 ${core.formatDate(task.date)}\n📌 ${task.category || 'Geral'} | ${statusLabel(task.status)}\n${task.description ? '📝 ' + task.description : ''}`;
@@ -485,7 +572,7 @@ function openComments(taskId, title) {
         : comments.map(c => renderComment(c, user)).join('')
       }
     </div>
-    <form class="comment-form" onsubmit="submitComment(event,${taskId})">
+    <form class="comment-form" onsubmit="submitComment(event,'${taskId}')">
       <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
       <button type="submit" class="btn btn-primary">Enviar</button>
     </form>

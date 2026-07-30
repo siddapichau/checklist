@@ -213,11 +213,21 @@
       <input type="password" id="setDeepseekKey" placeholder="sk-..." autocomplete="new-password">
     </label>
     <p class="text-muted" id="apiKeyStatus">Verificando configuração salva…</p>
-    <p class="text-muted">⚠️ Para liberar IA a todos os usuários em produção, use uma Cloud Function/proxy. Uma chave chamada diretamente pelo navegador só deve ser usada por administradores.</p>
+    <label><span>Modo de conexão da IA</span>
+      <select id="setAIMode" onchange="saveAIMode()">
+        <option value="auto">🔄 Automático — tenta direto e cai no proxy se o navegador bloquear</option>
+        <option value="direct">🔗 Direto — só api.deepseek.com (pode ser bloqueado por CORS)</option>
+        <option value="proxy">🛰️ Proxy CORS — contorna bloqueio do navegador</option>
+      </select>
+    </label>
+    <p class="text-muted mb-2">💡 Se a IA aparecer como offline na página <b>IA Assistente</b>, o navegador provavelmente bloqueou a chamada direta ao DeepSeek (CORS). Deixe em <b>Automático</b> ou use <b>Proxy CORS</b>.</p>
+    <p class="text-muted">⚠️ Para liberar IA a todos os usuários em produção, use uma Cloud Function/proxy próprio. Uma chave chamada diretamente pelo navegador só deve ser usada por administradores.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn btn-primary mt-2" onclick="saveAPI()" id="btnSaveApi">💾 Salvar no banco</button>
       <button class="btn btn-secondary mt-2" onclick="clearAPI()">🗑️ Remover chave</button>
+      <button class="btn btn-secondary mt-2" onclick="testAIConnection()" id="btnTestApi">🔌 Testar conexão</button>
     </div>
+    <div id="apiTestResult" style="margin-top:14px"></div>
   </div>
 </div>
 
@@ -750,6 +760,8 @@ async function loadAPIStatus() {
     status.textContent = config.hasDeepseekKey
       ? '✅ Uma chave DeepSeek está salva com segurança no banco.'
       : 'Nenhuma chave DeepSeek foi configurada ainda.';
+    const modeSel = document.getElementById('setAIMode');
+    if (modeSel && config.aiMode) modeSel.value = config.aiMode;
   } catch (err) {
     status.textContent = '⚠️ Não foi possível verificar a chave no Firestore. Entre com uma conta Firebase administradora.';
     console.warn('admin config load:', err);
@@ -765,7 +777,8 @@ async function saveAPI() {
   button.disabled = true;
   button.textContent = '⏳ Salvando…';
   try {
-    await page.saveAdminConfig({ deepseekKey: key });
+    const mode = document.getElementById('setAIMode')?.value || 'auto';
+    await page.saveAdminConfig({ deepseekKey: key, aiMode: mode });
     input.value = ''; // não manter o segredo no DOM depois de salvo
     core.log('api_update', user.id, 'DeepSeek key salva no Firestore');
     page.toast('API Key salva com segurança no banco! 🔐', 'success');
@@ -776,6 +789,61 @@ async function saveAPI() {
     button.disabled = false;
     button.textContent = '💾 Salvar no banco';
   }
+}
+
+async function saveAIMode() {
+  const mode = document.getElementById('setAIMode')?.value || 'auto';
+  try {
+    await page.saveAdminConfig({ aiMode: mode });
+    core.log('api_update', user.id, 'Modo de conexão da IA: ' + mode);
+    page.toast('Modo de conexão salvo! 🔄', 'success');
+  } catch (err) {
+    page.toast('Não foi possível salvar o modo: ' + (err.message || 'erro desconhecido'), 'error');
+  }
+}
+
+async function testAIConnection() {
+  const btn = document.getElementById('btnTestApi');
+  const out = document.getElementById('apiTestResult');
+  btn.disabled = true;
+  btn.textContent = '⏳ Testando…';
+  const rows = [];
+  const row = (icon, title, detail) =>
+    `<div class="item" style="margin-bottom:6px"><div style="font-size:18px">${icon}</div><div class="item-info"><b>${page.esc(title)}</b><small>${page.esc(detail)}</small></div></div>`;
+
+  try {
+    const apiKey = await page.getDeepseekKey();
+    rows.push(apiKey
+      ? row('✅', 'API Key do DeepSeek', 'Chave encontrada no banco/navegador.')
+      : row('❌', 'API Key do DeepSeek', 'Nenhuma chave encontrada — salve uma chave acima antes de testar a conexão.'));
+
+    const probe = async (title, url) => {
+      if (!apiKey) return row('⏭️', title, 'Sem chave — teste ignorado.');
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 15000);
+        const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + apiKey }, signal: controller.signal });
+        clearTimeout(timer);
+        if (res.ok) return row('✅', title, 'Canal OK — a IA deve funcionar por aqui.');
+        if (res.status === 401) return row('❌', title, 'Chave rejeitada (401) — gere uma nova em platform.deepseek.com.');
+        return row('⚠️', title, 'HTTP ' + res.status + ' — tente novamente.');
+      } catch (err) {
+        return row('❌', title, err?.name === 'AbortError'
+          ? 'Sem resposta em 15s (rede lenta ou serviço fora).'
+          : 'Bloqueado pelo navegador (CORS) ou sem internet.');
+      }
+    };
+
+    rows.push(await probe('Conexão direta (api.deepseek.com)', 'https://api.deepseek.com/models'));
+    rows.push(await probe('Proxy CORS (CorsProxy)', 'https://corsproxy.io/?url=' + encodeURIComponent('https://api.deepseek.com/models')));
+    rows.push(await probe('Proxy CORS (AllOrigins)', 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.deepseek.com/models')));
+  } catch (err) {
+    rows.push(row('❌', 'Erro no diagnóstico', err.message || 'Erro desconhecido'));
+  }
+
+  out.innerHTML = rows.join('');
+  btn.disabled = false;
+  btn.textContent = '🔌 Testar conexão';
 }
 
 async function clearAPI() {
