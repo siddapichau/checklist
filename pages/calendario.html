@@ -112,7 +112,7 @@ function goToday() {
 function getMonthName(month) {
   const lang = page.getLanguage();
   const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
-  return new Date(2026, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  return new Date(cursor.getFullYear(), month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
 }
 
 function getWeekStart(d) {

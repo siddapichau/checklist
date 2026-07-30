@@ -5,6 +5,7 @@
    ========================================================= */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 html{scroll-behavior:smooth}
+.hidden{display:none!important}
 body{
   font-family:'Segoe UI',system-ui,-apple-system,sans-serif;font-size:14px;line-height:1.5;
   background:var(--bg,#F8FAFC);color:var(--text,#1E293B);padding:28px;overflow-y:auto;
@@ -258,7 +259,24 @@ tr:hover td{background:var(--bg-secondary,#F8FAFC)}
 /* Chart canvas transitions */
 canvas {
   transition: opacity .4s ease;
+  display:block;
+  width:100%!important;
+  max-width:100%;
 }
+/* Gráficos têm uma altura estável: evita o canvas crescer sem limite e “escorrer” pela página. */
+.card canvas{height:260px!important}
+#chartPriority{height:180px!important}
+
+/* ---------- PAINEL ADMIN ---------- */
+body:has(.tabs){background:linear-gradient(135deg,var(--bg,#f8fafc),var(--bg-secondary,#f1f5f9));}
+body:has(.tabs) .page-header{background:linear-gradient(135deg,var(--primary,#2563eb),var(--accent,#06b6d4));color:#fff;border-radius:18px;padding:24px 28px;box-shadow:0 10px 30px rgba(15,23,42,.14)}
+body:has(.tabs) .page-header .info small,body:has(.tabs) .page-header h1,body:has(.tabs) .page-header p{color:#fff}
+body:has(.tabs) .tabs{position:sticky;top:0;z-index:10;background:var(--bg,#f8fafc);padding:8px 4px 0;box-shadow:0 4px 12px rgba(15,23,42,.06)}
+body:has(.tabs) .tab{padding:11px 14px}
+body:has(.tabs) .card{border-radius:16px;box-shadow:0 5px 18px rgba(15,23,42,.06)}
+body:has(.tabs) .card h2{font-size:17px}
+@media(max-width:600px){body:has(.tabs) .page-header{padding:20px}.tabs{scrollbar-width:none}}
+
 
 /* Hover for links in items */
 .item .item-info b:hover {

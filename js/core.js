@@ -31,7 +31,7 @@ const Core = {
         { id:'relatorios',   label:'Relatórios',    icon:'📈', visible:true },
         { id:'IA',           label:'IA Assistente', icon:'🤖', visible:true },
         { id:'perfil',       label:'Meu Perfil',    icon:'👤', visible:true },
-        { id:'admin',        label:'Administração', icon:'⚙️', visible:true, adminOnly:true },
+        { id:'admin',        label:'Painel Admin',   icon:'⚙️', visible:true, adminOnly:true },
       ],
       categories: ['Operação','Segurança','Logística','Manutenção','Qualidade','RH','Geral','Dicas'],
     },
@@ -107,6 +107,11 @@ const Core = {
     defaults.settings.menuItems.forEach(item => {
       if (!existingMenuIds.has(item.id)) data.settings.menuItems.push({ ...item });
     });
+    // Padroniza o nome exibido no menu sem apagar a personalização dos demais itens.
+    const adminMenuItem = data.settings.menuItems.find(item => item.id === 'admin');
+    if (adminMenuItem && (!adminMenuItem.label || adminMenuItem.label === 'Administração')) {
+      adminMenuItem.label = 'Painel Admin';
+    }
 
     data.settings.menuOrder = (Array.isArray(data.settings.menuOrder) ? data.settings.menuOrder : [])
       .filter(id => validMenuIds.has(id));
