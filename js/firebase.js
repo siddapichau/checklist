@@ -580,7 +580,8 @@ const FireSync = {
   async getAdminConfig() {
     let hasKey = false;
     try {
-      hasKey = Boolean(localStorage.getItem('cl-admin-deepseek-key'));
+      hasKey = Boolean(sessionStorage.getItem('cl-admin-deepseek-key') ||
+                       localStorage.getItem('cl-admin-deepseek-key'));
     } catch(e) {}
 
     try {
@@ -595,28 +596,56 @@ const FireSync = {
   },
 
   async getDeepseekKey() {
+    // 1) sessionStorage: cache da aba atual (mais rápido e não persiste entre
+    //    abas, mas evita bater no Firestore/localStorage a cada chamada).
     try {
-      const localKey = localStorage.getItem('cl-admin-deepseek-key');
-      if (localKey) return localKey;
+      const sessionKey = sessionStorage.getItem('cl-admin-deepseek-key');
+      if (sessionKey) return sessionKey;
     } catch(e) {}
 
+    // 2) localStorage: cache persistente gravado quando o admin salvou a
+    //    chave. Funciona para o próprio admin e para qualquer pessoa que
+    //    use o mesmo navegador (mesma origem).
+    try {
+      const localKey = localStorage.getItem('cl-admin-deepseek-key');
+      if (localKey) {
+        try { sessionStorage.setItem('cl-admin-deepseek-key', localKey); } catch(e) {}
+        return localKey;
+      }
+    } catch(e) {}
+
+    // 3) Firestore: documento privado settings/admin. Após a correção das
+    //    rules, qualquer usuário autenticado consegue ler este doc — então
+    //    a IA funciona para todos os membros do app.
     try {
       const doc = await db.collection('settings').doc('admin').get();
-      if (doc.exists && doc.data().deepseekKey) {
-        return String(doc.data().deepseekKey || '');
+      if (doc.exists) {
+        const data = doc.data();
+        if (data && data.deepseekKey) {
+          const key = String(data.deepseekKey || '');
+          // cache local para chamadas subsequentes
+          try { localStorage.setItem('cl-admin-deepseek-key', key); } catch(e) {}
+          try { sessionStorage.setItem('cl-admin-deepseek-key', key); } catch(e) {}
+          return key;
+        }
       }
     } catch (err) {
-      console.warn('getDeepseekKey error:', err);
+      console.warn('getDeepseekKey (firestore) error:', err.code, err.message);
     }
     return '';
   },
 
   async saveAdminConfig(config = {}) {
     const deepseekKey = String(config.deepseekKey || '').trim();
-    
+
     // Save in localStorage DB always as robust DB persistence
     try {
       localStorage.setItem('cl-admin-deepseek-key', deepseekKey);
+    } catch(e) {}
+
+    // Save in sessionStorage for the current tab (quicker fallback)
+    try {
+      sessionStorage.setItem('cl-admin-deepseek-key', deepseekKey);
     } catch(e) {}
 
     // Save in Firestore

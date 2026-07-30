@@ -5,7 +5,9 @@
 
 // v8 = recuperação de navegação no APK e cache de instalação resiliente.
 // v10 = página Macros + botão de adicionar arquivo + claim de admin de uso único.
-const CACHE_NAME = 'checklist-ml-v10-macros-admin-claim';
+// v11 = correção do bug da API Key do DeepSeek (leitura de settings/admin
+//       liberada para usuários autenticados, cache em sessionStorage).
+const CACHE_NAME = 'checklist-ml-v11-apikey-fix';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
