@@ -1187,30 +1187,142 @@ const App = {
       }).join('');
 
       return `<div class="topnav-group ${hasActive ? 'has-active' : ''}" data-group="${group.id}">
-        <button type="button" class="topnav-trigger" onclick="App.toggleTopnavMenu('${group.id}', event)" aria-haspopup="true">
+        <button type="button" class="topnav-trigger" onclick="App.toggleTopnavMenu('${group.id}', event)"
+          aria-haspopup="true" aria-expanded="false">
           <span>${group.icon}</span>
           <span>${this.tr(group.label, 'group-' + group.id)}</span>
           <span class="caret">▾</span>
           ${badgeTotal ? `<span class="trigger-badge">${badgeTotal}</span>` : ''}
         </button>
-        <div class="topnav-menu">${menuItems}</div>
+        <div class="topnav-menu" role="menu">${menuItems}</div>
       </div>`;
     }).join('');
 
     nav.innerHTML = html;
+    this.bindTopnavHover();
+  },
+
+  /* ---- Menu inteligente: abre ao passar o mouse, fecha ao sair ----
+     Regras de UX aplicadas:
+     • Abre com um pequeno atraso (HOVER_OPEN_MS) para não piscar quando o
+       ponteiro só atravessa a barra a caminho de outro lugar.
+     • Fecha com atraso maior (HOVER_CLOSE_MS) — dá tempo de o ponteiro descer
+       do botão até a lista sem o menu sumir no meio do caminho.
+     • Com um menu já aberto, passar para outro grupo troca na hora (sem
+       atraso), como em menus de desktop nativos.
+     • Só no desktop (ponteiro fino/com hover). No toque, continua no clique.
+     • Teclado: Esc fecha; setas/Tab continuam funcionando normalmente. */
+  _topnavHoverDelay: { open: 110, close: 260 },
+  _topnavTimers: { open: null, close: null },
+  _topnavBound: false,
+
+  supportsHover() {
+    return window.matchMedia?.('(hover:hover) and (pointer:fine) and (min-width:1025px)').matches;
+  },
+
+  bindTopnavHover() {
+    const nav = document.getElementById('topnav');
+    if (!nav) return;
+
+    // O innerHTML do topnav é recriado a cada renderSidebar(); usar delegação
+    // no container evita re-adicionar listeners nos filhos (e vazamentos).
+    if (this._topnavBound) return;
+    this._topnavBound = true;
+
+    const clearTimers = () => {
+      clearTimeout(this._topnavTimers.open);
+      clearTimeout(this._topnavTimers.close);
+    };
+
+    nav.addEventListener('pointerenter', (e) => {
+      if (e.pointerType === 'touch' || !this.supportsHover()) return;
+      const group = e.target.closest?.('.topnav-group');
+      if (!group) return;
+      clearTimers();
+      // Já existe um menu aberto? Trocar de grupo é instantâneo.
+      const anyOpen = document.querySelector('.topnav-group.open');
+      const delay = anyOpen && anyOpen !== group ? 0 : this._topnavHoverDelay.open;
+      this._topnavTimers.open = setTimeout(() => this.openTopnavMenu(group), delay);
+    }, true);
+
+    nav.addEventListener('pointerleave', (e) => {
+      if (e.pointerType === 'touch' || !this.supportsHover()) return;
+      if (!e.target.closest?.('.topnav-group')) return;
+      clearTimeout(this._topnavTimers.open);
+      clearTimeout(this._topnavTimers.close);
+      this._topnavTimers.close = setTimeout(() => {
+        // Só fecha se o ponteiro realmente não está mais sobre nenhum grupo.
+        if (!document.querySelector('.topnav-group:hover')) this.closeTopnavMenus();
+      }, this._topnavHoverDelay.close);
+    }, true);
+
+    // Sair da barra inteira (ex.: mouse desce para o conteúdo) fecha logo.
+    nav.addEventListener('mouseleave', () => {
+      if (!this.supportsHover()) return;
+      clearTimeout(this._topnavTimers.open);
+      clearTimeout(this._topnavTimers.close);
+      this._topnavTimers.close = setTimeout(() => {
+        if (!document.querySelector('.topnav-group:hover')) this.closeTopnavMenus();
+      }, this._topnavHoverDelay.close);
+    });
+
+    // Navegação por teclado: foco em um item mantém o grupo aberto.
+    // O Esc devolve o foco ao botão do grupo — sem a trava abaixo esse foco
+    // dispararia focusin e reabriria o menu que o usuário acabou de fechar.
+    nav.addEventListener('focusin', (e) => {
+      if (this._topnavEscaped) return;
+      const group = e.target.closest?.('.topnav-group');
+      if (group) this.openTopnavMenu(group);
+    });
+    nav.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        this._topnavEscaped = true;
+        this.closeTopnavMenus();
+        e.target.closest?.('.topnav-group')?.querySelector('.topnav-trigger')?.focus();
+        setTimeout(() => { this._topnavEscaped = false; }, 0);
+      }
+    });
+  },
+
+  openTopnavMenu(group) {
+    if (!group) return;
+    document.querySelectorAll('.topnav-group.open').forEach(g => {
+      if (g !== group) {
+        g.classList.remove('open');
+        g.querySelector('.topnav-trigger')?.setAttribute('aria-expanded', 'false');
+      }
+    });
+    group.classList.add('open');
+    group.querySelector('.topnav-trigger')?.setAttribute('aria-expanded', 'true');
+    this.positionTopnavMenu(group);
+  },
+
+  /* Evita que o dropdown vaze para fora da janela nos últimos grupos da barra. */
+  positionTopnavMenu(group) {
+    const menu = group.querySelector('.topnav-menu');
+    if (!menu) return;
+    group.classList.remove('align-right');
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth - 8) group.classList.add('align-right');
   },
 
   toggleTopnavMenu(groupId, event) {
     if (event) event.stopPropagation();
     const group = document.querySelector(`.topnav-group[data-group="${groupId}"]`);
     if (!group) return;
-    const willOpen = !group.classList.contains('open');
-    document.querySelectorAll('.topnav-group.open').forEach(g => g.classList.remove('open'));
-    if (willOpen) group.classList.add('open');
+    clearTimeout(this._topnavTimers.open);
+    clearTimeout(this._topnavTimers.close);
+    if (group.classList.contains('open')) this.closeTopnavMenus();
+    else this.openTopnavMenu(group);
   },
 
   closeTopnavMenus() {
-    document.querySelectorAll('.topnav-group.open').forEach(g => g.classList.remove('open'));
+    clearTimeout(this._topnavTimers.open);
+    clearTimeout(this._topnavTimers.close);
+    document.querySelectorAll('.topnav-group.open').forEach(g => {
+      g.classList.remove('open');
+      g.querySelector('.topnav-trigger')?.setAttribute('aria-expanded', 'false');
+    });
   },
 
   /* ========== ALERTAS AGENDADOS DAS ATIVIDADES ==========

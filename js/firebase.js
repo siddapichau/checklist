@@ -577,9 +577,13 @@ const FireSync = {
     }
   },
 
+  /* Modos válidos de conexão da IA. 'custom' = usar somente o proxy próprio. */
+  AI_MODES: ['auto', 'custom', 'direct', 'proxy'],
+
   async getAdminConfig() {
     let hasKey = false;
     let aiMode = this.getAIMode();
+    let aiProxyUrl = this.getAIProxyUrl();
     try {
       hasKey = Boolean(sessionStorage.getItem('cl-admin-deepseek-key') ||
                        localStorage.getItem('cl-admin-deepseek-key'));
@@ -590,23 +594,35 @@ const FireSync = {
       if (doc.exists) {
         const data = doc.data() || {};
         if (data.deepseekKey) hasKey = true;
-        if (data.aiMode && ['auto', 'direct', 'proxy'].includes(data.aiMode)) {
+        if (data.aiMode && this.AI_MODES.includes(data.aiMode)) {
           aiMode = data.aiMode;
           try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
+        }
+        if (typeof data.aiProxyUrl === 'string') {
+          aiProxyUrl = data.aiProxyUrl;
+          try { localStorage.setItem('cl-admin-ai-proxy', aiProxyUrl); } catch(e) {}
         }
       }
     } catch (err) {
       console.warn('admin config load:', err);
     }
-    return { hasDeepseekKey: hasKey, aiMode, updatedAt: null };
+    return { hasDeepseekKey: hasKey, aiMode, aiProxyUrl, updatedAt: null };
   },
 
-  /* Modo de conexão da IA: 'auto' (direto → proxy), 'direct', 'proxy'. */
+  /* Modo de conexão da IA: 'auto' (proxy próprio → direto → públicos),
+     'custom' (só proxy próprio), 'direct', 'proxy'. */
   getAIMode() {
     try {
       const mode = localStorage.getItem('cl-admin-ai-mode');
-      return ['auto', 'direct', 'proxy'].includes(mode) ? mode : 'auto';
+      return this.AI_MODES.includes(mode) ? mode : 'auto';
     } catch(e) { return 'auto'; }
+  },
+
+  /* URL do proxy próprio (Cloudflare Worker) — o caminho confiável para a IA,
+     já que o DeepSeek bloqueia chamadas diretas do navegador por CORS. */
+  getAIProxyUrl() {
+    try { return (localStorage.getItem('cl-admin-ai-proxy') || '').trim(); }
+    catch(e) { return ''; }
   },
 
   async getDeepseekKey() {
@@ -635,8 +651,11 @@ const FireSync = {
       const doc = await db.collection('settings').doc('admin').get();
       if (doc.exists) {
         const data = doc.data();
-        if (data && data.aiMode && ['auto', 'direct', 'proxy'].includes(data.aiMode)) {
+        if (data && data.aiMode && this.AI_MODES.includes(data.aiMode)) {
           try { localStorage.setItem('cl-admin-ai-mode', data.aiMode); } catch(e) {}
+        }
+        if (data && typeof data.aiProxyUrl === 'string') {
+          try { localStorage.setItem('cl-admin-ai-proxy', data.aiProxyUrl); } catch(e) {}
         }
         if (data && data.deepseekKey) {
           const key = String(data.deepseekKey || '');
@@ -653,11 +672,12 @@ const FireSync = {
   },
 
   async saveAdminConfig(config = {}) {
-    const hasKeyField = Object.prototype.hasOwnProperty.call(config, 'deepseekKey');
-    const hasModeField = Object.prototype.hasOwnProperty.call(config, 'aiMode');
-    const deepseekKey = hasKeyField ? String(config.deepseekKey || '').trim() : undefined;
-    const aiMode = hasModeField && ['auto', 'direct', 'proxy'].includes(config.aiMode)
-      ? config.aiMode : undefined;
+    const has = (field) => Object.prototype.hasOwnProperty.call(config, field);
+    const deepseekKey = has('deepseekKey') ? String(config.deepseekKey || '').trim() : undefined;
+    const aiMode = has('aiMode') && this.AI_MODES.includes(config.aiMode) ? config.aiMode : undefined;
+    // Normaliza a URL do proxy: sem barra final, para concatenar os caminhos.
+    const aiProxyUrl = has('aiProxyUrl')
+      ? String(config.aiProxyUrl || '').trim().replace(/\/+$/, '') : undefined;
 
     // Save in localStorage DB always as robust DB persistence
     if (deepseekKey !== undefined) {
@@ -668,6 +688,9 @@ const FireSync = {
     if (aiMode) {
       try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
     }
+    if (aiProxyUrl !== undefined) {
+      try { localStorage.setItem('cl-admin-ai-proxy', aiProxyUrl); } catch(e) {}
+    }
 
     // Save in Firestore (merge: não apaga a chave ao salvar somente o modo)
     try {
@@ -677,6 +700,7 @@ const FireSync = {
       };
       if (deepseekKey !== undefined) payload.deepseekKey = deepseekKey;
       if (aiMode) payload.aiMode = aiMode;
+      if (aiProxyUrl !== undefined) payload.aiProxyUrl = aiProxyUrl;
       await db.collection('settings').doc('admin').set(payload, { merge: true });
       console.log('🔐 Configuração privada salva no Firestore');
     } catch (err) {
@@ -686,6 +710,7 @@ const FireSync = {
     const result = {};
     if (deepseekKey !== undefined) result.hasDeepseekKey = Boolean(deepseekKey);
     if (aiMode) result.aiMode = aiMode;
+    if (aiProxyUrl !== undefined) result.aiProxyUrl = aiProxyUrl;
     return result;
   }
 };

@@ -10,7 +10,11 @@
 // v12 = menu superior com dropdowns no desktop, IA com fallback via proxy
 //       CORS + diagnóstico, atividades em cards compactos por status,
 //       categorias por checkbox e horário de alerta por atividade.
-const CACHE_NAME = 'checklist-ml-v12-topnav-ia';
+// v13 = correção do crash da página Atividades (TDZ de STATUS_GROUPS deixava
+//       a lista vazia e "Nova atividade" sem efeito), IA com proxy próprio
+//       (Cloudflare Worker) + cadeia de canais em js/ai.js, e menu superior
+//       inteligente com abertura/fechamento por hover com atraso.
+const CACHE_NAME = 'checklist-ml-v13-atividades-ia-menu';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -22,6 +26,7 @@ const ASSETS = [
   '/js/app.js',
   '/js/page.js',
   '/js/seed.js',
+  '/js/ai.js',
   '/assets/favicon.svg',
   '/assets/logo.svg',
   '/assets/logo-modern.png',

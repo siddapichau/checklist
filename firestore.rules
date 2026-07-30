@@ -193,8 +193,11 @@ service cloud.firestore {
     // misturadas ao documento global (que é distribuído a todos os logados).
     // ATENÇÃO: a leitura foi liberada para qualquer usuário autenticado para
     // que a IA funcione para todos os membros do app. Em produção, prefira
-    // uma Cloud Function/proxy e restrinja a leitura novamente.
-    // (veja CORRECAO_APIKEY.md)
+    // guardar a chave como variável secreta DEEPSEEK_API_KEY no proxy
+    // (proxy/cloudflare-worker.js): assim o navegador nunca precisa da chave
+    // e esta regra pode voltar a "allow read: if isAdmin()".
+    // Campos deste documento: deepseekKey, aiMode, aiProxyUrl.
+    // (veja CORRECAO_APIKEY.md e CORRECAO_V13.md)
     match /settings/admin {
       allow read: if isSignedIn();
       allow write: if isAdmin();

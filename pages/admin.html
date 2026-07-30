@@ -213,15 +213,36 @@
       <input type="password" id="setDeepseekKey" placeholder="sk-..." autocomplete="new-password">
     </label>
     <p class="text-muted" id="apiKeyStatus">Verificando configuração salva…</p>
+
+    <label><span>🛡️ URL do proxy da IA <b>(recomendado)</b></span>
+      <input type="url" id="setAIProxy" placeholder="https://checklist-ia.seu-usuario.workers.dev">
+      <small class="text-muted">Cole aqui a URL do seu Cloudflare Worker.</small>
+    </label>
+
+    <div class="ai-proxy-help">
+      <b>⚠️ Por que a IA não funciona mesmo com a chave certa e com saldo?</b>
+      <p>A API do DeepSeek <b>não responde ao preflight CORS</b>. O navegador cancela a chamada
+      (“Failed to fetch”) <b>antes</b> dela chegar ao servidor — a chave nem chega a ser usada.
+      A única correção confiável é fazer a chamada sair de um servidor.</p>
+      <p><b>Como resolver em ~5 minutos (grátis, sem cartão):</b></p>
+      <ol>
+        <li>Abra <a href="https://dash.cloudflare.com" target="_blank" rel="noopener">dash.cloudflare.com</a> → <b>Workers &amp; Pages</b> → <b>Create</b> → <b>Start with Hello World!</b> → <b>Deploy</b>.</li>
+        <li>Clique em <b>Edit code</b>, apague tudo e cole o conteúdo do arquivo <code>proxy/cloudflare-worker.js</code> deste projeto → <b>Deploy</b>.</li>
+        <li>Copie a URL do worker (ex.: <code>https://algo.seu-usuario.workers.dev</code>) e cole no campo acima → <b>Salvar no banco</b>.</li>
+        <li>Clique em <b>🔌 Testar conexão</b>: o canal “proxy próprio” deve aparecer com ✅.</li>
+      </ol>
+      <p>Sem esse proxy, o app ainda tenta a conexão direta e proxies públicos gratuitos — que funcionam às vezes, mas têm limite de uso e caem com frequência.</p>
+    </div>
+
     <label><span>Modo de conexão da IA</span>
       <select id="setAIMode" onchange="saveAIMode()">
-        <option value="auto">🔄 Automático — tenta direto e cai no proxy se o navegador bloquear</option>
-        <option value="direct">🔗 Direto — só api.deepseek.com (pode ser bloqueado por CORS)</option>
-        <option value="proxy">🛰️ Proxy CORS — contorna bloqueio do navegador</option>
+        <option value="auto">🔄 Automático — proxy próprio → direto → proxies públicos (recomendado)</option>
+        <option value="custom">🛡️ Somente proxy próprio — mais confiável e previsível</option>
+        <option value="direct">🔗 Somente direto — api.deepseek.com (costuma ser bloqueado por CORS)</option>
+        <option value="proxy">🛰️ Somente proxies — proxy próprio e depois os públicos</option>
       </select>
     </label>
-    <p class="text-muted mb-2">💡 Se a IA aparecer como offline na página <b>IA Assistente</b>, o navegador provavelmente bloqueou a chamada direta ao DeepSeek (CORS). Deixe em <b>Automático</b> ou use <b>Proxy CORS</b>.</p>
-    <p class="text-muted">⚠️ Para liberar IA a todos os usuários em produção, use uma Cloud Function/proxy próprio. Uma chave chamada diretamente pelo navegador só deve ser usada por administradores.</p>
+    <p class="text-muted">⚠️ A chave chamada pelo navegador fica visível a usuários autenticados. Para produção, defina <code>DEEPSEEK_API_KEY</code> como variável secreta no próprio Worker — assim a chave nunca sai do servidor.</p>
     <div style="display:flex;gap:10px;flex-wrap:wrap">
       <button class="btn btn-primary mt-2" onclick="saveAPI()" id="btnSaveApi">💾 Salvar no banco</button>
       <button class="btn btn-secondary mt-2" onclick="clearAPI()">🗑️ Remover chave</button>
@@ -272,6 +293,7 @@
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
+<script src="../js/ai.js"></script>
 <script>
 const user = page.getUser();
 if (!user || user.role !== 'admin') {
@@ -757,11 +779,18 @@ async function loadAPIStatus() {
   const status = document.getElementById('apiKeyStatus');
   try {
     const config = await page.getAdminConfig();
-    status.textContent = config.hasDeepseekKey
+    const parts = [config.hasDeepseekKey
       ? '✅ Uma chave DeepSeek está salva com segurança no banco.'
-      : 'Nenhuma chave DeepSeek foi configurada ainda.';
+      : '❌ Nenhuma chave DeepSeek foi configurada ainda.'];
+    parts.push(config.aiProxyUrl
+      ? '✅ Proxy próprio configurado.'
+      : '⚠️ Sem proxy próprio — a IA depende de CORS liberado ou de proxies públicos instáveis.');
+    status.textContent = parts.join(' ');
+
     const modeSel = document.getElementById('setAIMode');
     if (modeSel && config.aiMode) modeSel.value = config.aiMode;
+    const proxyInput = document.getElementById('setAIProxy');
+    if (proxyInput) proxyInput.value = config.aiProxyUrl || '';
   } catch (err) {
     status.textContent = '⚠️ Não foi possível verificar a chave no Firestore. Entre com uma conta Firebase administradora.';
     console.warn('admin config load:', err);
@@ -770,18 +799,29 @@ async function loadAPIStatus() {
 
 async function saveAPI() {
   const input = document.getElementById('setDeepseekKey');
+  const proxyInput = document.getElementById('setAIProxy');
   const key = input.value.trim();
-  if (!key) return page.toast('Digite a API Key ou use “Remover chave”.', 'warning');
+  const proxyUrl = (proxyInput?.value || '').trim().replace(/\/+$/, '');
+
+  // A URL do proxy pode ser salva sozinha (a chave já pode estar no banco).
+  const current = await page.getAdminConfig().catch(() => ({}));
+  if (!key && !current.hasDeepseekKey) {
+    return page.toast('Digite a API Key do DeepSeek antes de salvar.', 'warning');
+  }
+  if (proxyUrl && !/^https:\/\/[^\s]+$/i.test(proxyUrl)) {
+    return page.toast('A URL do proxy precisa começar com https://', 'warning');
+  }
 
   const button = document.getElementById('btnSaveApi');
   button.disabled = true;
   button.textContent = '⏳ Salvando…';
   try {
-    const mode = document.getElementById('setAIMode')?.value || 'auto';
-    await page.saveAdminConfig({ deepseekKey: key, aiMode: mode });
+    const payload = { aiMode: document.getElementById('setAIMode')?.value || 'auto', aiProxyUrl: proxyUrl };
+    if (key) payload.deepseekKey = key;
+    await page.saveAdminConfig(payload);
     input.value = ''; // não manter o segredo no DOM depois de salvo
-    core.log('api_update', user.id, 'DeepSeek key salva no Firestore');
-    page.toast('API Key salva com segurança no banco! 🔐', 'success');
+    core.log('api_update', user.id, 'Config da IA salva no Firestore');
+    page.toast('Configuração da IA salva com segurança! 🔐', 'success');
     await loadAPIStatus();
   } catch (err) {
     page.toast('Não foi possível salvar no Firestore: ' + (err.message || 'erro desconhecido'), 'error');
@@ -807,41 +847,27 @@ async function testAIConnection() {
   const out = document.getElementById('apiTestResult');
   btn.disabled = true;
   btn.textContent = '⏳ Testando…';
-  const rows = [];
+
   const row = (icon, title, detail) =>
     `<div class="item" style="margin-bottom:6px"><div style="font-size:18px">${icon}</div><div class="item-info"><b>${page.esc(title)}</b><small>${page.esc(detail)}</small></div></div>`;
+  const draw = rows => { out.innerHTML = rows.map(r => row(r.icon, r.title, r.detail)).join(''); };
 
   try {
-    const apiKey = await page.getDeepseekKey();
-    rows.push(apiKey
-      ? row('✅', 'API Key do DeepSeek', 'Chave encontrada no banco/navegador.')
-      : row('❌', 'API Key do DeepSeek', 'Nenhuma chave encontrada — salve uma chave acima antes de testar a conexão.'));
-
-    const probe = async (title, url) => {
-      if (!apiKey) return row('⏭️', title, 'Sem chave — teste ignorado.');
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 15000);
-        const res = await fetch(url, { headers: { 'Authorization': 'Bearer ' + apiKey }, signal: controller.signal });
-        clearTimeout(timer);
-        if (res.ok) return row('✅', title, 'Canal OK — a IA deve funcionar por aqui.');
-        if (res.status === 401) return row('❌', title, 'Chave rejeitada (401) — gere uma nova em platform.deepseek.com.');
-        return row('⚠️', title, 'HTTP ' + res.status + ' — tente novamente.');
-      } catch (err) {
-        return row('❌', title, err?.name === 'AbortError'
-          ? 'Sem resposta em 15s (rede lenta ou serviço fora).'
-          : 'Bloqueado pelo navegador (CORS) ou sem internet.');
-      }
-    };
-
-    rows.push(await probe('Conexão direta (api.deepseek.com)', 'https://api.deepseek.com/models'));
-    rows.push(await probe('Proxy CORS (CorsProxy)', 'https://corsproxy.io/?url=' + encodeURIComponent('https://api.deepseek.com/models')));
-    rows.push(await probe('Proxy CORS (AllOrigins)', 'https://api.allorigins.win/raw?url=' + encodeURIComponent('https://api.deepseek.com/models')));
+    let apiKey = '';
+    try { apiKey = await page.getDeepseekKey(); } catch (e) {}
+    // Testa a URL digitada no campo, mesmo que ainda não tenha sido salva.
+    const typedProxy = (document.getElementById('setAIProxy')?.value || '').trim().replace(/\/+$/, '');
+    const rows = await AIClient.diagnose({
+      apiKey,
+      mode: document.getElementById('setAIMode')?.value || 'auto',
+      proxyUrl: typedProxy || page.getAIProxyUrl(),
+      onStep: draw,
+    });
+    draw(rows);
   } catch (err) {
-    rows.push(row('❌', 'Erro no diagnóstico', err.message || 'Erro desconhecido'));
+    out.innerHTML = row('❌', 'Erro no diagnóstico', err.message || 'Erro desconhecido');
   }
 
-  out.innerHTML = rows.join('');
   btn.disabled = false;
   btn.textContent = '🔌 Testar conexão';
 }

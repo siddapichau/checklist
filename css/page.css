@@ -994,3 +994,24 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 
 /* Campo de horário com ícone */
 .time-hint{font-size:11px;color:var(--muted,#94A3B8);margin-top:3px;display:block}
+
+/* ---------- ADMIN: AJUDA DO PROXY DA IA ---------- */
+.ai-proxy-help{
+  border:1px solid var(--warning,#F59E0B);border-left-width:4px;border-radius:10px;
+  background:var(--warning-light,#FEF3C7);color:var(--text,#1E293B);
+  padding:12px 14px;margin:10px 0 16px;font-size:13px;line-height:1.55;
+}
+.ai-proxy-help b{color:var(--text,#1E293B)}
+.ai-proxy-help p{margin:7px 0}
+.ai-proxy-help ol{margin:6px 0 6px 20px;padding:0}
+.ai-proxy-help li{margin-bottom:5px}
+.ai-proxy-help code{
+  background:rgba(0,0,0,.07);padding:1px 5px;border-radius:4px;
+  font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+.ai-proxy-help a{color:var(--primary,#2563EB);font-weight:600}
+[data-mode="dark"] .ai-proxy-help{
+  background:rgba(245,158,11,.12);color:var(--text,#E2E8F0);
+}
+[data-mode="dark"] .ai-proxy-help b{color:var(--text,#E2E8F0)}
+[data-mode="dark"] .ai-proxy-help code{background:rgba(255,255,255,.1)}
