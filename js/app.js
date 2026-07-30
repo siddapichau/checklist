@@ -1658,6 +1658,9 @@ const App = {
       case 'toast':
         core.toast(msg.message, msg.toastType || 'info');
         break;
+      case 'chromeNotif':
+        core.chromeNotification(msg.title, msg.body, msg.notifType || 'info');
+        break;
       case 'navigate':
         this.navigate(msg.page);
         break;
