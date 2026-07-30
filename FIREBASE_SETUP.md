@@ -501,3 +501,7 @@ template padrão para evitar abuso de e-mail). Nesse caso:
 ---
 
 **Última atualização:** 2026-07-29
+
+### Administrador inicial configurado
+
+O e-mail `wesleystudio@gmail.com` está configurado como administrador inicial no código e nas regras do Firestore. Após publicar as regras atualizadas, entre com esse e-mail (Google ou senha): o perfil será criado/promovido para `admin` automaticamente. A validação usa o e-mail do token Firebase, portanto não depende de um valor enviado pelo navegador.

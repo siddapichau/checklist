@@ -193,10 +193,12 @@ document.addEventListener('keydown', function(e){
 
     <div class="sidebar-footer">
       <div class="user-card" onclick="App.navigate('perfil')" style="cursor:pointer">
-        <div class="user-avatar" id="sidebarAvatar">👤</div>
+        <div class="user-profile-avatar">
+          <div class="user-avatar" id="sidebarAvatar">👤</div>
+          <div class="role role-badge" id="sidebarRole">👤 Membro</div>
+        </div>
         <div class="user-info">
           <div class="name" id="sidebarName">Usuário</div>
-          <div class="role" id="sidebarRole">membro</div>
         </div>
       </div>
     </div>

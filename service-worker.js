@@ -4,7 +4,7 @@
    ========================================================= */
 
 // v8 = recuperação de navegação no APK e cache de instalação resiliente.
-const CACHE_NAME = 'checklist-ml-v8-resilient-shell';
+const CACHE_NAME = 'checklist-ml-v9-mobile-theme';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
