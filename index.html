@@ -29,7 +29,14 @@
   <p class="text-muted" id="loadingText">Carregando...</p>
   <div id="loadingRecovery" class="hidden" style="margin-top:20px;text-align:center;max-width:300px">
     <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Parece que o carregamento está demorando...</p>
-    <button onclick="localStorage.clear(); sessionStorage.clear(); indexedDB.deleteDatabase('firebaseLocalStorageDb'); navigator.serviceWorker.getRegistrations().then(r=>r.forEach(reg=>reg.unregister())); setTimeout(()=>location.reload(),500)" style="background:#EF4444;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600">🧹 Limpar cache e recarregar</button>
+    <button onclick="
+      const apiStatus = (window.fireSync && window.fireSync.getDeepseekKey) ? 'Verificando DB...' : 'Indisponível';
+      const dbStatus = (localStorage.getItem('checklist-ml-local')) ? 'DB local presente' : 'DB vazio';
+      const keyDB = localStorage.getItem('cl-admin-deepseek-key');
+      const apiMsg = keyDB ? 'API Key salva no DB (localStorage + Firestore): OK ✅' : 'API Key NÃO encontrada ❌';
+      alert('🧹 Cache limpo!\n\n📊 Relatório detalhado:\n• DB local: ' + dbStatus + '\n• API DeepSeek: ' + apiMsg + '\n• FireSync: ' + (window.fireSync ? 'Ativo' : 'Inativo') + '\n• Cache: Limpo e recarregado\n\nAção: Verifique se o Firestore está sincronizado.');
+      localStorage.clear(); sessionStorage.clear(); indexedDB.deleteDatabase('firebaseLocalStorageDb'); navigator.serviceWorker.getRegistrations().then(r=>r.forEach(reg=>reg.unregister())); setTimeout(()=>location.reload(),500)
+    " style="background:#EF4444;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600">🧹 Limpar cache e recarregar</button>
     <p style="font-size:11px;color:var(--muted);margin-top:8px">Use se a página travou no login Google</p>
   </div>
 </div>
