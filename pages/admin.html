@@ -188,12 +188,17 @@
 <!-- TAB: API / IA -->
 <div class="tab-content" id="tab-api">
   <div class="card">
-    <h2>🔑 Configurações de API</h2>
+    <h2>🔐 Integrações privadas</h2>
+    <p class="text-muted mb-2">Esta área é exclusiva para códigos e chaves do administrador. As chaves são salvas no documento privado <code>settings/admin</code> do Firestore — nunca no localStorage nem nas configurações públicas do site.</p>
     <label><span>DeepSeek API Key</span>
-      <input type="password" id="setDeepseekKey" placeholder="sk-...">
+      <input type="password" id="setDeepseekKey" placeholder="sk-..." autocomplete="new-password">
     </label>
-    <p class="text-muted">⚠️ <b>IMPORTANTE:</b> Para uso em produção, a chave deve ser usada por uma Cloud Function (backend). Esta configuração é apenas para testes locais.</p>
-    <button class="btn btn-primary mt-2" onclick="saveAPI()">💾 Salvar API Key</button>
+    <p class="text-muted" id="apiKeyStatus">Verificando configuração salva…</p>
+    <p class="text-muted">⚠️ Para liberar IA a todos os usuários em produção, use uma Cloud Function/proxy. Uma chave chamada diretamente pelo navegador só deve ser usada por administradores.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      <button class="btn btn-primary mt-2" onclick="saveAPI()" id="btnSaveApi">💾 Salvar no banco</button>
+      <button class="btn btn-secondary mt-2" onclick="clearAPI()">🗑️ Remover chave</button>
+    </div>
   </div>
 </div>
 
@@ -253,7 +258,6 @@ document.getElementById('setMode').value = data.settings.mode;
 document.getElementById('setLanguage').value = data.settings.language || 'pt-BR';
 document.getElementById('setLogo').value = data.settings.logo || '';
 document.getElementById('setFavicon').value = data.settings.favicon || '';
-document.getElementById('setDeepseekKey').value = data.settings.deepseekKey || '';
 
 // Popular selects de categorias
 function populateCategorySelects() {
@@ -276,6 +280,7 @@ renderFiles();
 renderCategories();
 renderLogs();
 renderCustomThemes();
+loadAPIStatus();
 
 /* ========== TABS ========== */
 function switchTab(id, btn) {
@@ -294,6 +299,7 @@ function saveAppearance() {
   data.settings.logo = document.getElementById('setLogo').value.trim();
   data.settings.favicon = document.getElementById('setFavicon').value.trim();
   page.saveDB(data);
+  page.syncSettings(data.settings);
   core.log('settings_update', user.id, 'Aparência');
 
   // Aplicar tema no parent
@@ -382,36 +388,61 @@ function renderUsers() {
 function changeRole(id, role) {
   data = page.getDB();
   const u = data.users.find(u => u.id === id);
-  if (u) { u.role = role; page.saveDB(data); core.log('user_role', user.id, `${u.username} → ${role}`); page.toast('Cargo atualizado', 'success'); }
+  if (!u) return;
+  u.role = role;
+  page.saveDB(data);
+  page.syncDocument('users', u.id, u);
+  core.log('user_role', user.id, `${u.username} → ${role}`);
+  page.toast('Cargo atualizado e enviado ao banco.', 'success');
 }
 
 function toggleBan(id) {
   data = page.getDB();
   const u = data.users.find(u => u.id === id);
-  if (u) { u.banned = !u.banned; page.saveDB(data); core.log('user_ban', user.id, `${u.username} ${u.banned ? 'banido' : 'desbanido'}`); renderUsers(); page.toast(u.banned ? 'Usuário banido' : 'Usuário desbanido', 'info'); }
+  if (!u) return;
+  u.banned = !u.banned;
+  page.saveDB(data);
+  page.syncDocument('users', u.id, u);
+  core.log('user_ban', user.id, `${u.username} ${u.banned ? 'banido' : 'desbanido'}`);
+  renderUsers();
+  page.toast(u.banned ? 'Usuário banido e enviado ao banco.' : 'Usuário desbanido e enviado ao banco.', 'info');
 }
 
 async function resetPassword(id) {
-  const newPass = prompt('Digite a nova senha para este usuário:');
-  if (!newPass) return;
-  const validation = core.validatePassword(newPass);
-  if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
   data = page.getDB();
-  const u = data.users.find(u => u.id === id);
-  if (u) {
+  const u = data.users.find(account => account.id === id);
+  if (!u?.email) return page.toast('Este usuário não possui e-mail cadastrado.', 'error');
+
+  // Firebase Auth não permite que um cliente altere a senha de outra pessoa.
+  // Para contas Firebase, o fluxo correto é enviar o e-mail oficial de reset.
+  const isLocalOnly = u.provider === 'local' || /@checklist\.local$/i.test(u.email);
+  if (isLocalOnly) {
+    const newPass = prompt('Digite a nova senha para este usuário local:');
+    if (!newPass) return;
+    const validation = core.validatePassword(newPass);
+    if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
     u.passHash = await core.hashPassword(newPass);
     page.saveDB(data);
-    core.log('password_reset', user.id, u.username);
-    page.toast('Senha resetada! 🔑', 'success');
+    core.log('password_reset_local', user.id, u.username);
+    return page.toast('Senha local atualizada.', 'success');
+  }
+
+  try {
+    await window.parent.firebase.auth().sendPasswordResetEmail(u.email);
+    core.log('password_reset_email', user.id, u.email);
+    page.toast('E-mail de redefinição enviado para ' + u.email + '.', 'success');
+  } catch (err) {
+    page.toast('Não foi possível enviar o e-mail: ' + (err.message || 'erro desconhecido'), 'error');
   }
 }
 
 function deleteUser(id) {
-  if (!confirm('Excluir este usuário permanentemente?')) return;
+  if (!confirm('Excluir o perfil e as permissões deste usuário? A conta do Firebase Auth só pode ser removida por um backend com Admin SDK.')) return;
   data = page.getDB();
   const u = data.users.find(u => u.id === id);
   data.users = data.users.filter(u => u.id !== id);
   page.saveDB(data);
+  page.deleteDocument('users', id);
   core.log('user_delete', user.id, u?.username || '');
   renderUsers();
   page.toast('Usuário excluído', 'info');
@@ -468,7 +499,9 @@ function toggleMenuItem(id, visible) {
 }
 
 function saveMenu() {
-  window.parent.postMessage({ type: 'reload' }, '*');
+  data = page.getDB();
+  page.syncSettings(data.settings);
+  page.reload();
   page.toast('Menu salvo! 📋', 'success');
 }
 
@@ -479,15 +512,19 @@ function publishPost() {
   if (!title) return page.toast('Digite um título', 'warning');
 
   data = page.getDB();
-  data.posts.unshift({
+  const post = {
     id: Date.now(),
     title, body,
     category: document.getElementById('postCategory').value,
     image: document.getElementById('postImage').value.trim(),
     author: user.name || user.username,
-    publishedAt: Date.now()
-  });
+    authorId: user.id || user.uid,
+    publishedAt: Date.now(),
+    updatedAt: core.now()
+  };
+  data.posts.unshift(post);
   page.saveDB(data);
+  page.syncDocument('posts', post.id, post);
   core.log('post_create', user.id, title);
 
   document.getElementById('postTitle').value = '';
@@ -544,6 +581,7 @@ function deletePost(id) {
   data = page.getDB();
   data.posts = data.posts.filter(p => p.id !== id);
   page.saveDB(data);
+  page.deleteDocument('posts', id);
   renderPosts();
   page.toast('Notícia excluída', 'info');
 }
@@ -563,14 +601,17 @@ function addFile() {
   if (!title || !url) return page.toast('Preencha título e URL', 'warning');
 
   data = page.getDB();
-  data.files.push({
+  const fileEntry = {
     id: Date.now(),
     title, url,
     category: document.getElementById('fileCategory').value,
     description: document.getElementById('fileDesc').value.trim(),
     image: document.getElementById('fileImage').value.trim(),
-  });
+    updatedAt: core.now()
+  };
+  data.files.push(fileEntry);
   page.saveDB(data);
+  page.syncDocument('files', fileEntry.id, fileEntry);
   core.log('file_add', user.id, title);
 
   document.getElementById('fileTitle').value = '';
@@ -603,6 +644,7 @@ function deleteFile(id) {
   data = page.getDB();
   data.files = data.files.filter(f => f.id !== id);
   page.saveDB(data);
+  page.deleteDocument('files', id);
   renderFiles();
   page.toast('Arquivo excluído', 'info');
 }
@@ -616,6 +658,7 @@ function addCategory() {
   if (data.settings.categories.includes(name)) return page.toast('Categoria já existe', 'warning');
   data.settings.categories.push(name);
   page.saveDB(data);
+  page.syncSettings(data.settings);
   document.getElementById('newCategory').value = '';
   renderCategories();
   populateCategorySelects();
@@ -639,17 +682,59 @@ function deleteCategory(name) {
   data = page.getDB();
   data.settings.categories = data.settings.categories.filter(c => c !== name);
   page.saveDB(data);
+  page.syncSettings(data.settings);
   renderCategories();
   populateCategorySelects();
   page.toast('Categoria excluída', 'info');
 }
 
-/* ========== API ========== */
-function saveAPI() {
-  data.settings.deepseekKey = document.getElementById('setDeepseekKey').value.trim();
-  page.saveDB(data);
-  core.log('api_update', user.id, 'DeepSeek key');
-  page.toast('API Key salva! 🔑', 'success');
+/* ========== API / INTEGRAÇÕES PRIVADAS ========== */
+async function loadAPIStatus() {
+  const status = document.getElementById('apiKeyStatus');
+  try {
+    const config = await page.getAdminConfig();
+    status.textContent = config.hasDeepseekKey
+      ? '✅ Uma chave DeepSeek está salva com segurança no banco.'
+      : 'Nenhuma chave DeepSeek foi configurada ainda.';
+  } catch (err) {
+    status.textContent = '⚠️ Não foi possível verificar a chave no Firestore. Entre com uma conta Firebase administradora.';
+    console.warn('admin config load:', err);
+  }
+}
+
+async function saveAPI() {
+  const input = document.getElementById('setDeepseekKey');
+  const key = input.value.trim();
+  if (!key) return page.toast('Digite a API Key ou use “Remover chave”.', 'warning');
+
+  const button = document.getElementById('btnSaveApi');
+  button.disabled = true;
+  button.textContent = '⏳ Salvando…';
+  try {
+    await page.saveAdminConfig({ deepseekKey: key });
+    input.value = ''; // não manter o segredo no DOM depois de salvo
+    core.log('api_update', user.id, 'DeepSeek key salva no Firestore');
+    page.toast('API Key salva com segurança no banco! 🔐', 'success');
+    await loadAPIStatus();
+  } catch (err) {
+    page.toast('Não foi possível salvar no Firestore: ' + (err.message || 'erro desconhecido'), 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = '💾 Salvar no banco';
+  }
+}
+
+async function clearAPI() {
+  if (!confirm('Remover a API Key do DeepSeek do banco? A IA voltará ao modo preview.')) return;
+  try {
+    await page.saveAdminConfig({ deepseekKey: '' });
+    document.getElementById('setDeepseekKey').value = '';
+    core.log('api_delete', user.id, 'DeepSeek key removida do Firestore');
+    page.toast('API Key removida do banco.', 'info');
+    await loadAPIStatus();
+  } catch (err) {
+    page.toast('Não foi possível remover a chave: ' + (err.message || 'erro desconhecido'), 'error');
+  }
 }
 
 /* ========== LOGS ========== */
@@ -881,6 +966,8 @@ async function handleImport(e) {
 
 async function syncToFirebase() {
   const data = page.getDB();
+  const firebaseSync = window.parent?.fireSync;
+  if (!firebaseSync) return page.toast('Sincronização Firebase indisponível.', 'error');
   const btn = document.getElementById('btnSync');
   const status = document.getElementById('syncStatus');
 
@@ -890,25 +977,27 @@ async function syncToFirebase() {
 
   try {
     // Push settings
-    await fireSync.pushSettings(data.settings);
+    if (!await firebaseSync.pushSettings(data.settings)) {
+      throw new Error('Sem permissão para sincronizar as configurações.');
+    }
     status.textContent = 'Settings ✓';
 
     // Push tasks
     const tasks = data.tasks.filter(t => t.owner === user.id);
     for (const t of tasks) {
-      await fireSync.pushDocument('tasks', String(t.id), t);
+      await firebaseSync.pushDocument('tasks', String(t.id), t);
     }
     status.textContent = `Settings ✓ Tasks (${tasks.length}) ✓`;
 
     // Push posts
     for (const p of (data.posts || [])) {
-      await fireSync.pushDocument('posts', String(p.id), p);
+      await firebaseSync.pushDocument('posts', String(p.id), p);
     }
     status.textContent = `Settings ✓ Tasks ✓ Posts (${data.posts.length}) ✓`;
 
     // Push files
     for (const f of (data.files || [])) {
-      await fireSync.pushDocument('files', String(f.id), f);
+      await firebaseSync.pushDocument('files', String(f.id), f);
     }
     status.textContent = `✅ Tudo sincronizado!`;
 

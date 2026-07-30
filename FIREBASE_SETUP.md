@@ -187,13 +187,24 @@ service cloud.firestore {
     }
 
     // ---------- SETTINGS ----------
-    match /settings/{settingId} {
+    // Configurações visuais compartilhadas por todo o site.
+    match /settings/global {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
 
-      match /user/{userId} {
-        allow read, write: if isOwner(userId);
-      }
+    // Credenciais privadas de integrações (ex.: DeepSeek).
+    // Nunca exponha este documento para usuários comuns.
+    match /settings/admin {
+      allow read, write: if isAdmin();
+    }
+
+    match /settings/{settingId}/user/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    match /settings/{settingId} {
+      allow read, write: if false;
     }
 
     // ---------- GAMIFICAÇÃO ----------

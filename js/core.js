@@ -16,8 +16,9 @@ const Core = {
       logo: '',
       favicon: '',
       language: 'pt-BR',      // pt-BR | en | es
-      menuOrder: ['home','atividades','arquidades','arquivos','relatorios','IA','kanban','calendario','gamificacao','foco','custom','perfil','admin'],
-      deepseekKey: '',
+      menuOrder: ['home','atividades','kanban','calendario','gamificacao','foco','custom','arquivos','relatorios','IA','perfil','admin'],
+      // Segredos de integração (ex.: DeepSeek) não pertencem ao localStorage.
+      // Eles ficam em settings/admin no Firestore, com leitura restrita ao admin.
       menuItems: [
         { id:'home',         label:'Visão geral',   icon:'📊', visible:true },
         { id:'atividades',   label:'Atividades',    icon:'✅', visible:true },
@@ -81,25 +82,40 @@ const Core = {
   // Migração: adiciona campos novos que não existem em dados antigos
   _migrate(data) {
     const defaults = JSON.parse(JSON.stringify(this._defaults));
-    if (!data.settings) data.settings = defaults.settings;
-    if (!data.customThemes) data.customThemes = defaults.customThemes;
-    if (!data.gamification) data.gamification = defaults.gamification;
-    if (!data.comments) data.comments = defaults.comments;
-    if (!data.automations) data.automations = defaults.automations;
-    if (!data.dashboardWidgets) data.dashboardWidgets = defaults.dashboardWidgets;
-    // Migração de menu
-    if (data.settings.menuItems) {
-      const existingIds = new Set(data.settings.menuItems.map(i => i.id));
-      defaults.settings.menuItems.forEach(m => {
-        if (!existingIds.has(m.id)) data.settings.menuItems.push(m);
-      });
+    data = data && typeof data === 'object' ? data : {};
+
+    data.settings = { ...defaults.settings, ...(data.settings || {}) };
+    ['users', 'tasks', 'files', 'posts', 'logs', 'customThemes', 'automations', 'dashboardWidgets']
+      .forEach(key => { if (!Array.isArray(data[key])) data[key] = defaults[key]; });
+    ['gamification', 'comments'].forEach(key => {
+      if (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key])) data[key] = defaults[key];
+    });
+
+    // Nunca mantenha segredos no navegador. Versões anteriores gravavam a chave
+    // do DeepSeek em settings; ela passa a existir somente no documento privado
+    // settings/admin do Firestore.
+    if (Object.prototype.hasOwnProperty.call(data.settings, 'deepseekKey')) {
+      delete data.settings.deepseekKey;
     }
-    if (data.settings.menuOrder) {
-      const existingIds = new Set(data.settings.menuOrder);
-      defaults.settings.menuOrder.forEach(id => {
-        if (!existingIds.has(id)) data.settings.menuOrder.push(id);
-      });
-    }
+
+    // Migração de menu. Remove uma entrada inválida de versões antigas e inclui
+    // páginas novas sem apagar a ordem definida pelo administrador.
+    const validMenuIds = new Set(defaults.settings.menuItems.map(item => item.id));
+    data.settings.menuItems = (Array.isArray(data.settings.menuItems) ? data.settings.menuItems : [])
+      .filter(item => item && validMenuIds.has(item.id));
+    const existingMenuIds = new Set(data.settings.menuItems.map(item => item.id));
+    defaults.settings.menuItems.forEach(item => {
+      if (!existingMenuIds.has(item.id)) data.settings.menuItems.push({ ...item });
+    });
+
+    data.settings.menuOrder = (Array.isArray(data.settings.menuOrder) ? data.settings.menuOrder : [])
+      .filter(id => validMenuIds.has(id));
+    const existingOrderIds = new Set(data.settings.menuOrder);
+    defaults.settings.menuOrder.forEach(id => {
+      if (!existingOrderIds.has(id)) data.settings.menuOrder.push(id);
+    });
+
+    if (!Array.isArray(data.settings.categories)) data.settings.categories = [...defaults.settings.categories];
     if (!data.settings.language) data.settings.language = 'pt-BR';
     return data;
   },
@@ -176,11 +192,16 @@ const Core = {
 
   /* ---------- TOAST ---------- */
   toast(message, type = 'info') {
-    // Dispara evento para o app principal
-    window.parent.postMessage({ type: 'toast', message, toastType: type }, '*');
-
-    // Se estiver no contexto principal
     const container = document.getElementById('toastContainer');
+
+    // As páginas são carregadas em um iframe e devem delegar o toast ao shell.
+    // No shell, window.parent === window. Postar uma mensagem para si mesmo fazia
+    // App.handleMessage chamar core.toast novamente em um loop infinito.
+    if (!container && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'toast', message, toastType: type }, window.location.origin);
+      return;
+    }
+
     if (container) {
       const t = document.createElement('div');
       t.className = `toast ${type}`;
@@ -276,8 +297,13 @@ const Core = {
     data.settings.language = lang;
     this.saveLocalDB(data);
     this._i18nCache = null;
-    // Notificar o app principal para atualizar UI
-    try { window.parent.postMessage({ type: 'languageChanged', lang }, '*'); } catch(e) {}
+    // Notificar o app principal apenas quando esta função roda dentro de um iframe.
+    // Postar para a própria janela é desnecessário e abre espaço para loops de eventos.
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage({ type: 'languageChanged', lang }, window.location.origin);
+      }
+    } catch(e) {}
   },
 
   /**
@@ -288,7 +314,12 @@ const Core = {
   async _loadLocale(lang) {
     if (this._i18nCache && this._i18nCache[lang]) return this._i18nCache[lang];
     try {
-      const res = await fetch(`locales/${lang}.json`);
+      // core.js também roda dentro de /pages/*.html; nesse caso o caminho
+      // relativo anterior apontava para /pages/locales e a tradução falhava.
+      const localePath = window.location.pathname.includes('/pages/')
+        ? `../locales/${lang}.json`
+        : `locales/${lang}.json`;
+      const res = await fetch(localePath);
       if (!res.ok) throw new Error('not found');
       const data = await res.json();
       if (!this._i18nCache) this._i18nCache = {};
@@ -714,17 +745,31 @@ const Core = {
         if (trigger === 'task_late') {
           const daysLate = payload.daysLate || 0;
           const cond = auto.conditions?.daysLate || 0;
-          if (daysLate >= cond) {
-            if (auto.action === 'notify_admin') {
-              // Simulação: cria notificação + log
-              this._createNotification(
-                'admin',
+          if (daysLate >= cond && auto.action === 'notify_admin') {
+            const task = payload.task || {};
+            const recipients = Array.isArray(payload.recipientIds) && payload.recipientIds.length
+              ? payload.recipientIds
+              : ['admin'];
+            const dateKey = payload.dateKey || this.today();
+            let created = false;
+
+            recipients.forEach(recipientId => {
+              const notification = this._createNotification(
+                recipientId,
                 '⏰ Atividade atrasada',
-                `"${payload.task?.title || 'Atividade'}" está ${daysLate} dia(s) atrasada(s)`,
-                'warning'
+                `"${task.title || 'Atividade'}" está ${daysLate} dia(s) atrasada(s)`,
+                'warning',
+                {
+                  dedupeKey: `automation:${auto.id}:late:${task.id || task.title || 'task'}:${dateKey}`,
+                  data: { page: 'atividades', taskId: task.id },
+                  // Avisos de varredura no login ficam na central, sem inundar a tela.
+                  showToast: !payload.silent,
+                  showBrowser: !payload.silent,
+                }
               );
-              results.push({ auto, ok: true });
-            }
+              created = created || Boolean(notification);
+            });
+            results.push({ auto, ok: true, created });
           }
         } else if (trigger === 'task_finished') {
           const task = payload.task;
@@ -774,20 +819,42 @@ const Core = {
     return d.toISOString().slice(0, 10);
   },
 
-  _createNotification(userId, title, body, type = 'info') {
+  _createNotification(userId, title, body, type = 'info', options = {}) {
     try {
+      if (!userId) return null;
+      const {
+        dedupeKey = '',
+        data = null,
+        showToast = true,
+        showBrowser = true,
+      } = options;
       const key = 'cl-notifications-' + userId;
       const list = JSON.parse(localStorage.getItem(key) || '[]');
-      list.unshift({ id: this.genId(), title, body, type, read: false, timestamp: this.now() });
+
+      // Uma mesma automação pode ser avaliada mais de uma vez (login, reload e
+      // sincronização). A chave torna a criação idempotente e impede spam.
+      if (dedupeKey && list.some(notification => notification.dedupeKey === dedupeKey)) {
+        return null;
+      }
+
+      const notification = {
+        id: this.genId(), title, body, type, read: false, timestamp: this.now(),
+        ...(dedupeKey ? { dedupeKey } : {}),
+        ...(data ? { data } : {}),
+      };
+      list.unshift(notification);
       if (list.length > 50) list.length = 50;
       localStorage.setItem(key, JSON.stringify(list));
-      // Tenta disparar notificação do navegador
-      if ('Notification' in window && Notification.permission === 'granted') {
+
+      if (showBrowser && 'Notification' in window && Notification.permission === 'granted') {
         try { new Notification(title, { body }); } catch(e) {}
       }
-      // Toast visível
-      this.toast(`${title}: ${body}`, type);
-    } catch(e) { console.warn('notify:', e); }
+      if (showToast) this.toast(`${title}: ${body}`, type);
+      return notification;
+    } catch(e) {
+      console.warn('notify:', e);
+      return null;
+    }
   },
 
   getNotifications(userId) {
@@ -803,17 +870,33 @@ const Core = {
   },
 
   /**
-   * checkLateAutomations - varre tarefas atrasadas e dispara notificações
-   * Deve ser chamada na inicialização
+   * checkLateAutomations - verifica somente as tarefas do usuário que iniciou
+   * a sessão. Cada aviso é criado uma vez por tarefa/automação/dia e entra na
+   * central de notificações sem abrir vários toasts ao fazer login.
    */
-  checkLateAutomations() {
+  checkLateAutomations(userId) {
+    if (!userId) return;
     const data = this.getLocalDB();
     const today = this.today();
-    const late = data.tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+    const late = data.tasks.filter(task =>
+      task.owner === userId && task.date && task.date < today &&
+      task.status !== 'finished' && task.status !== 'notdone'
+    );
+    const adminIds = (data.users || [])
+      .filter(account => account.role === 'admin' && !account.banned)
+      .map(account => account.id || account.uid)
+      .filter(Boolean);
+    const recipientIds = adminIds.length ? adminIds : [userId];
 
-    late.forEach(t => {
-      const daysLate = Math.floor((new Date(today) - new Date(t.date)) / 86400000);
-      this.runAutomations('task_late', { task: t, daysLate });
+    late.forEach(task => {
+      const daysLate = Math.floor((new Date(today) - new Date(task.date)) / 86400000);
+      this.runAutomations('task_late', {
+        task,
+        daysLate,
+        recipientIds,
+        silent: true,
+        dateKey: today,
+      });
     });
   },
 

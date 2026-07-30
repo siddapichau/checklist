@@ -59,6 +59,14 @@ function safeFirestoreTimestamp(value) {
   return null;
 }
 
+function timestampMillis(value) {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (value.toDate) return value.toDate().getTime();
+  const parsed = new Date(value).getTime();
+  return Number.isNaN(parsed) ? 0 : parsed;
+}
+
 /* ========== FIREBASE SYNC ========== */
 const FireSync = {
   _unsubscribers: [],
@@ -69,9 +77,16 @@ const FireSync = {
 
   /* Iniciar sincronização para um usuário */
   async start(userId) {
+    // onAuthStateChanged, loginSuccess e a restauração de sessão podem solicitar
+    // o sync quase ao mesmo tempo. Recriar listeners para o mesmo UID duplicava
+    // snapshots e operações de escrita.
+    if (this._syncing && this._userId === userId) {
+      console.log('ℹ️ FireSync já está ativo para:', userId);
+      return;
+    }
+
     this.stop();
     this._userId = userId;
-    this._syncing = true;
     this._errorCount = 0;
 
     console.log('🔄 FireSync iniciado para:', userId);
@@ -79,19 +94,22 @@ const FireSync = {
     // Se não há userId (usuário local), pular
     if (!userId || userId.includes('local-') || userId === 'unknown') {
       console.log('⚠️ Usuário local, FireSync não ativado');
-      this._syncing = false;
       return;
     }
 
-    // Verificar se auth está pronto
-    if (!auth.currentUser) {
-      console.warn('⚠️ auth.currentUser nulo, aguardando...');
-      // tentar novamente em 1s se auth ainda não estiver pronto
+    // Não sincronize dados de um perfil local usando a sessão Firebase de outra
+    // pessoa. Isso evita falhas de permissão e mistura de contas.
+    if (!auth.currentUser || auth.currentUser.uid !== userId) {
+      console.warn('⚠️ Auth ainda não corresponde ao usuário do FireSync; aguardando...');
+      this._syncing = false;
+      this._userId = null;
       setTimeout(() => {
-        if (auth.currentUser && userId) this.start(userId);
-      }, 1000);
+        if (auth.currentUser?.uid === userId && !this._syncing) this.start(userId);
+      }, 500);
       return;
     }
+
+    this._syncing = true;
 
     try {
       // 1. Sincronizar tasks - APENAS do usuário
@@ -105,6 +123,21 @@ const FireSync = {
           this._handleSyncError(err, 'tasks');
         });
       this._unsubscribers.push(tasksUnsub);
+
+      // Administradores precisam ver perfis atuais para que o painel de usuários
+      // consiga realmente editar cargos e bloqueios no Firestore.
+      if (this._isCurrentUserAdmin()) {
+        const usersUnsub = db.collection('users')
+          .limit(500)
+          .onSnapshot(snapshot => {
+            if (!this._syncing) return;
+            this._handleCollectionSync('users', snapshot, null);
+          }, err => {
+            console.warn('Users sync error:', err.code, err.message);
+            this._handleSyncError(err, 'users', false);
+          });
+        this._unsubscribers.push(usersUnsub);
+      }
 
       // 2. Sincronizar posts (todos os posts) - com try/catch para não travar se sem permissão
       const postsUnsub = db.collection('posts')
@@ -142,22 +175,19 @@ const FireSync = {
             const data = core.getLocalDB();
             let changed = false;
 
-            if (remoteSettings.brand && data.settings.brand !== remoteSettings.brand) {
-              data.settings.brand = remoteSettings.brand; changed = true;
-            }
-            if (remoteSettings.theme && data.settings.theme !== remoteSettings.theme) {
-              data.settings.theme = remoteSettings.theme; changed = true;
-            }
-            if (remoteSettings.mode && data.settings.mode !== remoteSettings.mode) {
-              data.settings.mode = remoteSettings.mode; changed = true;
-            }
-            if (remoteSettings.categories) {
-              const localCats = JSON.stringify(data.settings.categories || []);
-              const remoteCats = JSON.stringify(remoteSettings.categories);
-              if (localCats !== remoteCats) {
-                data.settings.categories = remoteSettings.categories; changed = true;
+            // Apenas configurações públicas do site ficam neste documento.
+            // Credenciais de integrações são gravadas separadamente em settings/admin.
+            const publicKeys = ['brand', 'theme', 'mode', 'language', 'categories',
+              'menuItems', 'menuOrder', 'logo', 'favicon'];
+            publicKeys.forEach(key => {
+              if (!Object.prototype.hasOwnProperty.call(remoteSettings, key)) return;
+              const localValue = JSON.stringify(data.settings[key]);
+              const remoteValue = JSON.stringify(remoteSettings[key]);
+              if (localValue !== remoteValue) {
+                data.settings[key] = remoteSettings[key];
+                changed = true;
               }
-            }
+            });
 
             if (changed) {
               core.saveLocalDB(data);
@@ -177,6 +207,14 @@ const FireSync = {
       console.error('Erro ao iniciar FireSync:', err);
       this._syncing = false;
     }
+  },
+
+  _isCurrentUserAdmin() {
+    const currentUser = core.getCurrentUser();
+    if (currentUser?.role === 'admin') return true;
+    const localUser = core.getLocalDB().users
+      .find(account => account.id === currentUser?.id || account.uid === currentUser?.uid);
+    return localUser?.role === 'admin';
   },
 
   _handleSyncError(err, collection, critical = true) {
@@ -235,6 +273,21 @@ const FireSync = {
         remoteDocs.push({ id: doc.id, ...normalized });
       });
 
+      // onSnapshot não devolve documentos removidos no snapshot atual. Sem
+      // tratar docChanges, um post/arquivo apagado voltava a aparecer no cache
+      // local após a próxima navegação.
+      const removedIds = typeof snapshot.docChanges === 'function'
+        ? snapshot.docChanges().filter(change => change.type === 'removed').map(change => String(change.doc.id))
+        : [];
+      if (removedIds.length) {
+        const removeById = list => list.filter(item => !removedIds.includes(String(item.id)));
+        if (collectionName === 'tasks') data.tasks = removeById(data.tasks);
+        if (collectionName === 'posts') data.posts = removeById(data.posts);
+        if (collectionName === 'files') data.files = removeById(data.files);
+        if (collectionName === 'users') data.users = removeById(data.users);
+        hasChanges = true;
+      }
+
       // Para tasks: filtrar as que são do usuário local
       if (collectionName === 'tasks' && userId) {
         const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
@@ -243,8 +296,8 @@ const FireSync = {
         remoteDocs.forEach(remote => {
           const localIdx = data.tasks.findIndex(t => String(t.id) === String(remote.id));
           if (localIdx >= 0) {
-            const localUpdated = data.tasks[localIdx].updatedAt || data.tasks[localIdx].createdAt || '';
-            const remoteUpdated = remote.updatedAt || remote.createdAt || '';
+            const localUpdated = timestampMillis(data.tasks[localIdx].updatedAt || data.tasks[localIdx].createdAt);
+            const remoteUpdated = timestampMillis(remote.updatedAt || remote.createdAt);
             if (remoteUpdated > localUpdated) {
               data.tasks[localIdx] = { ...data.tasks[localIdx], ...remote, id: data.tasks[localIdx].id };
               hasChanges = true;
@@ -265,12 +318,33 @@ const FireSync = {
           }
         }
 
+      } else if (collectionName === 'users') {
+        remoteDocs.forEach(remote => {
+          const localIdx = data.users.findIndex(account =>
+            String(account.id || account.uid) === String(remote.id)
+          );
+          const normalizedUser = { ...remote, id: remote.id, uid: remote.uid || remote.id };
+          if (localIdx >= 0) {
+            // Senhas locais nunca devem ser substituídas por dados remotos.
+            const local = data.users[localIdx];
+            const next = { ...local, ...normalizedUser, passHash: local.passHash, pass: local.pass };
+            if (JSON.stringify({ ...local, passHash: undefined, pass: undefined }) !==
+                JSON.stringify({ ...next, passHash: undefined, pass: undefined })) {
+              data.users[localIdx] = next;
+              hasChanges = true;
+            }
+          } else {
+            data.users.push(normalizedUser);
+            hasChanges = true;
+          }
+        });
+
       } else if (collectionName === 'posts') {
         remoteDocs.forEach(remote => {
           const localIdx = data.posts.findIndex(p => String(p.id) === String(remote.id));
           if (localIdx >= 0) {
-            const rTime = remote.updatedAt || remote.publishedAt || 0;
-            const lTime = data.posts[localIdx].updatedAt || data.posts[localIdx].publishedAt || 0;
+            const rTime = timestampMillis(remote.updatedAt || remote.publishedAt);
+            const lTime = timestampMillis(data.posts[localIdx].updatedAt || data.posts[localIdx].publishedAt);
             if (rTime > lTime) {
               data.posts[localIdx] = { ...data.posts[localIdx], ...remote, id: data.posts[localIdx].id };
               hasChanges = true;
@@ -285,8 +359,11 @@ const FireSync = {
         remoteDocs.forEach(remote => {
           const localIdx = data.files.findIndex(f => String(f.id) === String(remote.id));
           if (localIdx >= 0) {
-            // Sempre atualizar files (admin pode mudar)
-            if (JSON.stringify(data.files[localIdx]) !== JSON.stringify(remote)) {
+            // Sempre atualizar files (admin pode mudar), sem disparar falso
+            // positivo apenas porque IDs locais antigos são numéricos.
+            const localComparable = { ...data.files[localIdx], id: String(data.files[localIdx].id) };
+            const remoteComparable = { ...remote, id: String(remote.id) };
+            if (JSON.stringify(localComparable) !== JSON.stringify(remoteComparable)) {
               data.files[localIdx] = { ...remote, id: data.files[localIdx].id };
               hasChanges = true;
             }
@@ -371,6 +448,12 @@ const FireSync = {
     try {
       const docData = { ...dataObj };
       delete docData.id;
+      // Hashes/senhas usadas no fallback local jamais devem ser enviados ao
+      // Firestore nem aparecer em backups de perfis.
+      if (collection === 'users') {
+        delete docData.pass;
+        delete docData.passHash;
+      }
       
       const createdTs = safeFirestoreTimestamp(docData.createdAt);
       if (createdTs) docData.createdAt = createdTs;
@@ -401,9 +484,10 @@ const FireSync = {
       }
 
       await db.collection('settings').doc('global').set({
-        brand: settings.brand,
-        theme: settings.theme,
-        mode: settings.mode,
+        brand: settings.brand || 'Checklist ML',
+        theme: settings.theme || 'ocean',
+        mode: settings.mode || 'light',
+        language: settings.language || 'pt-BR',
         categories: settings.categories || [],
         menuItems: settings.menuItems || [],
         menuOrder: settings.menuOrder || [],
@@ -412,9 +496,50 @@ const FireSync = {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp()
       }, { merge: true });
       console.log('📤 Settings enviados ao Firestore');
+      return true;
     } catch (err) {
       console.warn('Erro ao enviar settings:', err.code, err.message);
+      return false;
     }
+  },
+
+  async deleteDocument(collection, id) {
+    try {
+      await db.collection(collection).doc(String(id)).delete();
+      console.log(`🗑️ ${collection}/${id} removido do Firestore`);
+      return true;
+    } catch (err) {
+      console.warn(`Erro ao remover ${collection}/${id}:`, err.code, err.message);
+      if (err.code === 'permission-denied') this._errorCount++;
+      return false;
+    }
+  },
+
+  async getAdminConfig() {
+    if (!this._isCurrentUserAdmin()) throw new Error('Acesso restrito a administradores');
+    const doc = await db.collection('settings').doc('admin').get();
+    const config = doc.exists ? doc.data() : {};
+    // A tela administrativa precisa apenas saber se há uma chave salva; ela não
+    // recebe o segredo de volta para evitar expô-lo desnecessariamente no DOM.
+    return { hasDeepseekKey: Boolean(config.deepseekKey), updatedAt: config.updatedAt || null };
+  },
+
+  async getDeepseekKey() {
+    if (!this._isCurrentUserAdmin()) return '';
+    const doc = await db.collection('settings').doc('admin').get();
+    return doc.exists ? String(doc.data().deepseekKey || '') : '';
+  },
+
+  async saveAdminConfig(config = {}) {
+    if (!this._isCurrentUserAdmin()) throw new Error('Acesso restrito a administradores');
+    const deepseekKey = String(config.deepseekKey || '').trim();
+    await db.collection('settings').doc('admin').set({
+      deepseekKey,
+      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+      updatedBy: auth.currentUser?.uid || ''
+    }, { merge: true });
+    console.log('🔐 Configuração privada salva no Firestore');
+    return { hasDeepseekKey: Boolean(deepseekKey) };
   }
 };
 
