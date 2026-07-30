@@ -17,16 +17,19 @@
   </div>
 </div>
 
-<!-- STATS DO USUÁRIO -->
+<!-- STATS DO USUÁRIO COM BARRAS DE PROGRESSO -->
 <div class="gam-stats" id="myStats"></div>
+
+<!-- PROGRESSO PARA PRÓXIMO NÍVEL -->
+<div class="card" id="nextLevelCard"></div>
 
 <!-- STREAK -->
 <div class="card" id="streakCard"></div>
 
 <!-- TABS: BADGES / RANKING / REGRAS -->
 <div class="tabs">
-  <button class="tab active" onclick="switchTab('badges',this)">🏅 Badges</button>
-  <button class="tab" onclick="switchTab('ranking',this)" data-i18n="gamification.weeklyRanking">Ranking semanal</button>
+  <button class="tab active" onclick="switchTab('badges',this)">🏅 Conquistas</button>
+  <button class="tab" onclick="switchTab('ranking',this)">📊 Ranking semanal</button>
   <button class="tab" onclick="switchTab('allranking',this)">🏆 Ranking geral</button>
   <button class="tab" onclick="switchTab('rules',this)">📋 Regras</button>
 </div>
@@ -39,53 +42,67 @@
 </div>
 
 <div class="tab-content" id="tab-ranking">
-  <div class="card">
-    <h2 data-i18n="gamification.weeklyRanking">Ranking semanal</h2>
-    <table class="ranking-table" id="weeklyTable">
-      <thead><tr>
-        <th data-i18n="gamification.rank">Posição</th>
-        <th data-i18n="gamification.user">Usuário</th>
-        <th data-i18n="gamification.week">Semana</th>
-        <th data-i18n="gamification.total">Total</th>
-      </tr></thead>
-      <tbody id="weeklyBody"></tbody>
-    </table>
+  <!-- PÓDIO SEMANAL -->
+  <div class="card" id="weeklyPodiumCard">
+    <h2>🥇 Pódio da semana</h2>
+    <div class="podium" id="weeklyPodium"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2>📋 Classificação completa</h2>
+    <div style="overflow-x:auto">
+      <table class="ranking-table" id="weeklyTable">
+        <thead><tr>
+          <th>#</th><th>Usuário</th><th>Semana</th><th>Total</th><th>Progresso</th>
+        </tr></thead>
+        <tbody id="weeklyBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <div class="tab-content" id="tab-allranking">
+  <!-- PÓDIO GERAL -->
   <div class="card">
-    <h2>🏆 Ranking geral</h2>
-    <table class="ranking-table" id="allTable">
-      <thead><tr>
-        <th data-i18n="gamification.rank">Posição</th>
-        <th data-i18n="gamification.user">Usuário</th>
-        <th data-i18n="gamification.total">Total</th>
-        <th>🔥</th>
-        <th>🏅</th>
-      </tr></thead>
-      <tbody id="allBody"></tbody>
-    </table>
+    <h2>🥇 Top 3 geral</h2>
+    <div class="podium" id="allPodium"></div>
+  </div>
+  <div class="card" style="margin-top:12px">
+    <h2>📋 Classificação completa</h2>
+    <div style="overflow-x:auto">
+      <table class="ranking-table" id="allTable">
+        <thead><tr>
+          <th>#</th><th>Usuário</th><th>Total</th><th>Sequência</th><th>Conquistas</th><th>Progresso</th>
+        </tr></thead>
+        <tbody id="allBody"></tbody>
+      </table>
+    </div>
   </div>
 </div>
 
 <div class="tab-content" id="tab-rules">
   <div class="card">
-    <h2 data-i18n="gamification.earnPoints">Como ganhar pontos?</h2>
+    <h2>📋 Como ganhar pontos?</h2>
     <div style="display:grid;gap:10px;margin-top:12px">
-      <div class="item"><span style="font-size:22px">✅</span><div class="item-info"><b data-i18n="gamification.rule1">Concluir uma atividade: 10 pontos</b></div><strong style="color:var(--primary)">+10</strong></div>
-      <div class="item"><span style="font-size:22px">🔴</span><div class="item-info"><b data-i18n="gamification.rule2">Prioridade alta: +5 pontos</b></div><strong style="color:var(--primary)">+5</strong></div>
-      <div class="item"><span style="font-size:22px">🚨</span><div class="item-info"><b data-i18n="gamification.rule3">Prioridade urgente: +10 pontos</b></div><strong style="color:var(--primary)">+10</strong></div>
-      <div class="item"><span style="font-size:22px">🔁</span><div class="item-info"><b data-i18n="gamification.rule4">Recorrente: +5 pontos</b></div><strong style="color:var(--primary)">+5</strong></div>
-      <div class="item"><span style="font-size:22px">🔥</span><div class="item-info"><b data-i18n="gamification.rule5">Sequência: complete todos os dias</b></div><strong style="color:var(--primary)">+streak</strong></div>
+      <div class="item"><span style="font-size:22px">✅</span><div class="item-info"><b>Concluir uma atividade</b><small>+10 pontos</small></div><strong style="color:var(--primary)">+10</strong></div>
+      <div class="item"><span style="font-size:22px">🔴</span><div class="item-info"><b>Prioridade alta</b><small>+5 pontos extras</small></div><strong style="color:var(--primary)">+5</strong></div>
+      <div class="item"><span style="font-size:22px">🚨</span><div class="item-info"><b>Prioridade urgente</b><small>+10 pontos extras</small></div><strong style="color:var(--primary)">+10</strong></div>
+      <div class="item"><span style="font-size:22px">🔁</span><div class="item-info"><b>Atividade recorrente</b><small>+5 pontos extras</small></div><strong style="color:var(--primary)">+5</strong></div>
+      <div class="item"><span style="font-size:22px">🔥</span><div class="item-info"><b>Sequência diária</b><small>Complete todos os dias para aumentar o multiplicador</small></div><strong style="color:var(--primary)">🔥</strong></div>
+      <div class="item"><span style="font-size:22px">🐦</span><div class="item-info"><b>Antes do prazo</b><small>Concluir atividade antes da data limite</small></div><strong style="color:var(--primary)">🏅</strong></div>
     </div>
   </div>
 </div>
 
-<!-- GRÁFICO DE PROGRESSO -->
-<div class="card" style="margin-top:20px">
-  <h2>📈 Seu progresso de pontos</h2>
-  <canvas id="progressChart" height="100"></canvas>
+<!-- GRÁFICOS -->
+<div class="cols" style="margin-top:20px">
+  <div class="card">
+    <h2>📈 Progresso de pontos (semanas)</h2>
+    <canvas id="progressChart" height="260"></canvas>
+  </div>
+  <div class="card">
+    <h2>📊 Comparação semanal</h2>
+    <canvas id="compareChart" height="260"></canvas>
+  </div>
 </div>
 
 <script src="../js/core.js"></script>
@@ -104,52 +121,114 @@ function switchTab(id, btn) {
   document.getElementById('tab-' + id).classList.add('active');
 }
 
+// Níveis baseados em pontos
+function getLevelInfo(points) {
+  const levels = [
+    { min: 0,    name: 'Iniciante',    icon: '🌱', color: '#94A3B8', next: 50 },
+    { min: 50,   name: 'Aprendiz',     icon: '🌿', color: '#10B981', next: 150 },
+    { min: 150,  name: 'Dedicado',     icon: '⭐', color: '#F59E0B', next: 350 },
+    { min: 350,  name: 'Profissional', icon: '🌟', color: '#3B82F6', next: 700 },
+    { min: 700,  name: 'Especialista', icon: '💎', color: '#8B5CF6', next: 1200 },
+    { min: 1200, name: 'Mestre',       icon: '👑', color: '#EC4899', next: 2000 },
+    { min: 2000, name: 'Lenda',        icon: '🏆', color: '#F97316', next: Infinity },
+  ];
+  for (let i = levels.length - 1; i >= 0; i--) {
+    if (points >= levels[i].min) return levels[i];
+  }
+  return levels[0];
+}
+
 function render() {
   const user = page.getUser();
   if (!user) return;
   const stats = core.getUserStats(user.id || user.uid);
 
-  // Stats principais
+  const level = getLevelInfo(stats.points || 0);
+  const nextLevel = getLevelInfo((stats.points || 0) + 1); // slightly ahead to find next
+  const pointsToNext = level.next - (stats.points || 0);
+  const progressPct = level.next === Infinity ? 100 : Math.min(100, Math.round((stats.points || 0) / level.next * 100));
   const earnedCount = (stats.achievements || []).length;
+  const totalAchievements = core.getAchievements().length;
+
+  // Stats principais com barras de progresso
   document.getElementById('myStats').innerHTML = `
     <div class="gam-stat">
-      <div class="gam-icon">⭐</div>
+      <div class="gam-icon">${level.icon}</div>
       <div class="gam-num">${stats.points || 0}</div>
-      <div class="gam-label">${page.t('gamification.myPoints', 'Meus pontos')}</div>
+      <div class="gam-label">${level.name}</div>
+      <div class="progress" style="width:100%;margin-top:8px">
+        <div class="progress-bar" style="width:${progressPct}%;background:${level.color}"></div>
+      </div>
+      <small style="font-size:10px;color:var(--muted);margin-top:4px">${level.next === Infinity ? 'Máximo!' : pointsToNext + ' pts para ' + (getLevelInfo(level.next).name)}</small>
     </div>
     <div class="gam-stat">
       <div class="gam-icon">🔥</div>
       <div class="gam-num">${stats.streak || 0}</div>
-      <div class="gam-label">${page.t('gamification.myStreak', 'Sequência')} (${page.t('gamification.days','dias')})</div>
+      <div class="gam-label">Sequência (dias)</div>
+      <div class="progress" style="width:100%;margin-top:8px">
+        <div class="progress-bar" style="width:${Math.min(100, (stats.streak||0)/7*100)}%;background:#F97316"></div>
+      </div>
+      <small style="font-size:10px;color:var(--muted);margin-top:4px">${(stats.streak||0) >= 7 ? '✅ Semana completa!' : (7-(stats.streak||0)) + ' dias para fechar a semana'}</small>
     </div>
     <div class="gam-stat">
       <div class="gam-icon">🏅</div>
-      <div class="gam-num">${earnedCount}</div>
-      <div class="gam-label">${page.t('gamification.myBadges', 'Conquistas')}</div>
+      <div class="gam-num">${earnedCount}/${totalAchievements}</div>
+      <div class="gam-label">Conquistas</div>
+      <div class="progress" style="width:100%;margin-top:8px">
+        <div class="progress-bar" style="width:${totalAchievements > 0 ? earnedCount/totalAchievements*100 : 0}%;background:#8B5CF6"></div>
+      </div>
+      <small style="font-size:10px;color:var(--muted);margin-top:4px">${totalAchievements - earnedCount} restantes</small>
     </div>
     <div class="gam-stat">
       <div class="gam-icon">✅</div>
       <div class="gam-num">${stats.totalFinished || 0}</div>
-      <div class="gam-label">Concluídas</div>
+      <div class="gam-label">Atividades concluídas</div>
+      <div class="progress" style="width:100%;margin-top:8px">
+        <div class="progress-bar green" style="width:${Math.min(100, (stats.totalFinished||0)/100*100)}%"></div>
+      </div>
+      <small style="font-size:10px;color:var(--muted);margin-top:4px">${stats.urgentFinished || 0} urgentes · ${stats.earlyFinishes || 0} antes do prazo</small>
     </div>
   `;
 
-  // Streak display
+  // Next level card
+  document.getElementById('nextLevelCard').innerHTML = `
+    <h2>${level.icon} Seu nível: ${level.name}</h2>
+    <div style="display:flex;align-items:center;gap:16px;padding:12px 0">
+      <div style="flex:1">
+        <div style="display:flex;justify-content:space-between;margin-bottom:6px;font-size:13px">
+          <span style="font-weight:600">${stats.points || 0} pts</span>
+          <span style="color:var(--muted)">Próximo: ${level.next === Infinity ? '🏆' : level.next + ' pts'}</span>
+        </div>
+        <div class="progress" style="height:12px;border-radius:6px">
+          <div class="progress-bar" style="width:${progressPct}%;background:linear-gradient(90deg,${level.color},${level.color}cc);border-radius:6px"></div>
+        </div>
+        ${level.next !== Infinity ? `<p style="margin-top:6px;font-size:12px;color:var(--muted)">Faltam <b>${pointsToNext}</b> pontos para ${getLevelInfo(level.next).icon} <b>${getLevelInfo(level.next).name}</b></p>` : '<p style="margin-top:6px;font-size:12px;color:var(--muted)">🏆 Você atingiu o nível máximo! Incrível!</p>'}
+      </div>
+      <div style="font-size:48px;text-align:center">
+        ${level.icon}
+      </div>
+    </div>
+  `;
+
+  // Streak display melhorado
   document.getElementById('streakCard').innerHTML = `
-    <h2>🔥 Sua sequência</h2>
+    <h2>🔥 Sua sequência de dias</h2>
     <div class="streak-display">
       <div class="streak-flame">${(stats.streak || 0) > 0 ? '🔥' : '💤'}</div>
       <div class="streak-info">
-        <div class="streak-num">${stats.streak || 0} ${page.t('gamification.days', 'dias')}</div>
+        <div class="streak-num">${stats.streak || 0} dias</div>
         <div class="streak-label">${stats.lastActiveDate ? 'Última atividade: ' + core.formatDate(stats.lastActiveDate) : 'Comece sua sequência hoje!'}</div>
+        ${(stats.streak || 0) >= 7 ? '<div class="streak-label" style="color:var(--primary)">🌟 Você completou uma semana inteira!</div>' : ''}
+        ${(stats.streak || 0) >= 30 ? '<div class="streak-label" style="color:#F97316">🏆 Mês completo! Você é incrível!</div>' : ''}
       </div>
-      <div style="margin-left:auto">
-        <button class="btn btn-primary" onclick="page.navigate('atividades')">📋 Fazer atividades</button>
+      <div style="margin-left:auto;display:flex;flex-direction:column;gap:6px;align-items:center">
+        <div style="font-size:32px">${(stats.streak||0) >= 30 ? '🏆' : (stats.streak||0) >= 7 ? '🌟' : (stats.streak||0) >= 3 ? '⭐' : '🎯'}</div>
+        <button class="btn btn-primary" onclick="page.navigate('atividades')">📋 Atividades</button>
       </div>
     </div>
   `;
 
-  // Badges
+  // Badges com progresso visual
   const achievements = core.getAchievements();
   const earned = new Set(stats.achievements || []);
   document.getElementById('badgesGrid').innerHTML = achievements.map(a => {
@@ -157,25 +236,28 @@ function render() {
     const badgeData = (stats.badges || []).find(b => b.id === a.id);
     return `
       <div class="badge-card ${isEarned ? 'earned' : 'locked'}">
-        <div class="badge-icon">${a.icon}</div>
+        <div class="badge-icon">${isEarned ? a.icon : '🔒'}</div>
         <div class="badge-name">${a.name}</div>
         <div class="badge-desc">${a.desc}</div>
-        ${isEarned && badgeData ? `<div class="badge-date">✅ ${core.formatDateTime(badgeData.earnedAt)}</div>` : ''}
+        ${isEarned && badgeData ? `<div class="badge-date">✅ ${core.formatDateTime(badgeData.earnedAt)}</div>` : `<div class="badge-date" style="color:var(--muted)">🔒 Bloqueado</div>`}
       </div>
     `;
   }).join('');
 
   // Ranking semanal
   const weekly = core.getWeeklyRanking(20);
+  renderPodium('weeklyPodium', weekly.slice(0, 3));
   if (weekly.length === 0) {
-    document.getElementById('weeklyBody').innerHTML = `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda. Complete atividades para aparecer no ranking!</td></tr>`;
+    document.getElementById('weeklyBody').innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda. Complete atividades para aparecer no ranking!</td></tr>`;
   } else {
+    const maxWeekly = Math.max(1, weekly[0]?.points || 1);
     document.getElementById('weeklyBody').innerHTML = weekly.map((u, i) => {
       const rank = i + 1;
       const rowClass = rank <= 3 ? `top-${rank}` : '';
       const rankClass = rank <= 3 ? `rank-${rank}` : '';
       const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
       const isMe = user && (user.id === u.userId || user.uid === u.userId);
+      const barWidth = Math.round(u.points / maxWeekly * 100);
       return `
         <tr class="${rowClass}" style="${isMe ? 'background:var(--primary-light);font-weight:700' : ''}">
           <td class="rank-cell ${rankClass}">${medal} ${rank}</td>
@@ -187,6 +269,11 @@ function render() {
           </td>
           <td class="points-cell">${u.points} pts</td>
           <td>${u.total} pts</td>
+          <td>
+            <div class="progress" style="width:100px;height:6px">
+              <div class="progress-bar" style="width:${barWidth}%;background:${rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':'var(--primary)'}"></div>
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
@@ -194,15 +281,18 @@ function render() {
 
   // Ranking geral
   const allRank = core.getAllRanking(20);
+  renderPodium('allPodium', allRank.slice(0, 3));
   if (allRank.length === 0) {
-    document.getElementById('allBody').innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda.</td></tr>`;
+    document.getElementById('allBody').innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Sem dados ainda.</td></tr>`;
   } else {
+    const maxAll = Math.max(1, allRank[0]?.points || 1);
     document.getElementById('allBody').innerHTML = allRank.map((u, i) => {
       const rank = i + 1;
       const rowClass = rank <= 3 ? `top-${rank}` : '';
       const rankClass = rank <= 3 ? `rank-${rank}` : '';
       const medal = rank === 1 ? '🥇' : rank === 2 ? '🥈' : rank === 3 ? '🥉' : '';
       const isMe = user && (user.id === u.userId || user.uid === u.userId);
+      const barWidth = Math.round(u.points / maxAll * 100);
       return `
         <tr class="${rowClass}" style="${isMe ? 'background:var(--primary-light);font-weight:700' : ''}">
           <td class="rank-cell ${rankClass}">${medal} ${rank}</td>
@@ -215,13 +305,59 @@ function render() {
           <td class="points-cell">${u.points} pts</td>
           <td>${u.streak} 🔥</td>
           <td>${u.badges} 🏅</td>
+          <td>
+            <div class="progress" style="width:100px;height:6px">
+              <div class="progress-bar" style="width:${barWidth}%;background:${rank===1?'#FFD700':rank===2?'#C0C0C0':rank===3?'#CD7F32':'var(--primary)'}"></div>
+            </div>
+          </td>
         </tr>
       `;
     }).join('');
   }
 
-  // Gráfico de progresso de pontos
+  // Gráficos
   renderProgressChart(stats);
+  renderCompareChart();
+}
+
+function renderPodium(containerId, top3) {
+  const container = document.getElementById(containerId);
+  if (!container) return;
+  if (top3.length === 0) {
+    container.innerHTML = '<div class="empty"><p>Sem dados ainda</p></div>';
+    return;
+  }
+
+  const colors = ['#FFD700', '#C0C0C0', '#CD7F32'];
+  const medals = ['🥇', '🥈', '🥉'];
+  const heights = ['120px', '90px', '70px'];
+
+  // Reorder for podium: 2 1 3
+  const ordered = top3.length >= 3 ? [top3[1], top3[0], top3[2]] :
+                 top3.length >= 2 ? [top3[1], top3[0]] : [top3[0]];
+
+  let html = '<div class="podium-container">';
+  ordered.forEach((u, idx) => {
+    const realRank = top3.indexOf(u);
+    const isMe = page.getUser() && (page.getUser().id === u.userId || page.getUser().uid === u.userId);
+    html += `
+      <div class="podium-column" style="text-align:center">
+        <div style="font-size:20px;margin-bottom:4px">${isMe ? '⭐' : medals[realRank]}</div>
+        <div class="avatar-with-role" style="margin-bottom:4px">
+          <div class="avatar" style="width:48px;height:48px;border-radius:50%;background:var(--primary-light);display:inline-flex;align-items:center;justify-content:center;font-size:24px;overflow:hidden;border:3px solid ${colors[realRank]}">
+            ${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}" style="width:100%;height:100%;object-fit:cover">` : (u.avatar || '👤')}
+          </div>
+        </div>
+        <div class="podium-bar" style="height:${heights[realRank]||'70px'};background:linear-gradient(180deg,${colors[realRank]},${colors[realRank]}44);border-radius:8px 8px 0 0;display:flex;align-items:center;justify-content:center;min-width:80px;color:#fff;font-weight:800;font-size:${realRank===0?'22px':'18px'}">
+          ${u.points || u.total || 0}
+        </div>
+        <div style="font-weight:700;font-size:13px;margin-top:6px;color:var(--text)">${page.esc(u.name)}</div>
+        <small style="color:var(--muted);font-size:11px">${u.points || 0} pts</small>
+      </div>
+    `;
+  });
+  html += '</div>';
+  container.innerHTML = html;
 }
 
 function renderProgressChart(stats) {
@@ -233,43 +369,143 @@ function renderProgressChart(stats) {
   const weekly = myStats.weeklyPoints || {};
   const labels = [];
   const points = [];
-  // Últimas 8 semanas
-  for (let i = 7; i >= 0; i--) {
+  const cumulative = [];
+  let cum = 0;
+
+  for (let i = 11; i >= 0; i--) {
     const d = new Date();
     d.setDate(d.getDate() - i * 7);
     const key = core._getWeekKey(d);
     const lang = page.getLanguage();
     const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
     labels.push(d.toLocaleDateString(locale, { day:'2-digit', month:'short' }));
-    points.push(weekly[key] || 0);
+    const val = weekly[key] || 0;
+    points.push(val);
+    cum += val;
+    cumulative.push(cum);
   }
 
   if (typeof Chart === 'undefined') return;
   const ctx = document.getElementById('progressChart');
   if (!ctx) return;
-
-  // Destruir chart anterior se existir
   if (ctx._chart) ctx._chart.destroy();
+
   ctx._chart = new Chart(ctx, {
     type: 'line',
     data: {
       labels,
-      datasets: [{
-        label: 'Pontos por semana',
-        data: points,
-        borderColor: '#2563EB',
-        backgroundColor: 'rgba(37,99,235,.1)',
-        fill: true,
-        tension: 0.4,
-        pointRadius: 5,
-        pointBackgroundColor: '#2563EB',
-        borderWidth: 3,
-      }]
+      datasets: [
+        {
+          label: 'Pontos/semana',
+          data: points,
+          borderColor: '#2563EB',
+          backgroundColor: 'rgba(37,99,235,.1)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 5,
+          pointBackgroundColor: '#2563EB',
+          borderWidth: 3,
+          yAxisID: 'y',
+        },
+        {
+          label: 'Acumulado',
+          data: cumulative,
+          borderColor: '#10B981',
+          backgroundColor: 'rgba(16,185,129,.05)',
+          fill: true,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: '#10B981',
+          borderWidth: 2,
+          borderDash: [5, 5],
+          yAxisID: 'y1',
+        }
+      ]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { display: false } },
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true } }
+      },
+      scales: {
+        y: {
+          beginAtZero: true,
+          position: 'left',
+          title: { display: true, text: 'Pontos/semana' },
+          grid: { color: 'var(--line,#E2E8F0)' }
+        },
+        y1: {
+          beginAtZero: true,
+          position: 'right',
+          title: { display: true, text: 'Acumulado' },
+          grid: { display: false }
+        },
+        x: { grid: { display: false } }
+      }
+    }
+  });
+}
+
+function renderCompareChart() {
+  const data = page.getDB();
+  const user = page.getUser();
+  const userId = user?.id || user?.uid;
+  const gam = data.gamification || {};
+  const myStats = gam[userId] || { weeklyPoints: {} };
+  const myWeekly = myStats.weeklyPoints || {};
+
+  // Get top 3 users
+  const allRank = core.getAllRanking(5);
+  const topUsers = allRank.slice(0, Math.min(3, allRank.length));
+
+  if (topUsers.length === 0) return;
+
+  const labels = [];
+  for (let i = 3; i >= 0; i--) {
+    const d = new Date();
+    d.setDate(d.getDate() - i * 7);
+    const locale = 'pt-BR';
+    labels.push(d.toLocaleDateString(locale, { day:'2-digit', month:'short' }));
+  }
+
+  const datasets = topUsers.map((u, idx) => {
+    const userStats = gam[u.userId] || { weeklyPoints: {} };
+    const userWeekly = userStats.weeklyPoints || {};
+    const colors = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
+    const dataPoints = [];
+    for (let i = 3; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i * 7);
+      const key = core._getWeekKey(d);
+      dataPoints.push(userWeekly[key] || 0);
+    }
+    return {
+      label: u.name,
+      data: dataPoints,
+      borderColor: colors[idx],
+      backgroundColor: colors[idx] + '22',
+      fill: false,
+      tension: 0.4,
+      pointRadius: 5,
+      pointBackgroundColor: colors[idx],
+      borderWidth: 3,
+    };
+  });
+
+  const ctx = document.getElementById('compareChart');
+  if (!ctx || typeof Chart === 'undefined') return;
+  if (ctx._chart) ctx._chart.destroy();
+
+  ctx._chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true } }
+      },
       scales: {
         y: { beginAtZero: true, grid: { color: 'var(--line,#E2E8F0)' } },
         x: { grid: { display: false } }

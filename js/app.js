@@ -476,6 +476,14 @@ const App = {
         if (user && user.passHash) {
           const valid = await core.verifyPassword(password, user.passHash);
           if (valid) {
+            // Garantir que admin bootstrap seja promovido também no login local
+            let role = user.role || 'member';
+            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin') {
+              role = 'admin';
+              user.role = 'admin';
+              core.saveLocalDB(data);
+            }
+
             this.currentUser = {
               id: user.id, uid: user.uid || user.id,
               username: user.username || user.user,
@@ -483,7 +491,7 @@ const App = {
               lastName: user.lastName || '', phone: user.phone || '',
               address: user.address || '',
               avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
-              role: user.role || 'member', provider: 'local'
+              role: role, provider: 'local'
             };
             core.setCurrentUser(this.currentUser);
             if (remember) core.setRememberedUser(this.currentUser);
@@ -495,6 +503,41 @@ const App = {
             core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
             return;
           }
+        }
+
+        // Se o usuário não existe localmente mas o email é o bootstrap admin,
+        // cria uma conta local admin automaticamente
+        if (!user && username.includes('@') && this.isBootstrapAdminEmail(username)) {
+          const newId = 'local-' + core.genId();
+          const passHash = await core.hashPassword(password);
+          const newUser = {
+            id: newId, uid: newId,
+            username: username.split('@')[0].replace(/[^a-zA-Z0-9_]/g,'').slice(0,20),
+            email: username,
+            name: 'Admin', lastName: '',
+            phone: '', address: '',
+            avatar: '', avatarType: 'emoji',
+            role: 'admin', banned: false,
+            passHash: passHash,
+            createdAt: core.now(),
+            provider: 'local'
+          };
+          data.users.push(newUser);
+          core.saveLocalDB(data);
+          this.currentUser = {
+            id: newId, uid: newId,
+            username: newUser.username,
+            email: newUser.email, name: newUser.name,
+            lastName: '', phone: '', address: '',
+            avatar: '', avatarType: 'emoji',
+            role: 'admin', provider: 'local'
+          };
+          core.setCurrentUser(this.currentUser);
+          if (remember) core.setRememberedUser(this.currentUser);
+          core.log('login', this.currentUser.id, 'Admin bootstrap local');
+          this.showApp();
+          core.toast('Conta Admin criada e logada! Bem-vindo! ⚙️', 'success');
+          return;
         }
       } catch(localErr) {
         console.warn('Local login erro:', localErr);
