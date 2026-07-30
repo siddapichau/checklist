@@ -1,14 +1,13 @@
 rules_version = '2';
 
 // =========================================================
-// CHECKLIST ML — Firebase Storage Security Rules
+// CHECKLIST ML — Firebase Storage Security Rules (CORRIGIDO)
 // Pastas: avatars/, posts/, files/, themes/
 // =========================================================
 
 service firebase.storage {
   match /b/{bucket}/o {
 
-    // ---------- FUNÇÕES AUXILIARES ----------
     function isSignedIn() {
       return request.auth != null;
     }
@@ -17,42 +16,42 @@ service firebase.storage {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userExists() {
+      return firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
     function isAdmin() {
       return isSignedIn() &&
-             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             userExists() &&
              firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     function isEditorOrAdmin() {
       return isSignedIn() &&
-             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
+             userExists() &&
              firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role in ['admin', 'editor'];
     }
 
+    // FIX: se user doc não existe ainda (primeiro login), permitir
     function isNotBanned() {
-      return isSignedIn() &&
-             firestore.exists(/databases/(default)/documents/users/$(request.auth.uid)) &&
-             firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.banned != true;
+      return isSignedIn() && (
+        !userExists() ||
+        firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.banned != true
+      );
     }
 
-    // Limites de tamanho
     function isImage() {
       return request.resource.contentType.matches('image/.*');
     }
 
     function isSmallImage() {
-      // Avatares e thumbnails: máx 2MB
       return request.resource.size < 2 * 1024 * 1024;
     }
 
     function isLargeImage() {
-      // Posts e arquivos: máx 5MB
       return request.resource.size < 5 * 1024 * 1024;
     }
 
-    // ---------- AVATARES ----------
-    // Usuário pode ler qualquer avatar (público para o app),
-    // mas só pode escrever o próprio.
     match /avatars/{userId}/{fileName} {
       allow read: if true;
       allow write: if isOwner(userId)
@@ -61,17 +60,14 @@ service firebase.storage {
                    && isSmallImage();
     }
 
-    // ---------- IMAGENS DE POSTS ----------
     match /posts/{postId}/{fileName} {
       allow read: if isSignedIn();
-      // Apenas admins ou editores podem postar (imagens vinculadas a posts)
       allow write: if isEditorOrAdmin()
                    && isNotBanned()
                    && isImage()
                    && isLargeImage();
     }
 
-    // ---------- ARQUIVOS / BIBLIOTECA ----------
     match /files/{fileId}/{fileName} {
       allow read: if isSignedIn();
       allow write: if isEditorOrAdmin()
@@ -79,7 +75,6 @@ service firebase.storage {
                    && isLargeImage();
     }
 
-    // ---------- TEMAS / CUSTOM ASSETS ----------
     match /themes/{userId}/{fileName} {
       allow read: if true;
       allow write: if isOwner(userId)
@@ -88,7 +83,6 @@ service firebase.storage {
                    && isSmallImage();
     }
 
-    // ---------- BLOQUEIO PADRÃO ----------
     match /{path=**} {
       allow read, write: if false;
     }
