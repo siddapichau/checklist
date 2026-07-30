@@ -490,15 +490,59 @@ const App = {
         if (user && user.passHash) {
           const valid = await core.verifyPassword(password, user.passHash);
           if (valid) {
-            // Promoção bootstrap offline também é de USO ÚNICO (por navegador):
-            // depois da primeira promoção local o caminho fecha.
+            // Promoção bootstrap offline: verifica se o marcador settings/bootstrap
+            // já existe no Firestore para evitar promoção duplicada.
             let role = user.role || 'member';
-            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin' &&
-                !localStorage.getItem('cl-bootstrap-local-claimed')) {
-              role = 'admin';
-              user.role = 'admin';
-              localStorage.setItem('cl-bootstrap-local-claimed', '1');
-              core.saveLocalDB(data);
+            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin') {
+              try {
+                const bootstrapDoc = await db.collection('settings').doc('bootstrap').get();
+                if (bootstrapDoc.exists) {
+                  // Marcador existe - verificar se é o mesmo UID
+                  const marker = bootstrapDoc.data();
+                  if (marker.claimedBy === user.uid || marker.claimedBy === user.id) {
+                    // Mesmo UID - o usuário já foi promovido antes
+                    role = 'admin';
+                    user.role = 'admin';
+                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
+                    core.saveLocalDB(data);
+                  }
+                  // UID diferente = claim foi usado por outra conta, não fazer nada
+                } else if (!localStorage.getItem('cl-bootstrap-local-claimed')) {
+                  // Marcador não existe E localStorage não tem o flag
+                  // Tentar promover via Firestore (vai criar o marcador)
+                  try {
+                    const batch = db.batch();
+                    batch.update(db.collection('users').doc(user.uid || user.id), { role: 'admin' });
+                    batch.set(db.collection('settings').doc('bootstrap'), {
+                      claimedBy: user.uid || user.id,
+                      email: user.email,
+                      claimedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    await batch.commit();
+                    role = 'admin';
+                    user.role = 'admin';
+                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
+                    core.saveLocalDB(data);
+                    core.toast('👑 Conta promotionada para Admin!', 'success');
+                  } catch(fireErr) {
+                    console.warn('Erro ao promover via Firestore:', fireErr.code);
+                    // Fallback: marcar localmente se as regras forem antigas
+                    role = 'admin';
+                    user.role = 'admin';
+                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
+                    core.saveLocalDB(data);
+                  }
+                }
+              } catch(checkErr) {
+                console.warn('Erro ao verificar bootstrap marker:', checkErr.code);
+                // Se não conseguir verificar, marcar localmente (fallback)
+                if (!localStorage.getItem('cl-bootstrap-local-claimed')) {
+                  role = 'admin';
+                  user.role = 'admin';
+                  localStorage.setItem('cl-bootstrap-local-claimed', '1');
+                  core.saveLocalDB(data);
+                }
+              }
             }
 
             this.currentUser = {
@@ -588,17 +632,52 @@ const App = {
      essa escrita enquanto o marcador não existir — e ele nunca pode ser
      alterado ou apagado. Resultado: funciona exatamente 1 vez e depois
      ninguém (nem esta conta) consegue reutilizar esse caminho.
+     
+     FLUXO:
+     1. Verifica se o marcador settings/bootstrap já existe no Firestore
+     2. Se não existir: tenta promover E criar o marcador (operação atômica)
+     3. Se existir E é o mesmo UID: define role=admin localmente
+     4. Se existir E é UID diferente: não faz nada (já foi usado)
      --------------------------------------------------------------- */
   async claimBootstrapAdmin(fbUser, profile) {
     if (!this.isBootstrapAdminEmail(fbUser?.email) || profile?.role === 'admin') return profile;
+    
+    // PRIMEIRO: verificar se o marcador já existe no Firestore
     try {
+      const bootstrapDoc = await db.collection('settings').doc('bootstrap').get();
+      
+      if (bootstrapDoc.exists) {
+        // Marcador já existe - verificar se é o mesmo UID
+        const marker = bootstrapDoc.data();
+        if (marker.claimedBy === fbUser.uid) {
+          // Mesmo UID - o usuário JÁ foi promovido antes, só definir localmente
+          console.log('👑 Bootstrap marker existe para este UID - definindo role admin local');
+          localStorage.setItem('cl-bootstrap-local-claimed', '1');
+          try {
+            const data = core.getLocalDB();
+            const local = data.users.find(u => u.id === fbUser.uid || u.uid === fbUser.uid);
+            if (local) { local.role = 'admin'; core.saveLocalDB(data); }
+          } catch(e) {}
+          return { ...profile, role: 'admin' };
+        } else {
+          // UID diferente - o claim foi usado por outra conta
+          console.log('⚠️ Bootstrap marker já foi usado por outra conta');
+          return profile;
+        }
+      }
+      
+      // Marcador não existe - tentar promover E criar o marcador
+      console.log('👑 Marcador bootstrap não existe - tentando promover para admin');
+      
       const batch = db.batch();
       batch.update(db.collection('users').doc(fbUser.uid), { role: 'admin' });
       batch.set(db.collection('settings').doc('bootstrap'), this._bootstrapMarker(fbUser));
       await batch.commit();
+      
       console.log('👑 Claim de administrador executado (uso único consumido)');
       localStorage.setItem('cl-bootstrap-local-claimed', '1');
       core.toast('👑 Sua conta agora é administradora! O acesso de uso único foi encerrado automaticamente.', 'success');
+      
       // Refletir imediatamente no cache local
       try {
         const data = core.getLocalDB();
@@ -606,17 +685,32 @@ const App = {
         if (local) { local.role = 'admin'; core.saveLocalDB(data); }
       } catch(e) {}
       return { ...profile, role: 'admin' };
+      
     } catch (err) {
       console.warn('Claim de admin não executado:', err.code || err.message);
+      
+      // Se permissão negada na leitura, pode ser que as regras ainda não estão atualizadas
+      // ou o marcador já existe. Tentar uma abordagem mais simples.
       if (err.code === 'permission-denied') {
-        // Mostrar o aviso no máximo 1x por dia por navegador
         try {
-          const last = Number(localStorage.getItem('cl-bootstrap-warn-ts') || 0);
-          if (Date.now() - last > 86400000) {
-            localStorage.setItem('cl-bootstrap-warn-ts', String(Date.now()));
-            core.toast('Não foi possível promover a conta: o claim de uso único já foi consumido ou as novas regras ainda não foram publicadas no Firebase Console.', 'warning');
+          // Verificar localStorage primeiro
+          if (localStorage.getItem('cl-bootstrap-local-claimed')) {
+            console.log('👑 LocalStorage indica claim já usado - definindo role admin local');
+            try {
+              const data = core.getLocalDB();
+              const local = data.users.find(u => u.id === fbUser.uid || u.uid === fbUser.uid);
+              if (local) { local.role = 'admin'; core.saveLocalDB(data); }
+            } catch(e) {}
+            return { ...profile, role: 'admin' };
           }
         } catch(e) {}
+        
+        // Mostrar o aviso no máximo 1x por dia por navegador
+        const last = Number(localStorage.getItem('cl-bootstrap-warn-ts') || 0);
+        if (Date.now() - last > 86400000) {
+          localStorage.setItem('cl-bootstrap-warn-ts', String(Date.now()));
+          core.toast('⚠️ Não foi possível verificar o status do claim de admin. Verifique se as regras do Firestore foram atualizadas.', 'warning');
+        }
       }
       return profile;
     }
