@@ -11,7 +11,7 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 - **3 Temas** (Ocean Blue, Mercado Livre, Forest) × 2 modos (claro/escuro)
 - **Perfil** com 20 avatares, upload de imagem (comprimida para WebP), foto Google
 - **Administração total** — tudo editável: temas, logo, favicon, menu, categorias, usuários, posts, arquivos, API keys
-- **IA DeepSeek** integrada para análise e sugestões
+- **IA DeepSeek** integrada para análise e sugestões (com proxy próprio para contornar o bloqueio CORS)
 - **Notícias/Posts** com editor estilo Blogspot
 - **Biblioteca de arquivos** com categorias e thumbnails — botão **＋ Adicionar arquivo** direto na página (admin/editor)
 - **Macros** 💬 — modelos de mensagens com editor rico completo (negrito, listas, links, cores, emojis), variáveis dinâmicas (`{{nome}}`, `{{data}}`, `{{hora}}`, `{{usuario}}`), cópia formatada com 1 clique e contador de uso
@@ -47,7 +47,10 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 │   ├── core.js         # Utilitários centrais + i18n + gamificação + automações
 │   ├── seed.js         # Dados iniciais
 │   ├── app.js          # Controlador principal (auth, i18n, dark mode auto)
+│   ├── ai.js           # Conexão com a IA (canais, erros, diagnóstico)
 │   └── page.js         # Helpers para páginas (iframes)
+├── proxy/
+│   └── cloudflare-worker.js  # Proxy da IA (contorna o bloqueio CORS do DeepSeek)
 ├── locales/
 │   ├── pt-BR.json      # Traduções português
 │   ├── en.json         # Traduções inglês
@@ -92,9 +95,33 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 
 ## 🤖 IA DeepSeek
 
-Configure a API Key em **Administração > API / IA**. A chave é salva no documento privado `settings/admin` do Firestore, acessível apenas a administradores pelas regras em `firestore.rules`; ela não é gravada no `localStorage`, backup ou configurações públicas.
+Configure em **Administração → API / IA**. A chave é salva no documento privado
+`settings/admin` do Firestore — nunca no `localStorage` público nem nos backups.
 
-> Para disponibilizar a IA a todos os usuários em produção, use uma Cloud Function/proxy que mantenha a chave no servidor. A chamada direta pelo navegador é limitada ao administrador.
+### ⚠️ O proxy é obrigatório na prática
+
+A API do DeepSeek **não responde ao preflight CORS**, então o navegador cancela
+qualquer chamada feita direto do front-end (`Failed to fetch`) — mesmo com a
+chave correta e saldo na conta. A chamada precisa sair de um servidor.
+
+Este projeto já inclui o proxy pronto em **`proxy/cloudflare-worker.js`**
+(Cloudflare Workers, plano gratuito, ~5 min, sem cartão):
+
+1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** →
+   **Create** → **Start with Hello World!** → **Deploy**.
+2. **Edit code** → cole o conteúdo de `proxy/cloudflare-worker.js` → **Deploy**.
+3. Copie a URL do worker e cole em **Administração → API / IA → URL do proxy da IA**.
+4. Use **🔌 Testar conexão** para confirmar (o canal "proxy próprio" fica ✅).
+
+Sem o proxy, o app ainda tenta a conexão direta e proxies públicos gratuitos —
+que funcionam de forma intermitente e têm limite de uso.
+
+**Modos de conexão** (Administração → API / IA):
+`Automático` (proxy próprio → direto → públicos), `Somente proxy próprio`,
+`Somente direto`, `Somente proxies`.
+
+> 🔒 **Mais seguro:** defina `DEEPSEEK_API_KEY` como variável secreta no próprio
+> Worker. A chave passa a viver só no servidor e o navegador nunca a recebe.
 
 ## 🎮 Atalhos de teclado
 

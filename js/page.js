@@ -49,6 +49,7 @@ const Page = {
   async saveAdminConfig(config) { if (!window.parent?.fireSync) throw new Error('Sincronização Firebase indisponível'); return window.parent.fireSync.saveAdminConfig(config); },
   async getDeepseekKey() { return window.parent?.fireSync ? window.parent.fireSync.getDeepseekKey() : ''; },
   getAIMode() { return window.parent?.fireSync?.getAIMode ? window.parent.fireSync.getAIMode() : 'auto'; },
+  getAIProxyUrl() { return window.parent?.fireSync?.getAIProxyUrl ? window.parent.fireSync.getAIProxyUrl() : ''; },
   async i18nReady() { await core.tReady(); }, t(key, fallback) { return core.t(key, fallback); }, applyI18n(root) { core.applyI18n(root || document); },
   getTheme() { return core.getLocalDB().settings.theme; }, getMode() { return core.getLocalDB().settings.mode; }, getLanguage() { return core.getCurrentLang(); },
   setLanguage(lang) { core.setLanguage(lang); setTimeout(() => location.reload(), 100); },

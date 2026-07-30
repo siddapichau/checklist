@@ -120,16 +120,20 @@
 const user = page.getUser();
 const settings = page.getDB().settings;
 
-/* ========== CATEGORIAS POR CAIXA MARCÁVEL ========== */
-(function initCategories() {
+/* ========== CATEGORIAS POR CAIXA MARCÁVEL ==========
+   Atenção: a inicialização (popular filtros + primeiro render) acontece em
+   `boot()`, chamada no FINAL deste script. Chamar render() aqui em cima
+   quebrava a página inteira com "Cannot access 'STATUS_GROUPS' before
+   initialization" (TDZ do const declarado mais abaixo), deixando a lista de
+   atividades vazia e o botão "Nova atividade" sem efeito. */
+function initCategories() {
   const cats = settings.categories || ['Geral'];
   const filterCat = document.getElementById('filterCategory');
   cats.forEach(c => {
     filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
   });
   buildCategoryBoxes([]);
-  render();
-})();
+}
 
 function buildCategoryBoxes(selectedNames) {
   const cats = settings.categories || ['Geral'];
@@ -643,6 +647,34 @@ function deleteComment(commentId) {
   if (titleText) {
     setTimeout(() => openComments(taskId || data.tasks[0]?.id, titleText), 100);
   }
+}
+
+/* ========== BOOT ==========
+   Executado por último: neste ponto TODAS as const/function do script já
+   existem, então render() nunca esbarra na "temporal dead zone".
+   Se algo falhar, a página mostra o erro em vez de ficar em branco. */
+function boot() {
+  try {
+    initCategories();
+    render();
+  } catch (err) {
+    console.error('Falha ao iniciar a página de atividades:', err);
+    const list = document.getElementById('taskList');
+    if (list) {
+      list.innerHTML = `<div class="card"><div class="empty">
+        <div class="icon">⚠️</div>
+        <p><b>Não foi possível carregar a lista de atividades.</b></p>
+        <p style="font-size:12px;color:var(--muted)">${page.esc(err.message || String(err))}</p>
+        <button class="btn btn-secondary btn-sm" onclick="location.reload()" style="margin-top:10px">🔄 Tentar novamente</button>
+      </div></div>`;
+    }
+  }
+}
+
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', boot);
+} else {
+  boot();
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>

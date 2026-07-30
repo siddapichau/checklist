@@ -84,6 +84,7 @@
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
+<script src="../js/ai.js"></script>
 <script>
 const user = page.getUser();
 const aiHistory = JSON.parse(localStorage.getItem('ai_history_' + user?.id) || '[]');
@@ -95,111 +96,31 @@ function quickQ(q) {
   document.getElementById('question').value = q;
 }
 
-/* ================= CANAIS DE CONEXÃO =================
-   O endpoint oficial do DeepSeek segue o padrão OpenAI, mas chamadas
-   diretas do navegador podem ser bloqueadas por CORS (o navegador
-   interrompe com "Failed to fetch" antes mesmo de chegar na API).
-   Por isso a IA tenta conexão direta e, se falhar, passa por proxy
-   CORS. O administrador escolhe o modo em Administração → API / IA. */
-const DS_ENDPOINTS = [
-  'https://api.deepseek.com/chat/completions',
-  'https://api.deepseek.com/v1/chat/completions'
-];
-// Proxies CORS com suporte a POST (chat) — usados como fallback da chamada real.
-const CORS_PROXIES = [
-  { name: 'CorsProxy', wrap: (url) => 'https://corsproxy.io/?url=' + encodeURIComponent(url) },
-];
+/* ================= CONEXÃO COM A IA =================
+   A cadeia de canais, os erros traduzidos e o diagnóstico moram em
+   ../js/ai.js (window.AIClient), compartilhados com o Painel Admin.
+   Resumo do problema que isso resolve: a API do DeepSeek não responde
+   ao preflight CORS, então o navegador cancela a chamada direta mesmo
+   com a chave certa e saldo na conta. O caminho confiável é um proxy
+   próprio (Cloudflare Worker de proxy/cloudflare-worker.js). */
 
-function buildAttempts(mode) {
-  const direct = DS_ENDPOINTS.map((url, i) => ({
-    type: 'direct', url, label: i === 0 ? 'conexão direta' : 'conexão direta (v1)'
-  }));
-  const proxied = CORS_PROXIES.map(proxy => ({
-    type: 'proxy', url: proxy.wrap(DS_ENDPOINTS[0]), label: 'proxy ' + proxy.name
-  }));
-  if (mode === 'direct') return direct;
-  if (mode === 'proxy') return proxied;
-  return [...direct, ...proxied]; // automático
+async function aiConfig() {
+  let apiKey = '';
+  try { apiKey = await page.getDeepseekKey(); } catch (e) {}
+  return { apiKey, mode: page.getAIMode(), proxyUrl: page.getAIProxyUrl() };
 }
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try { return await fetch(url, { ...options, signal: controller.signal }); }
-  finally { clearTimeout(timer); }
-}
-
-function httpError(status, detail) {
-  const map = {
-    401: 'Chave da API inválida, expirada ou revogada (401). Um administrador precisa salvar uma nova chave do DeepSeek em Administração → API / IA.',
-    402: 'Saldo insuficiente na conta DeepSeek (402). Recarregue em platform.deepseek.com e tente de novo.',
-    403: 'Acesso negado pela API (403). Verifique se a chave pertence à conta DeepSeek correta.',
-    429: 'Muitas requisições à IA (429). Aguarde alguns segundos e tente novamente.'
-  };
-  let msg = map[status];
-  if (!msg && (status === 408 || status === 504)) msg = 'A IA demorou demais para responder. Tente novamente.';
-  if (!msg && status >= 500) msg = `Servidores do DeepSeek instáveis no momento (${status}). Tente novamente em instantes.`;
-  if (!msg) msg = `Erro na API do DeepSeek (${status})${detail ? ': ' + detail : ''}`;
-  const err = new Error(msg);
-  err.status = status;
-  // 401/402/403 (auth/saldo) não se resolvem trocando de canal: interrompe.
-  // Demais códigos (404/405/429/5xx) podem ser específicos de um canal → tenta o próximo.
-  err.fatal = [401, 402, 403].includes(status);
-  return err;
-}
-
-async function callDeepSeek(apiKey, systemPrompt, question, mode, onProgress) {
-  const attempts = buildAttempts(mode);
-  let lastError = null;
-
-  for (const attempt of attempts) {
-    try {
-      if (onProgress) onProgress(attempt);
-      const response = await fetchWithTimeout(attempt.url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: question }
-          ],
-          temperature: 0.7,
-          max_tokens: 1500
-        })
-      });
-
-      if (!response.ok) {
-        let detail = '';
-        try { detail = (await response.json())?.error?.message || ''; } catch (e) {}
-        throw httpError(response.status, detail);
-      }
-
-      const result = await response.json();
-      const answer = result.choices?.[0]?.message?.content;
-      if (!answer) throw new Error('A IA respondeu sem conteúdo. Tente novamente.');
-      return { answer, channel: attempt.type === 'direct' ? '🔗 ' + attempt.label : '🛰️ ' + attempt.label };
-    } catch (err) {
-      lastError = err;
-      if (err.fatal) break; // 401/402/403: trocar de canal não resolve
-      // Erro de rede/CORS/timeout → tenta o próximo canal
-    }
-  }
-  throw lastError || new Error('Sem conexão com a IA');
-}
-
-function networkHint(err) {
+function networkHint(err, cfg) {
   if (err?.name === 'AbortError') {
     return 'A IA demorou mais de 45s para responder. Tente uma pergunta mais curta ou verifique sua internet.';
   }
-  const mode = page.getAIMode();
-  if (mode === 'direct') {
-    return 'O navegador bloqueou a chamada direta (CORS) ou a internet falhou. Peça ao administrador para mudar o modo de conexão para "Automático" ou "Proxy" em Administração → API / IA.';
+  if (!cfg.proxyUrl) {
+    return 'Todos os canais falharam. O DeepSeek bloqueia chamadas feitas direto do navegador (CORS) e os proxies públicos estão indisponíveis ou no limite. '
+         + 'Solução definitiva: um administrador deve publicar o proxy gratuito (arquivo proxy/cloudflare-worker.js, ~5 min no Cloudflare) '
+         + 'e colar a URL em Administração → API / IA → “URL do proxy da IA”.';
   }
-  return 'A conexão falhou em todos os canais (direto e proxy). Verifique a internet e use o botão "Testar conexão" para ver qual canal está acessível.';
+  return 'A conexão falhou em todos os canais, inclusive no proxy próprio. Verifique se a URL do proxy está no ar '
+       + '(abra-a no navegador: deve responder um JSON com "ok": true) e use “Testar conexão” para ver o detalhe.';
 }
 
 /* ================= FLUXO PRINCIPAL ================= */
@@ -208,15 +129,24 @@ async function updateAIStatus() {
   const text = document.getElementById('aiStatusText');
   box.className = 'ai-status';
   try {
-    const apiKey = await page.getDeepseekKey();
-    const mode = page.getAIMode();
-    const modeLabel = { auto: 'Automático', direct: 'Direto', proxy: 'Proxy' }[mode] || 'Automático';
-    if (apiKey) {
-      box.classList.add('ok');
-      text.textContent = `IA pronta — chave encontrada. Modo de conexão: ${modeLabel}.`;
-    } else {
+    const { apiKey, mode, proxyUrl } = await aiConfig();
+    const modeLabel = {
+      auto: 'Automático', custom: 'Proxy próprio', direct: 'Direto', proxy: 'Proxy',
+    }[mode] || 'Automático';
+
+    if (!apiKey) {
       box.classList.add('warn');
       text.textContent = 'Modo demonstração — nenhuma chave do DeepSeek encontrada. Um administrador configura em Administração → API / IA.';
+      return;
+    }
+    if (proxyUrl) {
+      box.classList.add('ok');
+      text.textContent = `IA pronta — chave salva e proxy próprio configurado. Modo: ${modeLabel}.`;
+    } else {
+      // Sem proxy próprio a chamada depende de CORS liberado ou de proxies
+      // públicos instáveis. É a causa nº 1 de "a chave está certa e não funciona".
+      box.classList.add('warn');
+      text.textContent = `Chave encontrada, mas sem proxy próprio (modo ${modeLabel}). O navegador costuma bloquear a chamada direta ao DeepSeek — peça ao administrador para configurar a “URL do proxy da IA” em Administração → API / IA.`;
     }
   } catch (e) {
     box.classList.add('err');
@@ -271,16 +201,10 @@ ${context.todayTasks.map(t => `- ${t.title} [${t.status}] (${t.category || 'Gera
 
 Responda de forma clara, organizada e prática. Use emojis para facilitar a leitura.`;
 
+  const cfg = await aiConfig();
+
   try {
-    const apiKey = await page.getDeepseekKey();
-    if (apiKey) {
-      const mode = page.getAIMode();
-      const { answer, channel } = await callDeepSeek(apiKey, systemPrompt, question, mode, attempt => {
-        btn.textContent = `⏳ Conectando (${attempt.label})...`;
-      });
-      showAnswer(answer, question, channel);
-      updateAIStatus();
-    } else {
+    if (!cfg.apiKey) {
       // Modo preview sem API key
       showAnswer(
         generateLocalResponse(question, context) +
@@ -288,11 +212,24 @@ Responda de forma clara, organizada e prática. Use emojis para facilitar a leit
         'Peça ao administrador para salvá-la em Administração → API / IA.',
         question
       );
+    } else {
+      const { answer, channel } = await AIClient.chat({
+        apiKey: cfg.apiKey,
+        systemPrompt,
+        question,
+        mode: cfg.mode,
+        proxyUrl: cfg.proxyUrl,
+        onProgress: attempt => { btn.textContent = `⏳ Conectando (${attempt.label})...`; },
+      });
+      showAnswer(answer, question, channel);
+      updateAIStatus();
     }
   } catch (err) {
-    const hint = err.status ? err.message : networkHint(err);
+    const hint = err.status ? err.message : networkHint(err, cfg);
+    const tried = Array.isArray(err.tried) && err.tried.length
+      ? '\n\n**Canais testados:**\n' + err.tried.map(t => '- ' + t).join('\n') : '';
     showAnswer(
-      `⚠️ **Não foi possível consultar a IA**\n\n${hint}\n\n💡 Dica: clique em **Testar conexão** para ver qual etapa está falhando.\n\n---\n\n` +
+      `⚠️ **Não foi possível consultar a IA**\n\n${hint}${tried}\n\n💡 Clique em **Testar conexão** para ver exatamente onde está travando.\n\n---\n\n` +
       generateLocalResponse(question, context),
       question
     );
@@ -312,28 +249,17 @@ async function testAI() {
   btn.disabled = true;
   btn.textContent = '⏳ Testando...';
   card.style.display = 'block';
-  list.innerHTML = diagRow('⏳', 'Configuração', 'Verificando chave salva...');
+  list.innerHTML = diagRow('⏳', 'Configuração', 'Verificando chave e canais...');
 
-  const items = [];
-  const mode = page.getAIMode();
-  const modeLabel = { auto: 'Automático (direto → proxy)', direct: 'Direto', proxy: 'Proxy' }[mode] || 'auto';
-  items.push({ icon: 'ℹ️', title: 'Modo de conexão', detail: modeLabel + ' — ajustável em Administração → API / IA' });
+  const draw = rows => { list.innerHTML = rows.map(r => diagRow(r.icon, r.title, r.detail)).join(''); };
 
-  let apiKey = '';
-  try { apiKey = await page.getDeepseekKey(); } catch (e) {}
-  items.push(apiKey
-    ? { icon: '✅', title: 'API Key do DeepSeek', detail: 'Chave encontrada (navegador ou banco de dados).' }
-    : { icon: '❌', title: 'API Key do DeepSeek', detail: 'Nenhuma chave encontrada. Admin: salve em Administração → API / IA e atualize as regras do Firestore.' });
-  list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
-
-  if (apiKey) {
-    // Testa leitura da API (GET /models) via canal direto
-    items.push(await probe('Conexão direta com o DeepSeek', DS_ENDPOINTS[0].replace('/chat/completions', '/models'), apiKey));
-    list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
-
-    // Testa via proxy CORS
-    items.push(await probe('Conexão via proxy CORS (CorsProxy)', CORS_PROXIES[0].wrap(DS_ENDPOINTS[0].replace('/chat/completions', '/models')), apiKey));
-    list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
+  try {
+    const cfg = await aiConfig();
+    // Diagnóstico incremental: cada canal aparece assim que termina o teste.
+    const rows = await AIClient.diagnose({ ...cfg, onStep: draw });
+    draw(rows);
+  } catch (err) {
+    list.innerHTML = diagRow('❌', 'Erro no diagnóstico', err.message || 'Erro desconhecido');
   }
 
   btn.disabled = false;
@@ -342,20 +268,6 @@ async function testAI() {
 
 function diagRow(icon, title, detail) {
   return `<div class="ai-diag-item"><span class="ai-diag-ico">${icon}</span><div><b>${page.esc(title)}</b><small>${page.esc(detail)}</small></div></div>`;
-}
-
-async function probe(title, url, apiKey) {
-  try {
-    const res = await fetchWithTimeout(url, { headers: { 'Authorization': 'Bearer ' + apiKey } }, 15000);
-    if (res.ok) return { icon: '✅', title, detail: 'Canal acessível — respostas da IA devem chegar por aqui.' };
-    if (res.status === 401) return { icon: '❌', title, detail: 'Canal acessível, mas a chave foi rejeitada (401). Salve uma chave válida.' };
-    return { icon: '⚠️', title, detail: 'Canal respondeu HTTP ' + res.status + '. Tente novamente.' };
-  } catch (err) {
-    const why = err?.name === 'AbortError'
-      ? 'Sem resposta em 15s (rede lenta ou serviço fora do ar).'
-      : 'Bloqueado pelo navegador (CORS) ou sem internet.';
-    return { icon: '❌', title, detail: why };
-  }
 }
 
 /* ================= RESPOSTA / HISTÓRICO ================= */

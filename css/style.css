@@ -272,12 +272,24 @@ input,select,textarea{font:inherit}
   background:var(--danger);color:#fff;font-size:10px;font-weight:700;
   padding:0 6px;border-radius:10px;min-width:17px;height:17px;line-height:17px;text-align:center;
 }
+/* A "ponte" cobre o espaço entre o botão e o menu. Sem ela, o ponteiro passa
+   por uma faixa morta de 6px ao descer e o dropdown fechava no meio do caminho. */
 .topnav-menu{
-  position:absolute;top:calc(100% + 6px);left:0;min-width:228px;background:var(--card);
+  position:absolute;top:100%;left:0;min-width:228px;background:var(--card);
   border:1px solid var(--line);border-radius:var(--radius-lg);box-shadow:var(--shadow-lg);
-  padding:6px;z-index:300;display:none;
+  padding:6px;z-index:300;margin-top:6px;
+  opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-6px);
+  transition:opacity .16s ease, transform .16s ease, visibility 0s linear .16s;
 }
-.topnav-group.open .topnav-menu{display:block;animation:slideDown .18s ease}
+.topnav-menu::before{
+  content:'';position:absolute;left:0;right:0;top:-8px;height:8px;
+}
+.topnav-group.open .topnav-menu{
+  opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0);
+  transition:opacity .16s ease, transform .16s ease, visibility 0s;
+}
+/* Alinha à direita quando o grupo está perto da borda da janela */
+.topnav-group.align-right .topnav-menu{left:auto;right:0}
 .topnav-item{
   display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:8px;
   color:var(--text-secondary);font-size:14px;font-weight:500;cursor:pointer;transition:.13s;
@@ -298,9 +310,9 @@ input,select,textarea{font:inherit}
   .topbar .breadcrumb{display:none}
   .sidebar{display:none!important}
   .sidebar-overlay{display:none!important}
-  /* Desktop: abrir dropdown também no hover, sem precisar clicar */
-  .topnav-group:hover .topnav-menu{display:block;animation:slideDown .18s ease}
-  .topnav-group:hover .topnav-trigger .caret{transform:rotate(180deg)}
+  /* A abertura por hover é controlada pelo app.js (classe .open) para permitir
+     atraso de entrada/saída — assim o menu não pisca ao passar o mouse e não
+     fecha quando o ponteiro atravessa entre o botão e a lista. */
 }
 @media(min-width:1025px) and (max-width:1240px){
   .topbar-brand span{display:none}
