@@ -71,26 +71,51 @@ export default {
       return json({ ok: true, service: 'checklist-ml-ia-proxy', upstream: UPSTREAM }, 200, origin);
     }
 
-    if (!ALLOWED_PATHS.some(re => re.test(path))) {
+    // Extrai o endpoint da API, mesmo que o caminho venha duplicado
+    // (ex.: quem colou a URL completa do endpoint no campo do proxy,
+    // tipo https://worker.dev/chat/completions/chat/completions).
+    const m = path.match(/\/(v1\/)?(chat\/completions|models)$/);
+    const fwdPath = m ? '/' + m[0].replace(/^\//, '') : null;
+    if (!fwdPath || !ALLOWED_PATHS.some(re => re.test(fwdPath))) {
       return json({ error: { message: 'Rota não permitida por este proxy: ' + path } }, 404, origin);
     }
 
-    // A chave do ambiente (mais segura) tem prioridade sobre a do cliente.
+    // A chave do ambiente (mais segura) tem prioridade — a menos que esteja
+    // vazia (ex.: variável criada sem valor no dashboard), caso em que
+    // voltamos a usar a chave enviada pelo app em vez de quebrar com 401.
     const clientAuth = request.headers.get('Authorization') || '';
-    const auth = env?.DEEPSEEK_API_KEY ? 'Bearer ' + env.DEEPSEEK_API_KEY : clientAuth;
+    const envKey = env?.DEEPSEEK_API_KEY ? String(env.DEEPSEEK_API_KEY).trim() : '';
+    const auth = envKey ? 'Bearer ' + envKey : clientAuth;
     if (!auth) {
       return json({ error: { message: 'API Key ausente. Envie o cabeçalho Authorization ou defina DEEPSEEK_API_KEY no Worker.' } }, 401, origin);
     }
 
     try {
-      const upstream = await fetch(UPSTREAM + path + url.search, {
+      const upstream = await fetch(UPSTREAM + fwdPath + url.search, {
         method: request.method,
         headers: { 'Content-Type': 'application/json', 'Authorization': auth },
         body: request.method === 'GET' ? undefined : await request.text(),
       });
 
-      // Repassa status e corpo tal e qual, apenas adicionando os headers CORS.
       const body = await upstream.text();
+
+      // Erro do upstream: converte em JSON limpo com a mensagem real, para o
+      // app mostrar o motivo exato (chave inválida, sem saldo, etc.) em vez
+      // de um "erro desconhecido".
+      if (!upstream.ok) {
+        let message = body;
+        try {
+          const parsed = JSON.parse(body);
+          message = parsed?.error?.message
+            || (typeof parsed?.error === 'string' ? parsed.error : body);
+        } catch (_) { /* mantém o texto original */ }
+        return new Response(
+          JSON.stringify({ error: { message: String(message).slice(0, 1000), status: upstream.status } }),
+          { status: upstream.status, headers: { 'Content-Type': 'application/json', ...cors } }
+        );
+      }
+
+      // Sucesso: repassa status e corpo, adicionando os headers CORS.
       return new Response(body, {
         status: upstream.status,
         headers: {

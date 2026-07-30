@@ -42,9 +42,17 @@
 
   const normalizeBase = (url) => String(url || '').trim().replace(/\/+$/, '');
 
+  // Normaliza a URL do proxy: remove a barra final E qualquer sufixo de
+  // endpoint da API (chat/completions, models) que o usuário possa ter colado
+  // por engano — o caminho correto é adicionado depois em buildAttempts.
+  const normalizeProxy = (url) => String(url || '')
+    .trim()
+    .replace(/\/(v1\/)?(chat\/completions|models)\/?$/i, '')
+    .replace(/\/+$/, '');
+
   /* Monta a lista ordenada de tentativas para um caminho da API. */
   function buildAttempts(path, { mode = 'auto', proxyUrl = '' } = {}) {
-    const custom = normalizeBase(proxyUrl);
+    const custom = normalizeProxy(proxyUrl);
     const attempts = [];
 
     const addCustom = () => {
@@ -167,9 +175,17 @@
         headers: { 'Authorization': 'Bearer ' + apiKey },
       }, timeoutMs);
       if (res.ok) return { ok: true, icon: '✅', detail: 'Canal acessível — a IA deve responder por aqui.' };
-      if (res.status === 401) return { ok: false, icon: '❌', detail: 'Canal acessível, mas a chave foi rejeitada (401). Salve uma chave válida.' };
+
+      // Tenta ler a mensagem real devolvida pelo proxy/DeepSeek.
+      let detail = 'Canal respondeu HTTP ' + res.status + '.';
+      try {
+        const j = await res.clone().json();
+        if (j?.error?.message) detail = 'HTTP ' + res.status + ': ' + j.error.message;
+      } catch (_) { /* mantém o texto genérico */ }
+
+      if (res.status === 401) return { ok: false, icon: '❌', detail: 'Canal acessível, mas a chave foi rejeitada (401). ' + detail };
       if (res.status === 402) return { ok: false, icon: '❌', detail: 'Canal acessível, mas a conta DeepSeek está sem saldo (402).' };
-      return { ok: false, icon: '⚠️', detail: 'Canal respondeu HTTP ' + res.status + '.' };
+      return { ok: false, icon: '⚠️', detail };
     } catch (err) {
       return {
         ok: false, icon: '❌',
@@ -199,7 +215,7 @@
     }
     push({ icon: '✅', title: 'API Key do DeepSeek', detail: 'Chave encontrada (banco ou cache do navegador).' });
 
-    if (!normalizeBase(proxyUrl)) {
+    if (!normalizeProxy(proxyUrl)) {
       push({
         icon: '⚠️', title: 'Proxy próprio não configurado',
         detail: 'O DeepSeek bloqueia chamadas diretas do navegador (CORS). Publique o Cloudflare Worker de proxy/cloudflare-worker.js (grátis) e cole a URL em Administração → API / IA. É o único caminho 100% confiável.',
