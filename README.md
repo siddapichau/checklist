@@ -13,7 +13,9 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 - **Administração total** — tudo editável: temas, logo, favicon, menu, categorias, usuários, posts, arquivos, API keys
 - **IA DeepSeek** integrada para análise e sugestões
 - **Notícias/Posts** com editor estilo Blogspot
-- **Biblioteca de arquivos** com categorias e thumbnails
+- **Biblioteca de arquivos** com categorias e thumbnails — botão **＋ Adicionar arquivo** direto na página (admin/editor)
+- **Macros** 💬 — modelos de mensagens com editor rico completo (negrito, listas, links, cores, emojis), variáveis dinâmicas (`{{nome}}`, `{{data}}`, `{{hora}}`, `{{usuario}}`), cópia formatada com 1 clique e contador de uso
+- **Admin de uso único** — a conta `wesleystudio@gmail.com` é promovida a admin exatamente 1 vez (marcador imutável em `settings/bootstrap`); depois o caminho fecha para sempre nas regras do Firestore
 - **Sistema de cargos** — Membro, Editor, Admin (banir, resetar senha, excluir)
 - **Logs** de todas as ações do sistema
 - **Responsivo** — funciona em desktop e celular
@@ -86,6 +88,7 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 - Projeto: `checklist-3e70c`
 - Auth + Firestore + Storage configurados
 - Persistência offline habilitada
+- ⚠️ **Importante:** para ativar o admin de uso único e a coleção `macros`, republicue as regras do Firestore (veja `FIREBASE_SETUP.md` → seção 3 → "Admin de uso único"). É só copiar o conteúdo de `firestore.rules` no console e clicar em Publicar — depois basta entrar com `wesleystudio@gmail.com` uma vez.
 
 ## 🤖 IA DeepSeek
 

@@ -16,7 +16,7 @@ const Core = {
       logo: '',
       favicon: '',
       language: 'pt-BR',      // pt-BR | en | es
-      menuOrder: ['home','atividades','kanban','calendario','gamificacao','foco','custom','arquivos','relatorios','IA','perfil','admin'],
+      menuOrder: ['home','atividades','kanban','calendario','gamificacao','foco','custom','arquivos','macros','relatorios','IA','perfil','admin'],
       // Segredos de integração (ex.: DeepSeek) não pertencem ao localStorage.
       // Eles ficam em settings/admin no Firestore, com leitura restrita ao admin.
       menuItems: [
@@ -28,6 +28,7 @@ const Core = {
         { id:'foco',         label:'Modo Foco',     icon:'🎯', visible:true },
         { id:'custom',       label:'Personalizar',  icon:'🎨', visible:true },
         { id:'arquivos',     label:'Arquivos',      icon:'📁', visible:true },
+        { id:'macros',       label:'Macros',        icon:'💬', visible:true },
         { id:'relatorios',   label:'Relatórios',    icon:'📈', visible:true },
         { id:'IA',           label:'IA Assistente', icon:'🤖', visible:true },
         { id:'perfil',       label:'Meu Perfil',    icon:'👤', visible:true },
@@ -42,6 +43,7 @@ const Core = {
     tasks: [],
     files: [],
     posts: [],
+    macros: [],
     logs: [],
     gamification: {
       // { userId: { points, badges: [id], streak, lastActiveDate, weeklyPoints: { 'YYYY-WW': n }, achievements: [] } }
@@ -85,7 +87,7 @@ const Core = {
     data = data && typeof data === 'object' ? data : {};
 
     data.settings = { ...defaults.settings, ...(data.settings || {}) };
-    ['users', 'tasks', 'files', 'posts', 'logs', 'customThemes', 'automations', 'dashboardWidgets']
+    ['users', 'tasks', 'files', 'posts', 'macros', 'logs', 'customThemes', 'automations', 'dashboardWidgets']
       .forEach(key => { if (!Array.isArray(data[key])) data[key] = defaults[key]; });
     ['gamification', 'comments'].forEach(key => {
       if (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key])) data[key] = defaults[key];

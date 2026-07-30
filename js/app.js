@@ -55,6 +55,20 @@ const App = {
             // recarregue o perfil quando os UIDs não coincidem.
             if (!this.currentUser || localUid !== fbUser.uid) {
               await this.syncFirebaseUser(fbUser);
+            } else if (this.currentUser &&
+                       this.isBootstrapAdminEmail(fbUser.email) &&
+                       this.currentUser.role !== 'admin') {
+              // Sessão restaurada como membro: o claim de uso único ainda não
+              // foi consumido — tente agora, senão o badge ficaria "membro".
+              const claimed = await this.claimBootstrapAdmin(fbUser, this.currentUser);
+              if (claimed.role === 'admin') {
+                this.currentUser = { ...this.currentUser, role: 'admin' };
+                core.setCurrentUser(this.currentUser);
+                this.updateUserInfo();
+                this.renderSidebar();
+                fireSync.stop();
+                fireSync.start(fbUser.uid);
+              }
             }
             if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
               const uid = this.currentUser.uid || this.currentUser.id;
@@ -476,11 +490,14 @@ const App = {
         if (user && user.passHash) {
           const valid = await core.verifyPassword(password, user.passHash);
           if (valid) {
-            // Garantir que admin bootstrap seja promovido também no login local
+            // Promoção bootstrap offline também é de USO ÚNICO (por navegador):
+            // depois da primeira promoção local o caminho fecha.
             let role = user.role || 'member';
-            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin') {
+            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin' &&
+                !localStorage.getItem('cl-bootstrap-local-claimed')) {
               role = 'admin';
               user.role = 'admin';
+              localStorage.setItem('cl-bootstrap-local-claimed', '1');
               core.saveLocalDB(data);
             }
 
@@ -506,8 +523,11 @@ const App = {
         }
 
         // Se o usuário não existe localmente mas o email é o bootstrap admin,
-        // cria uma conta local admin automaticamente
-        if (!user && username.includes('@') && this.isBootstrapAdminEmail(username)) {
+        // cria uma conta local admin automaticamente — apenas UMA vez por
+        // navegador (marcador local), igual ao claim do Firestore.
+        if (!user && username.includes('@') && this.isBootstrapAdminEmail(username) &&
+            !localStorage.getItem('cl-bootstrap-local-claimed')) {
+          localStorage.setItem('cl-bootstrap-local-claimed', '1');
           const newId = 'local-' + core.genId();
           const passHash = await core.hashPassword(password);
           const newUser = {
@@ -552,15 +572,77 @@ const App = {
     return String(email || '').trim().toLowerCase() === 'wesleystudio@gmail.com';
   },
 
-  async ensureBootstrapAdmin(fbUser, profile) {
+  /* Dados do marcador de uso único gravado em settings/bootstrap */
+  _bootstrapMarker(fbUser) {
+    return {
+      claimedBy: fbUser.uid,
+      email: fbUser.email,
+      claimedAt: firebase.firestore.FieldValue.serverTimestamp()
+    };
+  },
+
+  /* ---------------------------------------------------------------
+     CLAIM DE ADMINISTRADOR DE USO ÚNICO.
+     Promove a conta bootstrap a admin em UMA operação atômica que também
+     cria o marcador settings/bootstrap. As regras do Firestore só aceitam
+     essa escrita enquanto o marcador não existir — e ele nunca pode ser
+     alterado ou apagado. Resultado: funciona exatamente 1 vez e depois
+     ninguém (nem esta conta) consegue reutilizar esse caminho.
+     --------------------------------------------------------------- */
+  async claimBootstrapAdmin(fbUser, profile) {
     if (!this.isBootstrapAdminEmail(fbUser?.email) || profile?.role === 'admin') return profile;
     try {
-      await db.collection('users').doc(fbUser.uid).update({ role: 'admin' });
+      const batch = db.batch();
+      batch.update(db.collection('users').doc(fbUser.uid), { role: 'admin' });
+      batch.set(db.collection('settings').doc('bootstrap'), this._bootstrapMarker(fbUser));
+      await batch.commit();
+      console.log('👑 Claim de administrador executado (uso único consumido)');
+      localStorage.setItem('cl-bootstrap-local-claimed', '1');
+      core.toast('👑 Sua conta agora é administradora! O acesso de uso único foi encerrado automaticamente.', 'success');
+      // Refletir imediatamente no cache local
+      try {
+        const data = core.getLocalDB();
+        const local = data.users.find(u => u.id === fbUser.uid || u.uid === fbUser.uid);
+        if (local) { local.role = 'admin'; core.saveLocalDB(data); }
+      } catch(e) {}
       return { ...profile, role: 'admin' };
     } catch (err) {
-      console.warn('Não foi possível promover o administrador inicial:', err.code || err.message);
+      console.warn('Claim de admin não executado:', err.code || err.message);
+      if (err.code === 'permission-denied') {
+        // Mostrar o aviso no máximo 1x por dia por navegador
+        try {
+          const last = Number(localStorage.getItem('cl-bootstrap-warn-ts') || 0);
+          if (Date.now() - last > 86400000) {
+            localStorage.setItem('cl-bootstrap-warn-ts', String(Date.now()));
+            core.toast('Não foi possível promover a conta: o claim de uso único já foi consumido ou as novas regras ainda não foram publicadas no Firebase Console.', 'warning');
+          }
+        } catch(e) {}
+      }
       return profile;
     }
+  },
+
+  /* Cria o perfil no Firestore. Para o e-mail bootstrap, o perfil admin e o
+     marcador de uso único são gravados na MESMA operação atômica; se o claim
+     já tiver sido consumido, o perfil é criado normalmente como membro. */
+  async createProfileDoc(docRef, profileForFirestore, profileForLocal, fbUser) {
+    if (this.isBootstrapAdminEmail(fbUser.email)) {
+      try {
+        const batch = db.batch();
+        batch.set(docRef, profileForFirestore);
+        batch.set(db.collection('settings').doc('bootstrap'), this._bootstrapMarker(fbUser));
+        await batch.commit();
+        console.log('Perfil admin criado (claim de uso único consumido)');
+        return profileForLocal;
+      } catch (claimErr) {
+        console.warn('Claim já utilizado ou regra antiga; criando perfil como membro:', claimErr.code);
+        const memberFS = { ...profileForFirestore, role: 'member' };
+        await docRef.set(memberFS);
+        return { ...profileForLocal, role: 'member' };
+      }
+    }
+    await docRef.set(profileForFirestore);
+    return profileForLocal;
   },
 
   async loginSuccess(fbUser, remember) {
@@ -601,7 +683,9 @@ const App = {
         };
 
         try {
-          await docRef.set(profileForFirestore);
+          // Se for o e-mail bootstrap, grava perfil admin + marcador de uso
+          // único na mesma operação; senão cria perfil de membro comum.
+          profile = await this.createProfileDoc(docRef, profileForFirestore, profileForLocal, fbUser);
           console.log('Perfil criado no Firestore');
         } catch(setErr) {
           console.warn('Erro ao criar perfil no Firestore (pode ser regra):', setErr.code, setErr.message);
@@ -609,7 +693,7 @@ const App = {
           // O isNotBanned corrigido nas regras vai permitir depois
         }
 
-        profile = profileForLocal;
+        profile = profile || profileForLocal;
         docExists = true;
 
         // Salvar local
@@ -617,7 +701,7 @@ const App = {
           const data = core.getLocalDB();
           // Evitar duplicado
           if (!data.users.find(u => u.id === fbUser.uid)) {
-            data.users.push({ id: fbUser.uid, uid: fbUser.uid, ...profileForLocal });
+            data.users.push({ id: fbUser.uid, uid: fbUser.uid, ...profile });
             core.saveLocalDB(data);
           }
         } catch(localErr) {
@@ -663,8 +747,9 @@ const App = {
       }
     }
 
-    // O endereço configurado como administrador inicial é promovido no primeiro login.
-    profile = await this.ensureBootstrapAdmin(fbUser, profile);
+    // O endereço configurado como administrador inicial reivindica o cargo
+    // através do claim de USO ÚNICO (batch perfil + marcador settings/bootstrap).
+    profile = await this.claimBootstrapAdmin(fbUser, profile);
 
     // Garantir profile
     if (!profile) {
@@ -740,13 +825,18 @@ const App = {
       };
       const profileLocal = { ...profileFS, createdAt: new Date().toISOString() };
 
+      let savedProfile = profileLocal;
       try {
-        await db.collection('users').doc(cred.user.uid).set(profileFS);
+        // Perfil bootstrap admin + marcador de uso único na mesma operação;
+        // se o claim já foi consumido, a conta nasce como membro.
+        savedProfile = await this.createProfileDoc(
+          db.collection('users').doc(cred.user.uid), profileFS, profileLocal, cred.user
+        );
       } catch(setErr) {
         console.warn('Erro ao criar user no Firestore:', setErr);
       }
 
-      data.users.push({ id: cred.user.uid, uid: cred.user.uid, ...profileLocal, passHash: await core.hashPassword(password) });
+      data.users.push({ id: cred.user.uid, uid: cred.user.uid, ...savedProfile, passHash: await core.hashPassword(password) });
       core.saveLocalDB(data);
 
       await this.loginSuccess(cred.user, false);
@@ -802,7 +892,7 @@ const App = {
       const doc = await db.collection('users').doc(fbUser.uid).get();
       if (doc.exists) {
         let profile = doc.data();
-        profile = await this.ensureBootstrapAdmin(fbUser, profile);
+        profile = await this.claimBootstrapAdmin(fbUser, profile);
         if (!profile.banned) {
           this.currentUser = {
             id: fbUser.uid, uid: fbUser.uid,

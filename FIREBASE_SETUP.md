@@ -76,12 +76,17 @@ Em **Authentication → Settings → Authorized domains**, certifique-se de que 
 rules_version = '2';
 
 // =========================================================
-// CHECKLIST ML — Firestore Security Rules
-// Coleções: users, tasks, posts, files, settings, comments
+// CHECKLIST ML — Firestore Security Rules (CORRIGIDO)
+// Coleções: users, tasks, posts, files, macros, settings, comments
+// Fix: isNotBanned agora permite usuário novo sem doc
+// Fix: validNewUserProfile mais flexível
+// Fix: promoção de administrador inicial passa a ser de USO ÚNICO,
+//      gravada em settings/bootstrap (nunca pode ser alterada/apagada)
 // =========================================================
 
 service cloud.firestore {
   match /databases/{database}/documents {
+
     function isSignedIn() {
       return request.auth != null;
     }
@@ -90,53 +95,97 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function userExists() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function isAdmin() {
       return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userExists()
              && userDoc().data.role == 'admin';
     }
 
     function isEditorOrAdmin() {
       return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
+             && userExists()
              && userDoc().data.role in ['admin', 'editor'];
     }
 
+    // FIX PRINCIPAL: se o doc do usuário ainda não existe (primeiro login),
+    // considerar como NÃO banido para não bloquear criação de tasks.
     function isNotBanned() {
-      return isSignedIn()
-             && exists(/databases/$(database)/documents/users/$(request.auth.uid))
-             && userDoc().data.banned != true;
+      return isSignedIn() && (
+        !userExists() || userDoc().data.banned != true
+      );
     }
 
-    // Campos criados pelo cliente no primeiro login. O cliente nunca pode
-    // conceder a si mesmo role=admin/editor, nem remover um banimento.
+    // Administrador inicial: o e-mail é validado pelo token de autenticação,
+    // não por um campo que o navegador possa falsificar.
+    function isBootstrapAdmin() {
+      return isSignedIn() && request.auth.token.email == 'wesleystudio@gmail.com';
+    }
+
+    function bootstrapMarkerExists() {
+      return exists(/databases/$(database)/documents/settings/bootstrap);
+    }
+
+    // ---------------------------------------------------------------
+    // CLAIM DE USO ÚNICO do administrador inicial.
+    //
+    // Permite promover a conta UMA ÚNICA VEZ e nunca mais:
+    //  1. Só o e-mail cadastrado como bootstrap pode usar;
+    //  2. Só funciona enquanto o marcador settings/bootstrap não existir;
+    //  3. A MESMA operação (batch/transação) precisa criar o marcador com
+    //     claimedBy = uid do solicitante (verificado via getAfter);
+    //  4. O marcador não pode ser atualizado nem excluído (ver match abaixo),
+    //     então depois do primeiro uso ninguém consegue reutilizar este caminho.
+    // ---------------------------------------------------------------
+    function canClaimAdminOnce() {
+      return isBootstrapAdmin()
+             && !bootstrapMarkerExists()
+             && getAfter(/databases/$(database)/documents/settings/bootstrap)
+                  .data.claimedBy == request.auth.uid;
+    }
+
+    // Campos permitidos na criação. Mais flexível que hasOnly.
     function validNewUserProfile() {
-      return request.resource.data.keys().hasOnly([
-        'username', 'email', 'name', 'lastName', 'phone', 'address',
-        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme',
-        'role', 'banned', 'createdAt', 'provider'
-      ])
-      && request.resource.data.role == 'member'
-      && request.resource.data.banned == false;
+      return (request.resource.data.role == 'member' ||
+              (canClaimAdminOnce() && request.resource.data.role == 'admin'))
+             && request.resource.data.banned == false
+             && request.resource.data.email is string
+             && request.resource.data.username is string;
     }
 
-    // Campos que o próprio usuário pode alterar depois de criado.
+    // Usuário só pode alterar seus próprios campos básicos.
     function validOwnProfileUpdate() {
-      return request.resource.data.diff(resource.data).affectedKeys().hasOnly([
-        'username', 'name', 'lastName', 'phone', 'address',
-        'avatar', 'avatarType', 'googlePhoto', 'language', 'theme'
-      ]);
+      return request.resource.data.diff(resource.data).affectedKeys()
+             .hasOnly(['username','name','lastName','phone','address',
+                       'avatar','avatarType','googlePhoto','language',
+                       'theme','provider'])
+             // não pode mudar role ou banned
+             && request.resource.data.role == resource.data.role
+             && request.resource.data.banned == resource.data.banned;
     }
 
     // ---------- USERS ----------
     match /users/{userId} {
+      // Qualquer logado pode ler (necessário para isAdmin/isEditor checks)
       allow read: if isSignedIn();
+      // Criar próprio perfil no primeiro login
       allow create: if isOwner(userId) && validNewUserProfile();
-      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate());
+      // Atualizar: admin pode tudo, dono só campos permitidos.
+      // Também é possível alterar APENAS o campo role -> 'admin' através do
+      // claim de uso único (exige o marcador settings/bootstrap na mesma
+      // operação; depois do primeiro uso o caminho fecha para sempre).
+      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate()) ||
+                    (isOwner(userId) && canClaimAdminOnce() &&
+                     request.resource.data.role == 'admin' &&
+                     request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['role']));
       allow delete: if isAdmin();
 
       match /notifications/{notifId} {
@@ -146,12 +195,16 @@ service cloud.firestore {
 
     // ---------- TASKS ----------
     match /tasks/{taskId} {
+      // Ler: dono da task OU admin/editor
+      // IMPORTANTE: para query where('owner','==',uid) funcionar,
+      // a rule precisa permitir quando resource.data.owner == uid
       allow read: if isSignedIn() && (
         resource.data.owner == request.auth.uid || isEditorOrAdmin()
       );
+      // Criar: precisa estar logado, não banido, e owner = seu uid
       allow create: if isNotBanned()
                     && request.resource.data.owner == request.auth.uid;
-      // O dono não pode transferir uma atividade para outra conta.
+      // O dono não pode transferir atividade para outra conta.
       allow update: if isAdmin() || (
         isNotBanned()
         && resource.data.owner == request.auth.uid
@@ -175,34 +228,65 @@ service cloud.firestore {
     match /posts/{postId} {
       allow read: if isSignedIn();
       allow create: if isNotBanned() && isEditorOrAdmin();
-      allow update, delete: if isSignedIn() && (
-        resource.data.authorId == request.auth.uid || isEditorOrAdmin()
-      );
+      allow update, delete: if isEditorOrAdmin()
+                            || (isSignedIn() && resource.data.authorId == request.auth.uid);
     }
 
     // ---------- FILES / BIBLIOTECA ----------
     match /files/{fileId} {
       allow read: if isSignedIn();
-      allow create, update, delete: if isSignedIn() && isEditorOrAdmin();
+      allow create, update, delete: if isEditorOrAdmin();
+    }
+
+    // ---------- MACROS / MODELOS DE MENSAGEM ----------
+    // Cada usuário salva seus próprios modelos; admin enxerga tudo.
+    match /macros/{macroId} {
+      allow read: if isSignedIn() && (
+        resource.data.owner == request.auth.uid || isAdmin()
+      );
+      allow create: if isNotBanned()
+                    && request.resource.data.owner == request.auth.uid;
+      // O dono não pode transferir o modelo para outra conta.
+      allow update: if isAdmin() || (
+        isNotBanned()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.owner == request.auth.uid || isAdmin()
+      );
     }
 
     // ---------- SETTINGS ----------
-    // Configurações visuais compartilhadas por todo o site.
+    // Configurações que alteram a interface de todo o site.
     match /settings/global {
       allow read: if isSignedIn();
       allow write: if isAdmin();
     }
 
-    // Credenciais privadas de integrações (ex.: DeepSeek).
-    // Nunca exponha este documento para usuários comuns.
+    // Integrações privadas: nunca são lidas por membros e não devem ser
+    // misturadas ao documento global (que é distribuído a todos os logados).
     match /settings/admin {
       allow read, write: if isAdmin();
     }
 
+    // Marcador do claim de admin de USO ÚNICO. É criado uma única vez, na
+    // mesma operação que promove a conta bootstrap, e nunca mais pode ser
+    // alterado ou apagado — isso trava o caminho de promoção para sempre.
+    match /settings/bootstrap {
+      allow read: if isSignedIn();
+      allow create: if isBootstrapAdmin()
+                    && !bootstrapMarkerExists()
+                    && request.resource.data.claimedBy == request.auth.uid;
+      allow update, delete: if false;
+    }
+
+    // Preferências privadas por usuário.
     match /settings/{settingId}/user/{userId} {
       allow read, write: if isOwner(userId);
     }
 
+    // Bloqueia qualquer outro documento em settings por padrão.
     match /settings/{settingId} {
       allow read, write: if false;
     }
@@ -241,6 +325,16 @@ service cloud.firestore {
 1. Clique em **Publicar** (botão azul no canto superior direito)
 2. Confirme a publicação
 3. Aguarde 1-2 minutos para propagar
+
+### 👑 Admin de uso único (importante)
+
+A promoção do administrador inicial (`wesleystudio@gmail.com`) é de **USO ÚNICO**:
+
+1. **Publique as regras atualizadas acima primeiro.** Sem isso o claim falha.
+2. Faça login com a conta `wesleystudio@gmail.com` — a promoção acontece sozinha, uma única vez, numa operação atômica que também cria o marcador `settings/bootstrap` no Firestore.
+3. Depois disso o caminho **fecha para sempre**: as regras bloqueiam qualquer nova tentativa, o marcador não pode ser alterado nem apagado, e o Firestore passa a valer apenas o `role` gravado no perfil.
+
+Você pode conferir em **Firestore Database → settings → bootstrap** que o claim foi consumido.
 
 ---
 

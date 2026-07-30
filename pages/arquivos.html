@@ -14,6 +14,7 @@
     <h1>📁 Arquivos e recursos</h1>
     <p>Documentos, planilhas, vídeos e links da operação</p>
   </div>
+  <button class="btn btn-primary" id="btnAddFile" onclick="openFileModal()" style="display:none">＋ Adicionar arquivo</button>
 </div>
 
 <!-- FILTROS AVANÇADOS -->
@@ -42,7 +43,56 @@
 <div id="fileEmpty" class="empty" style="display:none">
   <div class="icon">📁</div>
   <h2>Nenhum arquivo encontrado</h2>
-  <p>Arquivos são adicionados pelo administrador no painel de controle</p>
+  <p id="fileEmptyHint">Arquivos são adicionados pelo administrador no painel de controle</p>
+  <button class="btn btn-primary" id="btnAddFileEmpty" onclick="openFileModal()" style="display:none;margin-top:14px">＋ Adicionar o primeiro arquivo</button>
+</div>
+
+<!-- MODAL ADICIONAR ARQUIVO -->
+<div class="modal-overlay hidden" id="fileModal" onclick="if(event.target===this)closeFileModal()">
+  <div class="modal">
+    <h2>📁 Adicionar arquivo / link</h2>
+    <p class="text-muted" style="font-size:12px;margin:-8px 0 14px">A thumbnail é gerada automaticamente conforme o tipo se não for informada.</p>
+    <form onsubmit="saveFile(event)">
+      <label><span>Título *</span>
+        <input type="text" id="fileTitle" required placeholder="Nome do arquivo ou documento">
+      </label>
+      <label><span>URL / Link *</span>
+        <input type="text" id="fileUrl" required placeholder="https://... ou caminho do arquivo">
+      </label>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <label><span>Tipo</span>
+          <select id="fileType">
+            <option value="">Auto-detectar</option>
+            <option value="spreadsheet">📊 Planilha</option>
+            <option value="document">📝 Documento</option>
+            <option value="presentation">📽️ Apresentação</option>
+            <option value="video">🎬 Vídeo</option>
+            <option value="image">🖼️ Imagem</option>
+            <option value="pdf">📕 PDF</option>
+            <option value="link">🔗 Link</option>
+            <option value="other">📎 Outros</option>
+          </select>
+        </label>
+        <label><span>Categoria</span>
+          <select id="fileCategory"></select>
+        </label>
+      </div>
+      <label><span>Descrição</span>
+        <input type="text" id="fileDesc" placeholder="Descrição breve para busca e identificação">
+      </label>
+      <label><span>Thumbnail personalizada (opcional)</span>
+        <div style="display:flex;gap:8px;align-items:end">
+          <input type="text" id="fileImage" placeholder="URL da thumbnail" style="flex:1">
+          <span style="color:var(--muted);font-size:12px;white-space:nowrap">ou</span>
+          <input type="file" accept="image/*" onchange="uploadFileImage(event)" style="flex:1;min-width:0">
+        </div>
+      </label>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeFileModal()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">＋ Adicionar</button>
+      </div>
+    </form>
+  </div>
 </div>
 
 <script src="../js/core.js"></script>
@@ -84,15 +134,83 @@ function getFileIcon(file) {
   return icons[type] || icons.other;
 }
 
+// Permissão: criar arquivos é restrito a admin/editor (regras do Firestore)
+function canManageFiles() {
+  const role = page.getUser()?.role || 'member';
+  return role === 'admin' || role === 'editor';
+}
+
 // Popular filtro de categorias
 (function init() {
   const cats = settings.categories || ['Geral'];
   const filterCat = document.getElementById('filterCategory');
+  const modalCat = document.getElementById('fileCategory');
   cats.forEach(c => {
     filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+    modalCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
   });
+
+  // Botão "Adicionar arquivo" visível para quem pode gerenciar a biblioteca
+  if (canManageFiles()) {
+    document.getElementById('btnAddFile').style.display = '';
+    document.getElementById('btnAddFileEmpty').style.display = '';
+    document.getElementById('fileEmptyHint').textContent = 'Use o botão "＋ Adicionar arquivo" para publicar o primeiro recurso';
+  }
   render();
 })();
+
+/* ========== MODAL ADICIONAR ARQUIVO ========== */
+function openFileModal() {
+  if (!canManageFiles()) return page.toast('Apenas admin/editor podem adicionar arquivos', 'warning');
+  document.getElementById('fileModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('fileTitle').focus(), 100);
+}
+
+function closeFileModal() {
+  document.getElementById('fileModal').classList.add('hidden');
+  document.getElementById('fileTitle').value = '';
+  document.getElementById('fileUrl').value = '';
+  document.getElementById('fileType').value = '';
+  document.getElementById('fileDesc').value = '';
+  document.getElementById('fileImage').value = '';
+}
+
+async function uploadFileImage(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const compressed = await core.compressImage(file, 200, 0.7);
+  document.getElementById('fileImage').value = compressed;
+  page.toast('Thumbnail carregada!', 'info');
+}
+
+function saveFile(e) {
+  e.preventDefault();
+  if (!canManageFiles()) return page.toast('Sem permissão para adicionar arquivos', 'warning');
+  const title = document.getElementById('fileTitle').value.trim();
+  const url = document.getElementById('fileUrl').value.trim();
+  if (!title || !url) return page.toast('Preencha título e URL', 'warning');
+
+  const data = page.getDB();
+  const user = page.getUser() || {};
+  const fileEntry = {
+    id: Date.now(),
+    title, url,
+    category: document.getElementById('fileCategory').value,
+    description: document.getElementById('fileDesc').value.trim(),
+    image: document.getElementById('fileImage').value.trim(),
+    fileType: document.getElementById('fileType').value || '',
+    createdBy: user.id || user.uid || 'unknown',
+    updatedAt: core.now()
+  };
+  data.files.push(fileEntry);
+  page.saveDB(data);
+  page.syncDocument('files', fileEntry.id, fileEntry);
+  core.log('file_add', user.id || user.uid, title);
+
+  closeFileModal();
+  render();
+  page.toast('Arquivo adicionado! 📁', 'success');
+}
 
 function render() {
   const data = page.getDB();
