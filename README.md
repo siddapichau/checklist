@@ -89,7 +89,9 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 
 ## 🤖 IA DeepSeek
 
-Configure a API Key em Administração > API / IA. A IA analisa suas atividades e sugere prioridades, organização e resumos.
+Configure a API Key em **Administração > API / IA**. A chave é salva no documento privado `settings/admin` do Firestore, acessível apenas a administradores pelas regras em `firestore.rules`; ela não é gravada no `localStorage`, backup ou configurações públicas.
+
+> Para disponibilizar a IA a todos os usuários em produção, use uma Cloud Function/proxy que mantenha a chave no servidor. A chamada direta pelo navegador é limitada ao administrador.
 
 ## 🎮 Atalhos de teclado
 

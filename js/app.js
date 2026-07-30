@@ -10,6 +10,9 @@ const App = {
   settings: null,
   _authListenerAttached: false,
   _initDone: false,
+  _swUpdateRequested: false,
+  _recoveryListenersAttached: false,
+  _lastConnectionRecovery: 0,
 
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
@@ -28,17 +31,14 @@ const App = {
     await core.tReady(this.settings.language);
     this.applyTheme(this.settings.theme, this.settings.mode);
 
-    const user = core.getCurrentUser();
-    if (user) {
-      try { core.updateStreak(user.id || user.uid); } catch(e) {}
-    }
-    try { core.checkLateAutomations(); } catch(e) { console.warn('checkLateAutomations:', e); }
-
     // Verificar se há usuário logado (session + remember)
     this.currentUser = core.getCurrentUser();
     if (!this.currentUser) {
       this.currentUser = core.getRememberedUser();
       if (this.currentUser) core.setCurrentUser(this.currentUser);
+    }
+    if (this.currentUser) {
+      try { core.updateStreak(this.currentUser.id || this.currentUser.uid); } catch(e) {}
     }
 
     window.addEventListener('message', (e) => this.handleMessage(e));
@@ -50,13 +50,15 @@ const App = {
         try {
           if (fbUser) {
             console.log('🔥 Auth state: logado', fbUser.uid);
-            if (!this.currentUser) {
+            const localUid = this.currentUser?.uid || this.currentUser?.id;
+            // Uma sessão lembrada pode pertencer a outra conta Firebase. Sempre
+            // recarregue o perfil quando os UIDs não coincidem.
+            if (!this.currentUser || localUid !== fbUser.uid) {
               await this.syncFirebaseUser(fbUser);
             }
-            // Só iniciar sync se currentUser existe e sync não está rodando
-            if (this.currentUser && (this.currentUser.uid || this.currentUser.id) && !fireSync._syncing) {
+            if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
               const uid = this.currentUser.uid || this.currentUser.id;
-              if (uid && !uid.includes('local-')) {
+              if (uid === fbUser.uid && !uid.includes('local-')) {
                 fireSync.start(uid);
               }
             }
@@ -75,15 +77,23 @@ const App = {
     // Iniciar FireSync imediatamente se já tem usuário Firebase
     if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
       const uid = this.currentUser.uid || this.currentUser.id;
-      if (uid && !uid.includes('local-') && auth.currentUser) {
+      if (uid && !uid.includes('local-') && auth.currentUser?.uid === uid) {
         fireSync.start(uid);
       }
     }
 
     this.setupKeyboardShortcuts();
+    this.setupAppRecovery();
 
     window.addEventListener('firebaseSync', (e) => {
-      if (e.detail.type === 'tasks') this.renderSidebar();
+      const type = e.detail?.type;
+      if (type === 'tasks') this.renderSidebar();
+      if (type === 'settings') {
+        this.settings = core.getLocalDB().settings;
+        this.applyTheme(this.settings.theme, this.settings.mode);
+        this.renderSidebar();
+        this.updateLangMenuActive();
+      }
     });
 
     // Esconder loading SEMPRE, mesmo com erro
@@ -104,17 +114,34 @@ const App = {
   /* ========== SERVICE WORKER & PWA ========== */
   registerSW() {
     if ('serviceWorker' in navigator) {
-      // Desativar SW em localhost se der erro constante (evita loop de cache velho)
+      // Um update do shell deve assumir o controle e recarregar uma única vez.
+      // Isso evita que o APK fique preso em arquivos HTML/JS de versões diferentes.
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!this._swUpdateRequested) return;
+        this._swUpdateRequested = false;
+        try {
+          if (sessionStorage.getItem('cl-sw-reloaded') === '1') return;
+          sessionStorage.setItem('cl-sw-reloaded', '1');
+        } catch(e) {}
+        window.location.reload();
+      });
+
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then((reg) => {
           console.log('✅ Service Worker registrado:', reg.scope);
+          const activateUpdate = (worker) => {
+            if (!worker || !navigator.serviceWorker.controller) return;
+            this._swUpdateRequested = true;
+            core.toast('Atualizando o aplicativo para mantê-lo estável…', 'info');
+            worker.postMessage({ type: 'SKIP_WAITING' });
+          };
+
+          if (reg.waiting) activateUpdate(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                core.toast('Nova versão disponível! Recarregue para atualizar.', 'info');
-              }
+              if (newWorker.state === 'installed') activateUpdate(newWorker);
             });
           });
           this.requestPushPermission(reg);
@@ -144,6 +171,40 @@ const App = {
         });
       }
     };
+  },
+
+  /* ========== RECUPERAÇÃO APÓS PAUSA / REDE ========== */
+  setupAppRecovery() {
+    if (this._recoveryListenersAttached) return;
+    this._recoveryListenersAttached = true;
+
+    const recover = (reason) => {
+      const uid = this.currentUser?.uid || this.currentUser?.id;
+      // Android pode suspender WebViews e encerrar conexões do Firestore enquanto
+      // o app está em segundo plano. Ao voltar depois de algum tempo, renovamos
+      // os listeners mesmo se o SDK ainda marcar o sync como ativo.
+      const now = Date.now();
+      const staleConnection = reason === 'visible' && now - this._lastConnectionRecovery > 60000;
+      if (uid && auth.currentUser?.uid === uid && (!fireSync._syncing || staleConnection)) {
+        if (staleConnection) fireSync.stop();
+        fireSync.start(uid);
+        this._lastConnectionRecovery = now;
+      }
+
+      const frame = document.getElementById('pageFrame');
+      if (this.currentUser && frame && !frame.getAttribute('src')) {
+        this.navigate(this.currentPage || 'home');
+      }
+      console.log('♻️ Recuperação do app:', reason);
+    };
+
+    window.addEventListener('online', () => recover('online'));
+    window.addEventListener('pageshow', event => {
+      if (event.persisted) recover('pageshow');
+    });
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') recover('visible');
+    });
   },
 
   requestPushPermission(swReg) {
@@ -199,6 +260,11 @@ const App = {
   showApp() {
     document.getElementById('loginScreen')?.classList.add('hidden');
     document.getElementById('appScreen')?.classList.remove('hidden');
+    // A verificação é idempotente por tarefa/automação/dia e não abre toasts de
+    // login. Assim, tarefas atrasadas aparecem na central sem spam.
+    try { core.checkLateAutomations(this.currentUser?.id || this.currentUser?.uid); } catch(e) {
+      console.warn('checkLateAutomations:', e);
+    }
     this.renderSidebar();
     this.updateUserInfo();
     this.injectLanguageSwitcher();
@@ -423,7 +489,7 @@ const App = {
             if (remember) core.setRememberedUser(this.currentUser);
             core.log('login', this.currentUser.id, 'Login local');
             this.showApp();
-            if (this.currentUser.uid && !this.currentUser.uid.includes('local-')) {
+            if (auth.currentUser?.uid === (this.currentUser.uid || this.currentUser.id)) {
               fireSync.start(this.currentUser.uid || this.currentUser.id);
             }
             core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
@@ -567,11 +633,11 @@ const App = {
     try { core.log('login', this.currentUser.id, 'Login Firebase'); } catch(e) {}
 
     this.showApp();
-    // Iniciar sync com pequeno delay para evitar race
+    // O listener de Auth também pode chegar aqui; FireSync.start é idempotente
+    // para o UID e não cria listeners duplicados.
     setTimeout(() => {
-      if (auth.currentUser) {
-        fireSync.start(this.currentUser.uid || this.currentUser.id);
-      }
+      const uid = this.currentUser?.uid || this.currentUser?.id;
+      if (uid && auth.currentUser?.uid === uid) fireSync.start(uid);
     }, 500);
     core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
   },
@@ -742,6 +808,9 @@ const App = {
   /* ========== NAVEGAÇÃO ========== */
   navigate(page) {
     if (!this.currentUser) return;
+
+    const allowedPages = new Set((this.settings?.menuItems || []).map(item => item.id));
+    if (!allowedPages.has(page)) page = 'home';
 
     if (page === 'admin' && this.currentUser.role !== 'admin') {
       core.toast('Acesso restrito a administradores', 'warning');
@@ -1325,6 +1394,11 @@ const App = {
   },
 
   handleMessage(e) {
+    // Aceite somente mensagens da página atualmente carregada no iframe. Isso
+    // também impede que uma mensagem enviada para a própria janela recrie toast.
+    const frameWindow = document.getElementById('pageFrame')?.contentWindow;
+    if (e.origin !== window.location.origin || !frameWindow || e.source !== frameWindow) return;
+
     const msg = e.data;
     if (!msg || !msg.type) return;
 
@@ -1357,16 +1431,22 @@ const App = {
         this.closeModal();
         break;
       case 'getUser':
-        if (e.source) e.source.postMessage({ type: 'userData', user: this.currentUser }, '*');
+        if (e.source) e.source.postMessage({ type: 'userData', user: this.currentUser }, window.location.origin);
         break;
       case 'updateBadge':
         this.renderSidebar();
         this.renderNotifications();
         break;
       case 'firebaseSync':
-        if (msg.collection && msg.data) {
+        if (msg.collection && msg.id !== undefined && msg.data) {
           fireSync.pushDocument(msg.collection, msg.id, msg.data);
         }
+        break;
+      case 'firebaseDelete':
+        if (msg.collection && msg.id !== undefined) fireSync.deleteDocument(msg.collection, msg.id);
+        break;
+      case 'firebaseSettings':
+        if (msg.settings) fireSync.pushSettings(msg.settings);
         break;
     }
   },

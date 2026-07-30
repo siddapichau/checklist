@@ -61,10 +61,43 @@ const Page = {
   saveDB(d) { core.saveLocalDB(d); },
   toast(msg, type) { core.toast(msg, type); },
   esc(s) { return core.escapeHTML(s); },
-  reload() { window.parent.postMessage({ type: 'reload' }, '*'); },
-  navigate(page) { window.parent.postMessage({ type: 'navigate', page }, '*'); },
-  openModal(html) { window.parent.postMessage({ type: 'modal', html }, '*'); },
-  closeModal() { window.parent.postMessage({ type: 'closeModal' }, '*'); },
+  _post(message) {
+    if (window.parent && window.parent !== window) {
+      window.parent.postMessage(message, window.location.origin);
+    }
+  },
+  reload() { this._post({ type: 'reload' }); },
+  navigate(page) { this._post({ type: 'navigate', page }); },
+  openModal(html) { this._post({ type: 'modal', html }); },
+  closeModal() { this._post({ type: 'closeModal' }); },
+  syncDocument(collection, id, data) {
+    this._post({ type: 'firebaseSync', collection, id, data });
+  },
+  deleteDocument(collection, id) {
+    this._post({ type: 'firebaseDelete', collection, id });
+  },
+  syncSettings(settings) {
+    this._post({ type: 'firebaseSettings', settings });
+  },
+  // Configurações privadas usam os métodos do FireSync do shell, que conversa
+  // com o Firestore sob as regras do usuário autenticado. Nunca use localStorage
+  // para chaves de API.
+  async getAdminConfig() {
+    if (!window.parent || window.parent === window || !window.parent.fireSync) {
+      throw new Error('Sincronização Firebase indisponível');
+    }
+    return window.parent.fireSync.getAdminConfig();
+  },
+  async saveAdminConfig(config) {
+    if (!window.parent || window.parent === window || !window.parent.fireSync) {
+      throw new Error('Sincronização Firebase indisponível');
+    }
+    return window.parent.fireSync.saveAdminConfig(config);
+  },
+  async getDeepseekKey() {
+    if (!window.parent || window.parent === window || !window.parent.fireSync) return '';
+    return window.parent.fireSync.getDeepseekKey();
+  },
 
   // i18n helpers
   async i18nReady() {

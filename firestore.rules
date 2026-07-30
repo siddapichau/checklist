@@ -126,15 +126,26 @@ service cloud.firestore {
     }
 
     // ---------- SETTINGS ----------
-    match /settings/{settingId} {
+    // Configurações que alteram a interface de todo o site.
+    match /settings/global {
       allow read: if isSignedIn();
-      // FIX: só admin pode escrever settings global
-      // Usuário comum não deve tentar escrever aqui - evita permission-denied loop
       allow write: if isAdmin();
+    }
 
-      match /user/{userId} {
-        allow read, write: if isOwner(userId);
-      }
+    // Integrações privadas: nunca são lidas por membros e não devem ser
+    // misturadas ao documento global (que é distribuído a todos os logados).
+    match /settings/admin {
+      allow read, write: if isAdmin();
+    }
+
+    // Preferências privadas por usuário.
+    match /settings/{settingId}/user/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // Bloqueia qualquer outro documento em settings por padrão.
+    match /settings/{settingId} {
+      allow read, write: if false;
     }
 
     // ---------- GAMIFICAÇÃO ----------

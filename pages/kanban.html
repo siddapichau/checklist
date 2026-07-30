@@ -112,6 +112,14 @@ function populateCategories() {
   });
 }
 
+// Evita que o save da página sobrescreva pontos, logs ou recorrências que o
+// core acabou de persistir em outra leitura do banco local.
+function preserveCoreSideEffects(data) {
+  const latest = page.getDB();
+  data.gamification = latest.gamification;
+  data.logs = latest.logs;
+}
+
 const COLUMNS = [
   { id: 'pending',   title: 'Pendente',    icon: '⏳', color: '#F59E0B' },
   { id: 'analyzing', title: 'Analisando',  icon: '🔍', color: '#3B82F6' },
@@ -210,17 +218,18 @@ function onDrop(e) {
   if (!taskId || !newStatus) return;
 
   const data = page.getDB();
+  const user = page.getUser();
   const task = data.tasks.find(t => t.id === taskId);
   if (!task || task.status === newStatus) return;
 
   const oldStatus = task.status;
+  const createdRecurrences = [];
   task.status = newStatus;
   task.updatedAt = core.now();
 
   if (newStatus === 'finished') {
     task.finishedAt = core.now();
     // Gamificação
-    const user = page.getUser();
     if (user) {
       const result = core.awardPoints(user.id || user.uid, task, 'finish');
       if (result && result.newBadges && result.newBadges.length > 0) {
@@ -233,12 +242,19 @@ function onDrop(e) {
     const autoResults = core.runAutomations('task_finished', { task, userId: user?.id });
     autoResults.forEach(r => {
       if (r.ok && r.newTask) {
+        if (!data.tasks.some(existing => String(existing.id) === String(r.newTask.id))) {
+          data.tasks.unshift(r.newTask);
+          createdRecurrences.push(r.newTask);
+        }
         page.toast(`🔁 Recorrente criada: ${r.newTask.title}`, 'info');
       }
     });
   }
 
+  preserveCoreSideEffects(data);
   page.saveDB(data);
+  page.syncDocument('tasks', task.id, task);
+  createdRecurrences.forEach(recurringTask => page.syncDocument('tasks', recurringTask.id, recurringTask));
   core.log('kanban_move', user?.id, `${task.title}: ${oldStatus} → ${newStatus}`);
   page.toast(`Movido para "${COLUMNS.find(c=>c.id===newStatus)?.title}"`, 'success');
   render();
@@ -318,7 +334,10 @@ function saveCard(e) {
     page.toast('Cartão criado! ✅', 'success');
   }
 
+  preserveCoreSideEffects(data);
   page.saveDB(data);
+  const savedCard = data.tasks.find(task => String(task.id) === String(id || cardData.id));
+  if (savedCard) page.syncDocument('tasks', savedCard.id, savedCard);
   closeCardModal();
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
@@ -330,6 +349,7 @@ function deleteCard(id) {
   const t = data.tasks.find(t => t.id === id);
   data.tasks = data.tasks.filter(t => t.id !== id);
   page.saveDB(data);
+  if (t) page.deleteDocument('tasks', t.id);
   core.log('kanban_delete', page.getUser()?.id, t?.title || '');
   page.toast('Cartão excluído', 'info');
   render();

@@ -116,6 +116,15 @@ const settings = page.getDB().settings;
   render();
 })();
 
+// Algumas ações do core (pontos, recorrência e logs) salvam dados enquanto a
+// página ainda mantém uma cópia local. Preserve esses efeitos antes de salvar a
+// tarefa para não desfazer gamificação/logs acidentalmente.
+function preserveCoreSideEffects(data) {
+  const latest = page.getDB();
+  data.gamification = latest.gamification;
+  data.logs = latest.logs;
+}
+
 // Listener para mensagem do parent (nova tarefa rápida)
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'newTask') openNewTask();
@@ -235,6 +244,7 @@ function saveTask(e) {
   e.preventDefault();
   const data = page.getDB();
   const id = document.getElementById('taskId').value;
+  const createdRecurrences = [];
   const taskData = {
     title: document.getElementById('taskTitle').value.trim(),
     description: document.getElementById('taskDesc').value.trim(),
@@ -262,6 +272,12 @@ function saveTask(e) {
         const autoResults = core.runAutomations('task_finished', { task, userId: user?.id });
         autoResults.forEach(r => {
           if (r.ok && r.newTask) {
+            // runAutomations salva em outra leitura do banco local; preserve a
+            // recorrência também no objeto que será salvo ao final desta função.
+            if (!data.tasks.some(existing => String(existing.id) === String(r.newTask.id))) {
+              data.tasks.unshift(r.newTask);
+              createdRecurrences.push(r.newTask);
+            }
             page.toast(`🔁 Recorrente criada: ${r.newTask.title}`, 'info');
           }
         });
@@ -284,7 +300,12 @@ function saveTask(e) {
     page.toast('Atividade criada! ✅', 'success');
   }
 
+  preserveCoreSideEffects(data);
   page.saveDB(data);
+  const savedTask = data.tasks.find(task => String(task.id) === String(id || taskData.id));
+  if (savedTask) page.syncDocument('tasks', savedTask.id, savedTask);
+  // Caso uma recorrência tenha sido criada, ela também deve ir ao Firestore.
+  createdRecurrences.forEach(task => page.syncDocument('tasks', task.id, task));
   closeModal();
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
@@ -296,7 +317,9 @@ function deleteTask(id) {
   const task = data.tasks.find(t => t.id === id);
   data.tasks = data.tasks.filter(t => t.id !== id);
   core.log('task_delete', user?.id, task?.title || '');
+  preserveCoreSideEffects(data);
   page.saveDB(data);
+  if (task) page.deleteDocument('tasks', task.id);
   page.toast('Atividade excluída', 'info');
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
@@ -311,6 +334,8 @@ function toggleStatus(id) {
   const idx = cycle.indexOf(task.status);
   const oldStatus = task.status;
   task.status = cycle[(idx + 1) % cycle.length];
+  task.updatedAt = core.now();
+  const createdRecurrences = [];
 
   if (task.status === 'finished' && oldStatus !== 'finished') {
     task.finishedAt = core.now();
@@ -321,9 +346,17 @@ function toggleStatus(id) {
       if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
     }
     // Automações
-    core.runAutomations('task_finished', { task, userId: user?.id });
+    core.runAutomations('task_finished', { task, userId: user?.id }).forEach(result => {
+      if (result.newTask && !data.tasks.some(existing => String(existing.id) === String(result.newTask.id))) {
+        data.tasks.unshift(result.newTask);
+        createdRecurrences.push(result.newTask);
+      }
+    });
   }
+  preserveCoreSideEffects(data);
   page.saveDB(data);
+  page.syncDocument('tasks', task.id, task);
+  createdRecurrences.forEach(recurringTask => page.syncDocument('tasks', recurringTask.id, recurringTask));
   core.log('task_status', user?.id, `${task.title} → ${statusLabel(task.status)}`);
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
