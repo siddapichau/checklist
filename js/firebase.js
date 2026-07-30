@@ -165,6 +165,19 @@ const FireSync = {
         });
       this._unsubscribers.push(filesUnsub);
 
+      // 3b. Sincronizar macros (modelos de mensagem do próprio usuário)
+      const macrosUnsub = db.collection('macros')
+        .where('owner', '==', userId)
+        .limit(200)
+        .onSnapshot(snapshot => {
+          if (!this._syncing) return;
+          this._handleCollectionSync('macros', snapshot, userId);
+        }, err => {
+          console.warn('Macros sync error:', err.code, err.message);
+          this._handleSyncError(err, 'macros', false);
+        });
+      this._unsubscribers.push(macrosUnsub);
+
       // 4. Sincronizar settings (só leitura - escrita só admin)
       const settingsUnsub = db.collection('settings')
         .doc('global')
@@ -212,14 +225,20 @@ const FireSync = {
   _isCurrentUserAdmin() {
     const currentUser = core.getCurrentUser();
     if (currentUser?.role === 'admin') return true;
-    // Verificar email bootstrap (wesleystudio@gmail.com)
-    if (currentUser?.email && String(currentUser.email).trim().toLowerCase() === 'wesleystudio@gmail.com') return true;
+    // O e-mail bootstrap só é elevado neste fallback enquanto o claim de uso
+    // único não foi consumido. Depois do claim, vale apenas o role gravado
+    // no Firestore (sem re-promoção local infinita).
+    const isBootstrap = account =>
+      String(account?.email || '').trim().toLowerCase() === 'wesleystudio@gmail.com';
+    let pendingClaim = false;
+    try { pendingClaim = !localStorage.getItem('cl-bootstrap-local-claimed'); } catch(e) {}
+    if (isBootstrap(currentUser) && pendingClaim) return true;
     const data = core.getLocalDB();
     const localUser = data.users
       .find(account => account.id === currentUser?.id || account.uid === currentUser?.uid);
     if (localUser?.role === 'admin') return true;
-    if (localUser?.email && String(localUser.email).trim().toLowerCase() === 'wesleystudio@gmail.com') {
-      // Auto-promover e salvar
+    if (isBootstrap(localUser) && pendingClaim) {
+      // Auto-promover e salvar (somente pré-claim)
       localUser.role = 'admin';
       core.saveLocalDB(data);
       // Atualizar sessão
@@ -297,6 +316,7 @@ const FireSync = {
         if (collectionName === 'tasks') data.tasks = removeById(data.tasks);
         if (collectionName === 'posts') data.posts = removeById(data.posts);
         if (collectionName === 'files') data.files = removeById(data.files);
+        if (collectionName === 'macros') data.macros = removeById(data.macros);
         if (collectionName === 'users') data.users = removeById(data.users);
         hasChanges = true;
       }
@@ -385,6 +405,35 @@ const FireSync = {
             hasChanges = true;
           }
         });
+
+      } else if (collectionName === 'macros' && userId) {
+        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
+
+        // Atualizar/inserir macros remotas no local
+        remoteDocs.forEach(remote => {
+          const localIdx = data.macros.findIndex(m => String(m.id) === String(remote.id));
+          if (localIdx >= 0) {
+            const lTime = timestampMillis(data.macros[localIdx].updatedAt || data.macros[localIdx].createdAt);
+            const rTime = timestampMillis(remote.updatedAt || remote.createdAt);
+            if (rTime > lTime) {
+              data.macros[localIdx] = { ...data.macros[localIdx], ...remote, id: data.macros[localIdx].id };
+              hasChanges = true;
+            }
+          } else {
+            data.macros.push(remote);
+            hasChanges = true;
+          }
+        });
+
+        // Subir macros locais do usuário que ainda não estão no remoto
+        if (this._errorCount < 2) {
+          const localMacrosToPush = data.macros.filter(m =>
+            m.owner === userId && !remoteIds.has(String(m.id))
+          ).slice(0, 20);
+          if (localMacrosToPush.length > 0) {
+            this._pushLocalToFirestore('macros', localMacrosToPush, userId);
+          }
+        }
       }
 
       if (hasChanges) {
@@ -416,7 +465,7 @@ const FireSync = {
         delete docData.id;
         
         // Garantir owner
-        if (collection === 'tasks') {
+        if (collection === 'tasks' || collection === 'macros') {
           docData.owner = userId;
         }
 

@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="../css/page.css">
+  <title>Macros</title>
+  <style>
+    /* ---------- EDITOR RICO ---------- */
+    .editor-toolbar{display:flex;gap:4px;flex-wrap:wrap;padding:8px;background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-bottom:0;border-radius:10px 10px 0 0}
+    .editor-toolbar button{border:0;background:transparent;border-radius:6px;min-width:30px;height:30px;padding:0 8px;cursor:pointer;font-size:14px;color:var(--text,#1E293B);display:inline-flex;align-items:center;justify-content:center;transition:.15s}
+    .editor-toolbar button:hover{background:var(--card,#fff);color:var(--primary,#2563EB)}
+    .editor-toolbar .tb-sep{width:1px;background:var(--line,#E2E8F0);margin:4px 2px}
+    .editor-toolbar input[type=color]{width:30px;height:30px;border:0;background:transparent;cursor:pointer;padding:2px}
+    .editor-area{min-height:180px;max-height:320px;overflow-y:auto;padding:14px;border:1px solid var(--line,#E2E8F0);border-radius:0 0 10px 10px;background:var(--card,#fff);color:var(--text,#1E293B);font-size:14px;line-height:1.6;outline:none}
+    .editor-area:focus{border-color:var(--primary,#2563EB);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
+    .editor-area:empty::before{content:attr(data-placeholder);color:var(--muted,#94A3B8)}
+    .editor-area blockquote{border-left:3px solid var(--primary,#2563EB);margin:8px 0;padding:4px 12px;color:var(--text-secondary,#64748B);background:var(--bg-secondary,#F8FAFC);border-radius:0 8px 8px 0}
+    .editor-area pre{background:var(--bg-secondary,#F1F5F9);padding:10px;border-radius:8px;overflow-x:auto;font-family:monospace;font-size:13px}
+    .editor-area a{color:var(--primary,#2563EB)}
+    .editor-stats{display:flex;justify-content:space-between;font-size:11px;color:var(--muted,#94A3B8);margin-top:6px}
+
+    /* ---------- CARDS DE MACRO ---------- */
+    .macro-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-top:4px}
+    .macro-card{background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:10px;transition:.2s;animation:fadeInUp .35s ease}
+    .macro-card:hover{transform:translateY(-2px);box-shadow:0 8px 22px rgba(15,23,42,.08);border-color:var(--primary,#2563EB)}
+    .macro-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
+    .macro-card-title{font-size:15px;font-weight:700;color:var(--text,#1E293B);word-break:break-word}
+    .macro-shortcut{font-family:monospace;font-size:11px;background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:6px;padding:2px 8px;color:var(--primary,#2563EB);white-space:nowrap}
+    .macro-card-body{font-size:13px;color:var(--text-secondary,#64748B);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;word-break:break-word}
+    .macro-card-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted,#94A3B8)}
+    .macro-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
+
+    /* ---------- VARIÁVEIS NA CÓPIA ---------- */
+    .var-list label{display:block;margin-bottom:10px}
+    .preview-box{background:var(--bg-secondary,#F8FAFC);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:14px;max-height:280px;overflow-y:auto;font-size:14px;line-height:1.6}
+    .preview-box .var-chip{background:var(--primary-light,#DBEAFE);color:var(--primary,#2563EB);border-radius:6px;padding:0 6px;font-weight:600}
+    .chip-row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
+    .chip-row button{border:1px dashed var(--line,#E2E8F0);background:transparent;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text-secondary,#64748B);transition:.15s}
+    .chip-row button:hover{border-color:var(--primary,#2563EB);color:var(--primary,#2563EB)}
+    @media (max-width:600px){.macro-grid{grid-template-columns:1fr}}
+  </style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="info">
+    <small>PRODUTIVIDADE</small>
+    <h1>💬 Macros</h1>
+    <p>Modelos de mensagem prontos — copie com 1 clique, com variáveis dinâmicas</p>
+  </div>
+  <button class="btn btn-primary" onclick="openEditor()">＋ Nova macro</button>
+</div>
+
+<!-- FILTROS -->
+<div class="filters">
+  <input type="text" id="search" placeholder="🔍 Buscar por título, gatilho ou conteúdo..." oninput="render()">
+  <select id="filterCategory" onchange="render()">
+    <option value="all">📂 Todas categorias</option>
+  </select>
+</div>
+
+<!-- LISTA -->
+<div class="macro-grid" id="macroGrid"></div>
+
+<!-- VAZIO -->
+<div id="macroEmpty" class="empty" style="display:none">
+  <div class="icon">💬</div>
+  <h2>Nenhuma macro por aqui</h2>
+  <p>Crie modelos de mensagens (respostas rápidas, avisos, comunicados) e reutilize com variáveis como <code>{{nome}}</code> e <code>{{data}}</code></p>
+  <button class="btn btn-primary" onclick="openEditor()" style="margin-top:14px">＋ Criar minha primeira macro</button>
+</div>
+
+<!-- MODAL EDITOR -->
+<div class="modal-overlay hidden" id="editorModal" onclick="if(event.target===this)closeEditor()">
+  <div class="modal" style="width:min(680px,100%)">
+    <h2 id="editorTitle">✨ Nova macro</h2>
+    <form onsubmit="saveMacro(event)">
+      <input type="hidden" id="macroId">
+      <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px">
+        <label><span>Título *</span>
+          <input type="text" id="macroTitle" required placeholder="Ex: Boas-vindas ao turno">
+        </label>
+        <label><span>Gatilho (opcional)</span>
+          <input type="text" id="macroShortcut" placeholder="/boasvindas" oninput="sanitizeShortcut(this)">
+        </label>
+      </div>
+      <label><span>Categoria</span>
+        <select id="macroCategory"></select>
+      </label>
+
+      <span style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary,#64748B);margin:10px 0 4px">Conteúdo da mensagem *</span>
+      <div class="editor-toolbar">
+        <button type="button" title="Desfazer" onclick="execCmd('undo')">↩️</button>
+        <button type="button" title="Refazer" onclick="execCmd('redo')">↪️</button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Negrito" onclick="execCmd('bold')"><b>B</b></button>
+        <button type="button" title="Itálico" onclick="execCmd('italic')"><i>I</i></button>
+        <button type="button" title="Sublinhado" onclick="execCmd('underline')"><u>U</u></button>
+        <button type="button" title="Tachado" onclick="execCmd('strikeThrough')"><s>S</s></button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Título H2" onclick="execBlock('h2')">H2</button>
+        <button type="button" title="Título H3" onclick="execBlock('h3')">H3</button>
+        <button type="button" title="Parágrafo" onclick="execBlock('p')">¶</button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Lista" onclick="execCmd('insertUnorderedList')">• Lista</button>
+        <button type="button" title="Lista numerada" onclick="execCmd('insertOrderedList')">1. Lista</button>
+        <button type="button" title="Citação" onclick="execBlock('blockquote')">❝</button>
+        <button type="button" title="Código" onclick="execBlock('pre')">&lt;/&gt;</button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Inserir link" onclick="insertLink()">🔗</button>
+        <input type="color" id="colorPicker" title="Cor do texto" onchange="execCmd('foreColor', this.value)">
+        <button type="button" title="Limpar formatação" onclick="execCmd('removeFormat')">🧹</button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Emojis" onclick="toggleEmoji()">😀</button>
+      </div>
+      <div class="editor-area" id="macroContent" contenteditable="true" data-placeholder="Escreva o modelo da mensagem... Use variáveis como {{nome}}, {{data}}, {{hora}}, {{usuario}}" oninput="updateStats();updatePreview()"></div>
+      <div class="emoji-row chip-row hidden" id="emojiRow"></div>
+      <div class="editor-stats">
+        <span id="charCount">0 caracteres · 0 palavras</span>
+        <span id="varHint">Variáveis: clique para inserir ⤵</span>
+      </div>
+      <div class="chip-row" id="varChips"></div>
+
+      <details style="margin-top:10px">
+        <summary style="font-size:13px;font-weight:600;color:var(--text-secondary,#64748B);cursor:pointer">👁️ Pré-visualização</summary>
+        <div class="preview-box" id="editorPreview" style="margin-top:8px"><span style="color:var(--muted,#94A3B8)">A pré-visualização aparece aqui...</span></div>
+      </details>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-secondary" onclick="closeEditor()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">💾 Salvar macro</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- MODAL USAR / COPIAR -->
+<div class="modal-overlay hidden" id="useModal" onclick="if(event.target===this)closeUseModal()">
+  <div class="modal" style="width:min(560px,100%)">
+    <h2>📋 Usar macro</h2>
+    <div class="var-list" id="useVarInputs"></div>
+    <span style="display:block;font-size:13px;font-weight:600;color:var(--text-secondary,#64748B);margin:6px 0">Resultado</span>
+    <div class="preview-box" id="usePreview"></div>
+    <div class="modal-actions">
+      <button type="button" class="btn btn-secondary" onclick="closeUseModal()">Fechar</button>
+      <button type="button" class="btn btn-secondary" onclick="copyMacroText()" title="Copiar como texto puro">📄 Texto puro</button>
+      <button type="button" class="btn btn-primary" onclick="copyMacroRich()" title="Copiar com formatação">📋 Copiar formatado</button>
+    </div>
+  </div>
+</div>
+
+<script src="../js/core.js"></script>
+<script src="../js/page.js"></script>
+<script>
+const settings = page.getDB().settings;
+let editingId = null;
+let usingId = null;
+
+/* ========== VARIÁVEIS PADRÃO ========== */
+function builtinVarValues() {
+  const user = page.getUser() || {};
+  const now = new Date();
+  return {
+    nome: '',
+    cliente: '',
+    data: now.toLocaleDateString('pt-BR'),
+    hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    usuario: user.name || user.username || '',
+  };
+}
+const VAR_CHIPS = ['nome', 'cliente', 'data', 'hora', 'usuario'];
+const EMOJIS = ['😀','😊','👍','🙏','✅','⚠️','🚨','📦','🚚','⏰','📋','💬','🎉','🤝','❗','💡'];
+
+/* ========== INICIALIZAÇÃO ========== */
+(function init() {
+  const cats = settings.categories || ['Geral'];
+  const filterCat = document.getElementById('filterCategory');
+  const catSel = document.getElementById('macroCategory');
+  cats.forEach(c => {
+    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+    catSel.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  });
+  document.getElementById('varChips').innerHTML =
+    VAR_CHIPS.map(v => `<button type="button" onclick="insertVar('${v}')">{{${v}}}</button>`).join('');
+  document.getElementById('emojiRow').innerHTML =
+    EMOJIS.map(e => `<button type="button" onclick="insertAtCaret('${e}')">${e}</button>`).join('');
+  render();
+})();
+
+/* ========== LISTAGEM ========== */
+function getMacroText(m) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = m.content || '';
+  return tmp.textContent || '';
+}
+
+function render() {
+  const data = page.getDB();
+  const user = page.getUser() || {};
+  const uid = user.id || user.uid;
+  const search = document.getElementById('search').value.toLowerCase().trim();
+  const category = document.getElementById('filterCategory').value;
+
+  let macros = (data.macros || []).filter(m => !m.owner || m.owner === uid);
+  macros = macros.filter(m => {
+    if (search && !(m.title || '').toLowerCase().includes(search)
+        && !(m.shortcut || '').toLowerCase().includes(search)
+        && !getMacroText(m).toLowerCase().includes(search)) return false;
+    if (category !== 'all' && m.category !== category) return false;
+    return true;
+  });
+  macros.sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
+
+  const grid = document.getElementById('macroGrid');
+  const empty = document.getElementById('macroEmpty');
+  if (!macros.length) { grid.innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+
+  grid.innerHTML = macros.map(m => `
+    <div class="macro-card">
+      <div class="macro-card-head">
+        <div class="macro-card-title">${page.esc(m.title)}</div>
+        ${m.shortcut ? `<span class="macro-shortcut">${page.esc(m.shortcut)}</span>` : ''}
+      </div>
+      <div class="macro-card-body">${page.esc(getMacroText(m))}</div>
+      <div class="macro-card-meta">
+        <span class="badge member" style="font-size:10px">${page.esc(m.category || 'Geral')}</span>
+        <span>📊 ${m.uses || 0}x usada</span>
+        ${m.updatedAt ? `<span>✏️ ${core.formatDate(m.updatedAt)}</span>` : ''}
+      </div>
+      <div class="macro-card-actions">
+        <button class="btn btn-primary btn-sm" onclick="openUseModal('${m.id}')">📋 Usar</button>
+        <button class="btn btn-secondary btn-sm" onclick="openEditor('${m.id}')">✏️ Editar</button>
+        <button class="btn btn-secondary btn-sm" onclick="duplicateMacro('${m.id}')" title="Duplicar">📑</button>
+        <button class="btn btn-secondary btn-sm" onclick="deleteMacro('${m.id}')" title="Excluir">🗑️</button>
+      </div>
+    </div>
+  `).join('');
+}
+
+/* ========== EDITOR RICO ========== */
+function sanitizeShortcut(input) {
+  let v = input.value.replace(/\s/g, '');
+  if (v && !v.startsWith('/')) v = '/' + v;
+  input.value = v;
+}
+
+function openEditor(id) {
+  editingId = id || null;
+  document.getElementById('editorTitle').textContent = id ? '✏️ Editar macro' : '✨ Nova macro';
+  document.getElementById('macroId').value = id || '';
+  const contentEl = document.getElementById('macroContent');
+
+  if (id) {
+    const m = (page.getDB().macros || []).find(x => String(x.id) === String(id));
+    if (!m) return page.toast('Macro não encontrada', 'error');
+    document.getElementById('macroTitle').value = m.title || '';
+    document.getElementById('macroShortcut').value = m.shortcut || '';
+    document.getElementById('macroCategory').value = m.category || 'Geral';
+    contentEl.innerHTML = m.content || '';
+  } else {
+    document.getElementById('macroTitle').value = '';
+    document.getElementById('macroShortcut').value = '';
+    document.getElementById('macroCategory').value = cats0();
+    contentEl.innerHTML = '';
+  }
+  document.getElementById('editorModal').classList.remove('hidden');
+  document.getElementById('emojiRow').classList.add('hidden');
+  updateStats(); updatePreview();
+  setTimeout(() => document.getElementById('macroTitle').focus(), 100);
+}
+
+function cats0() { return (settings.categories || ['Geral'])[0]; }
+
+function closeEditor() {
+  document.getElementById('editorModal').classList.add('hidden');
+}
+
+function focusEditor() { document.getElementById('macroContent').focus(); }
+function execCmd(cmd, val) { focusEditor(); document.execCommand(cmd, false, val || null); updateStats(); updatePreview(); }
+function execBlock(tag) { focusEditor(); document.execCommand('formatBlock', false, tag); updateStats(); updatePreview(); }
+
+function insertLink() {
+  const url = prompt('URL do link:', 'https://');
+  if (!url) return;
+  focusEditor();
+  document.execCommand('createLink', false, url);
+  updateStats(); updatePreview();
+}
+
+function toggleEmoji() {
+  document.getElementById('emojiRow').classList.toggle('hidden');
+  focusEditor();
+}
+
+function insertAtCaret(html) {
+  focusEditor();
+  document.execCommand('insertHTML', false, html);
+  updateStats(); updatePreview();
+}
+
+function insertVar(name) {
+  insertAtCaret(`<span class="var-chip">{{${name}}}</span>&nbsp;`);
+}
+
+function updateStats() {
+  const text = document.getElementById('macroContent').textContent || '';
+  const words = text.trim() ? text.trim().split(/\s+/).length : 0;
+  document.getElementById('charCount').textContent = `${text.length} caracteres · ${words} palavras`;
+}
+
+function updatePreview() {
+  const html = document.getElementById('macroContent').innerHTML;
+  const box = document.getElementById('editorPreview');
+  box.innerHTML = (html && html !== '<br>')
+    ? substituteVars(html, builtinVarValues(), true)
+    : '<span style="color:var(--muted,#94A3B8)">A pré-visualização aparece aqui...</span>';
+}
+
+/* ========== SALVAR / DUPLICAR / EXCLUIR ========== */
+function saveMacro(e) {
+  e.preventDefault();
+  const title = document.getElementById('macroTitle').value.trim();
+  const contentEl = document.getElementById('macroContent');
+  const content = contentEl.innerHTML.trim();
+  const text = contentEl.textContent.trim();
+  if (!title) return page.toast('Dê um título para a macro', 'warning');
+  if (!text) return page.toast('Escreva o conteúdo da mensagem', 'warning');
+
+  const data = page.getDB();
+  const user = page.getUser() || {};
+  const uid = user.id || user.uid || 'unknown';
+
+  if (editingId) {
+    const m = data.macros.find(x => String(x.id) === String(editingId));
+    if (!m) return page.toast('Macro não encontrada', 'error');
+    m.title = title;
+    m.shortcut = document.getElementById('macroShortcut').value.trim();
+    m.category = document.getElementById('macroCategory').value;
+    m.content = content;
+    m.updatedAt = core.now();
+    page.saveDB(data);
+    page.syncDocument('macros', m.id, m);
+    page.toast('Macro atualizada! 💾', 'success');
+  } else {
+    const macro = {
+      id: Date.now(),
+      title,
+      shortcut: document.getElementById('macroShortcut').value.trim(),
+      category: document.getElementById('macroCategory').value,
+      content,
+      uses: 0,
+      owner: uid,
+      createdAt: core.now(),
+      updatedAt: core.now()
+    };
+    data.macros.push(macro);
+    page.saveDB(data);
+    page.syncDocument('macros', macro.id, macro);
+    core.log('macro_add', uid, title);
+    page.toast('Macro criada! 💬', 'success');
+  }
+  closeEditor();
+  render();
+}
+
+function duplicateMacro(id) {
+  const data = page.getDB();
+  const m = data.macros.find(x => String(x.id) === String(id));
+  if (!m) return;
+  const user = page.getUser() || {};
+  const copy = {
+    ...m,
+    id: Date.now(),
+    title: (m.title || 'Macro') + ' (cópia)',
+    uses: 0,
+    owner: user.id || user.uid || m.owner,
+    createdAt: core.now(),
+    updatedAt: core.now()
+  };
+  data.macros.push(copy);
+  page.saveDB(data);
+  page.syncDocument('macros', copy.id, copy);
+  render();
+  page.toast('Macro duplicada 📑', 'info');
+}
+
+function deleteMacro(id) {
+  if (!confirm('Excluir esta macro?')) return;
+  const data = page.getDB();
+  data.macros = (data.macros || []).filter(x => String(x.id) !== String(id));
+  page.saveDB(data);
+  page.deleteDocument('macros', id);
+  render();
+  page.toast('Macro excluída', 'info');
+}
+
+/* ========== USAR / COPIAR ========== */
+function extractVars(html) {
+  const found = new Set();
+  const re = /\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g;
+  let match;
+  while ((match = re.exec(html)) !== null) found.add(match[1]);
+  return [...found];
+}
+
+function substituteVars(html, values, highlightEmpty) {
+  // Chips do editor voltam a ser texto puro antes da substituição
+  const normalized = html.replace(/<span class="var-chip">\s*\{\{\s*([\wÀ-ÿ]+)\s*\}\}\s*<\/span>/g, '{{$1}}');
+  return normalized.replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (all, name) => {
+    const v = values[name];
+    if (v !== undefined && v !== '') return page.esc(v);
+    return highlightEmpty ? `<span class="var-chip">{{${name}}}</span>` : `{{${name}}}`;
+  });
+}
+
+function openUseModal(id) {
+  const m = (page.getDB().macros || []).find(x => String(x.id) === String(id));
+  if (!m) return page.toast('Macro não encontrada', 'error');
+  usingId = String(id);
+
+  const vars = extractVars(m.content || '');
+  const defaults = builtinVarValues();
+  const box = document.getElementById('useVarInputs');
+
+  box.innerHTML = vars.length
+    ? vars.map(v => `
+      <label><span>Variável <code>{{${v}}}</code></span>
+        <input type="text" class="use-var-input" data-var="${page.esc(v)}" value="${page.esc(defaults[v] || '')}" oninput="refreshUsePreview()">
+      </label>`).join('')
+    : '<p class="text-muted" style="font-size:13px;margin-bottom:8px">Esta macro não usa variáveis — é só copiar.</p>';
+
+  document.getElementById('useModal').classList.remove('hidden');
+  refreshUsePreview();
+}
+
+function getUseValues() {
+  const values = {};
+  document.querySelectorAll('.use-var-input').forEach(inp => {
+    values[inp.dataset.var] = inp.value;
+  });
+  return values;
+}
+
+function renderUseResult() {
+  const m = (page.getDB().macros || []).find(x => String(x.id) === usingId);
+  return m ? substituteVars(m.content || '', getUseValues(), false) : '';
+}
+
+function refreshUsePreview() {
+  document.getElementById('usePreview').innerHTML = renderUseResult() || '—';
+}
+
+function closeUseModal() {
+  document.getElementById('useModal').classList.add('hidden');
+  usingId = null;
+}
+
+function countUse() {
+  const data = page.getDB();
+  const m = (data.macros || []).find(x => String(x.id) === usingId);
+  if (m) {
+    m.uses = (m.uses || 0) + 1;
+    m.updatedAt = core.now();
+    page.saveDB(data);
+    page.syncDocument('macros', m.id, m);
+  }
+  render();
+}
+
+async function copyMacroRich() {
+  const html = renderUseResult();
+  const text = stripHtml(html);
+  try {
+    if (navigator.clipboard && window.ClipboardItem) {
+      await navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([html], { type: 'text/html' }),
+        'text/plain': new Blob([text], { type: 'text/plain' })
+      })]);
+    } else {
+      await copyPlain(text);
+    }
+    page.toast('Macro copiada com formatação! 📋', 'success');
+    countUse();
+    closeUseModal();
+  } catch (err) {
+    // Fallback silencioso para texto puro
+    await copyPlain(text);
+    page.toast('Macro copiada! 📋', 'success');
+    countUse();
+    closeUseModal();
+  }
+}
+
+async function copyMacroText() {
+  const text = stripHtml(renderUseResult());
+  await copyPlain(text);
+  page.toast('Macro copiada como texto! 📄', 'success');
+  countUse();
+  closeUseModal();
+}
+
+async function copyPlain(text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (err) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+  }
+}
+
+function stripHtml(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || '';
+}
+</script>
+</body>
+</html>

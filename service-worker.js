@@ -4,7 +4,8 @@
    ========================================================= */
 
 // v8 = recuperação de navegação no APK e cache de instalação resiliente.
-const CACHE_NAME = 'checklist-ml-v9-mobile-theme';
+// v10 = página Macros + botão de adicionar arquivo + claim de admin de uso único.
+const CACHE_NAME = 'checklist-ml-v10-macros-admin-claim';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -25,6 +26,7 @@ const ASSETS = [
   '/pages/home.html',
   '/pages/atividades.html',
   '/pages/arquivos.html',
+  '/pages/macros.html',
   '/pages/IA.html',
   '/pages/perfil.html',
   '/pages/admin.html',
