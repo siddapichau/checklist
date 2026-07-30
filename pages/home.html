@@ -221,7 +221,7 @@ function renderWidgets() {
                   <td class="rank-cell">${medal} ${i+1}</td>
                   <td>
                     <div class="user-cell">
-                      <div class="avatar">${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}">` : (u.avatar || '👤')}</div>
+                      <div class="avatar-with-role"><div class="avatar">${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}" alt="">` : (u.avatar || '👤')}</div><small class="avatar-role ${u.role || 'member'}">${u.role === 'admin' ? '⚙️ Admin' : u.role === 'editor' ? '✏️ Editor' : '👤 Membro'}</small></div>
                       <span>${page.esc(u.name)}</span>
                     </div>
                   </td>

@@ -47,8 +47,15 @@ service cloud.firestore {
     }
 
     // Campos permitidos na criação. Mais flexível que hasOnly.
+    // Administrador inicial: o e-mail é validado pelo token de autenticação,
+    // não por um campo que o navegador possa falsificar.
+    function isBootstrapAdmin() {
+      return isSignedIn() && request.auth.token.email == 'wesleystudio@gmail.com';
+    }
+
     function validNewUserProfile() {
-      return request.resource.data.role == 'member'
+      return (request.resource.data.role == 'member' ||
+              (isBootstrapAdmin() && request.resource.data.role == 'admin'))
              && request.resource.data.banned == false
              && request.resource.data.email is string
              && request.resource.data.username is string;
@@ -72,7 +79,10 @@ service cloud.firestore {
       // Criar próprio perfil no primeiro login
       allow create: if isOwner(userId) && validNewUserProfile();
       // Atualizar: admin pode tudo, dono só campos permitidos
-      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate());
+      allow update: if isAdmin() || (isOwner(userId) && validOwnProfileUpdate()) ||
+                    (isOwner(userId) && isBootstrapAdmin() &&
+                     request.resource.data.role == 'admin' &&
+                     request.resource.data.banned == resource.data.banned);
       allow delete: if isAdmin();
 
       match /notifications/{notifId} {

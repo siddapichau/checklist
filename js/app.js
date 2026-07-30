@@ -505,6 +505,21 @@ const App = {
     }
   },
 
+  isBootstrapAdminEmail(email) {
+    return String(email || '').trim().toLowerCase() === 'wesleystudio@gmail.com';
+  },
+
+  async ensureBootstrapAdmin(fbUser, profile) {
+    if (!this.isBootstrapAdminEmail(fbUser?.email) || profile?.role === 'admin') return profile;
+    try {
+      await db.collection('users').doc(fbUser.uid).update({ role: 'admin' });
+      return { ...profile, role: 'admin' };
+    } catch (err) {
+      console.warn('Não foi possível promover o administrador inicial:', err.code || err.message);
+      return profile;
+    }
+  },
+
   async loginSuccess(fbUser, remember) {
     console.log('loginSuccess para', fbUser.uid, fbUser.email);
     let profile = null;
@@ -530,7 +545,7 @@ const App = {
           address: '',
           avatar: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
-          role: 'member',
+          role: this.isBootstrapAdminEmail(fbUser.email) ? 'admin' : 'member',
           banned: false,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           provider: fbUser.providerData[0]?.providerId || 'password'
@@ -605,6 +620,9 @@ const App = {
       }
     }
 
+    // O endereço configurado como administrador inicial é promovido no primeiro login.
+    profile = await this.ensureBootstrapAdmin(fbUser, profile);
+
     // Garantir profile
     if (!profile) {
       console.error('Profile nulo após tentativas');
@@ -673,7 +691,7 @@ const App = {
         username, email,
         name: username, lastName: '', phone: '', address: '',
         avatar: '', avatarType: 'emoji',
-        role: 'member', banned: false,
+        role: this.isBootstrapAdminEmail(email) ? 'admin' : 'member', banned: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         provider: 'password'
       };
@@ -740,7 +758,8 @@ const App = {
       console.log('syncFirebaseUser', fbUser.uid);
       const doc = await db.collection('users').doc(fbUser.uid).get();
       if (doc.exists) {
-        const profile = doc.data();
+        let profile = doc.data();
+        profile = await this.ensureBootstrapAdmin(fbUser, profile);
         if (!profile.banned) {
           this.currentUser = {
             id: fbUser.uid, uid: fbUser.uid,
@@ -924,7 +943,13 @@ const App = {
     const sName = document.getElementById('sidebarName');
     if (sName) sName.textContent = u.name || u.username;
     const sRole = document.getElementById('sidebarRole');
-    if (sRole) sRole.textContent = u.role;
+    if (sRole) {
+      const roles = { member: ['👤', 'Membro'], editor: ['✏️', 'Editor'], admin: ['⚙️', 'Admin'] };
+      const [icon, label] = roles[u.role] || roles.member;
+      sRole.textContent = `${icon} ${label}`;
+      sRole.className = `role role-badge ${u.role || 'member'}`;
+      sRole.title = `Cargo: ${label}`;
+    }
 
     const topbarAvatar = document.getElementById('topbarAvatar');
     if (topbarAvatar) {

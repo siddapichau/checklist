@@ -217,6 +217,7 @@ input,select,textarea{font:inherit}
 }
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--line)}
 .user-card{display:flex;align-items:center;gap:10px}
+.user-profile-avatar{display:flex;flex-direction:column;align-items:center;gap:3px;flex-shrink:0}
 .user-avatar{
   width:36px;height:36px;border-radius:50%;background:var(--primary-light);color:var(--primary);
   display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
@@ -226,6 +227,7 @@ input,select,textarea{font:inherit}
 .user-info{flex:1;min-width:0}
 .user-info .name{font-weight:600;font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .user-info .role{font-size:11px;color:var(--muted);text-transform:capitalize}
+.role-badge{font-size:10px;font-weight:700;line-height:1;color:var(--muted);white-space:nowrap;text-transform:capitalize}
 
 /* ---------- MAIN CONTENT ---------- */
 .main{flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden}
@@ -530,3 +532,8 @@ input[type="checkbox"]:active {
 .gap-1{gap:8px}.gap-2{gap:16px}
 .flex{display:flex}.items-center{align-items:center}.justify-between{justify-content:space-between}
 .grid{display:grid}
+
+@media(max-width:700px){
+  .app{height:100dvh}.sidebar{position:fixed;left:0;top:0;bottom:0;transform:translateX(-100%);box-shadow:var(--shadow-lg)}
+  .sidebar.open{transform:translateX(0)}.sidebar-overlay{display:block}.topbar{height:56px;padding:0 12px;gap:8px}.btn-mobile{display:block;min-width:44px;min-height:44px}.topbar .breadcrumb{font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.topbar-actions button{min-width:40px;min-height:40px}.topbar-user .uname{display:none}.topbar-user .avatar{width:32px;height:32px}.page-frame{height:calc(100dvh - 56px)}
+}
