@@ -4,6 +4,22 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
+  <style>
+    .ai-status{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-secondary,#64748B);
+      background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:10px;
+      padding:9px 12px;margin-bottom:12px;flex-wrap:wrap}
+    .ai-status .dot{width:9px;height:9px;border-radius:50%;background:var(--muted,#94A3B8);flex-shrink:0}
+    .ai-status.ok .dot{background:var(--success,#10B981)}
+    .ai-status.warn .dot{background:var(--warning,#F59E0B)}
+    .ai-status.err .dot{background:var(--danger,#EF4444)}
+    .ai-diag{display:flex;flex-direction:column;gap:8px}
+    .ai-diag-item{display:flex;gap:10px;align-items:flex-start;padding:10px 12px;border-radius:10px;
+      border:1px solid var(--line,#E2E8F0);background:var(--bg-secondary,#F1F5F9);font-size:13px}
+    .ai-diag-item .ai-diag-ico{font-size:16px;line-height:1.3}
+    .ai-diag-item b{display:block;color:var(--text,#1E293B)}
+    .ai-diag-item small{color:var(--muted,#94A3B8)}
+    .ai-channel{font-size:11.5px;color:var(--muted,#94A3B8);margin-bottom:8px;display:block}
+  </style>
   <title>IA Assistente</title>
 </head>
 <body>
@@ -14,6 +30,12 @@
     <h1>🤖 IA Operacional</h1>
     <p>Consulte a IA para organizar, priorizar e otimizar suas atividades</p>
   </div>
+</div>
+
+<!-- STATUS DA CONEXÃO -->
+<div class="ai-status" id="aiStatus">
+  <span class="dot"></span>
+  <span id="aiStatusText">Verificando configuração da IA…</span>
 </div>
 
 <div class="card">
@@ -31,15 +53,27 @@
     <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais atividades estão atrasadas?')">⚠️ Atrasadas</button>
   </div>
 
-  <button class="btn btn-primary" onclick="askAI()" id="btnAsk" style="width:100%">
-    ✨ Consultar IA
-  </button>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="askAI()" id="btnAsk" style="flex:1;justify-content:center;min-width:200px">
+      ✨ Consultar IA
+    </button>
+    <button class="btn btn-secondary" onclick="testAI()" id="btnTest" title="Diagnostica a conexão com a IA">
+      🔌 Testar conexão
+    </button>
+  </div>
 </div>
 
 <!-- RESPOSTA -->
 <div class="card" id="answerCard" style="display:none">
   <h2>📝 Resposta da IA</h2>
+  <span class="ai-channel" id="answerChannel" style="display:none"></span>
   <div id="answer"></div>
+</div>
+
+<!-- DIAGNÓSTICO -->
+<div class="card" id="diagCard" style="display:none">
+  <h2>🔎 Diagnóstico da conexão</h2>
+  <div class="ai-diag" id="diagList"></div>
 </div>
 
 <!-- HISTÓRICO -->
@@ -55,9 +89,139 @@ const user = page.getUser();
 const aiHistory = JSON.parse(localStorage.getItem('ai_history_' + user?.id) || '[]');
 
 renderHistory();
+updateAIStatus();
 
 function quickQ(q) {
   document.getElementById('question').value = q;
+}
+
+/* ================= CANAIS DE CONEXÃO =================
+   O endpoint oficial do DeepSeek segue o padrão OpenAI, mas chamadas
+   diretas do navegador podem ser bloqueadas por CORS (o navegador
+   interrompe com "Failed to fetch" antes mesmo de chegar na API).
+   Por isso a IA tenta conexão direta e, se falhar, passa por proxy
+   CORS. O administrador escolhe o modo em Administração → API / IA. */
+const DS_ENDPOINTS = [
+  'https://api.deepseek.com/chat/completions',
+  'https://api.deepseek.com/v1/chat/completions'
+];
+// Proxies CORS com suporte a POST (chat) — usados como fallback da chamada real.
+const CORS_PROXIES = [
+  { name: 'CorsProxy', wrap: (url) => 'https://corsproxy.io/?url=' + encodeURIComponent(url) },
+];
+
+function buildAttempts(mode) {
+  const direct = DS_ENDPOINTS.map((url, i) => ({
+    type: 'direct', url, label: i === 0 ? 'conexão direta' : 'conexão direta (v1)'
+  }));
+  const proxied = CORS_PROXIES.map(proxy => ({
+    type: 'proxy', url: proxy.wrap(DS_ENDPOINTS[0]), label: 'proxy ' + proxy.name
+  }));
+  if (mode === 'direct') return direct;
+  if (mode === 'proxy') return proxied;
+  return [...direct, ...proxied]; // automático
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = 45000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try { return await fetch(url, { ...options, signal: controller.signal }); }
+  finally { clearTimeout(timer); }
+}
+
+function httpError(status, detail) {
+  const map = {
+    401: 'Chave da API inválida, expirada ou revogada (401). Um administrador precisa salvar uma nova chave do DeepSeek em Administração → API / IA.',
+    402: 'Saldo insuficiente na conta DeepSeek (402). Recarregue em platform.deepseek.com e tente de novo.',
+    403: 'Acesso negado pela API (403). Verifique se a chave pertence à conta DeepSeek correta.',
+    429: 'Muitas requisições à IA (429). Aguarde alguns segundos e tente novamente.'
+  };
+  let msg = map[status];
+  if (!msg && (status === 408 || status === 504)) msg = 'A IA demorou demais para responder. Tente novamente.';
+  if (!msg && status >= 500) msg = `Servidores do DeepSeek instáveis no momento (${status}). Tente novamente em instantes.`;
+  if (!msg) msg = `Erro na API do DeepSeek (${status})${detail ? ': ' + detail : ''}`;
+  const err = new Error(msg);
+  err.status = status;
+  // 401/402/403 (auth/saldo) não se resolvem trocando de canal: interrompe.
+  // Demais códigos (404/405/429/5xx) podem ser específicos de um canal → tenta o próximo.
+  err.fatal = [401, 402, 403].includes(status);
+  return err;
+}
+
+async function callDeepSeek(apiKey, systemPrompt, question, mode, onProgress) {
+  const attempts = buildAttempts(mode);
+  let lastError = null;
+
+  for (const attempt of attempts) {
+    try {
+      if (onProgress) onProgress(attempt);
+      const response = await fetchWithTimeout(attempt.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`
+        },
+        body: JSON.stringify({
+          model: 'deepseek-chat',
+          messages: [
+            { role: 'system', content: systemPrompt },
+            { role: 'user', content: question }
+          ],
+          temperature: 0.7,
+          max_tokens: 1500
+        })
+      });
+
+      if (!response.ok) {
+        let detail = '';
+        try { detail = (await response.json())?.error?.message || ''; } catch (e) {}
+        throw httpError(response.status, detail);
+      }
+
+      const result = await response.json();
+      const answer = result.choices?.[0]?.message?.content;
+      if (!answer) throw new Error('A IA respondeu sem conteúdo. Tente novamente.');
+      return { answer, channel: attempt.type === 'direct' ? '🔗 ' + attempt.label : '🛰️ ' + attempt.label };
+    } catch (err) {
+      lastError = err;
+      if (err.fatal) break; // 401/402/403: trocar de canal não resolve
+      // Erro de rede/CORS/timeout → tenta o próximo canal
+    }
+  }
+  throw lastError || new Error('Sem conexão com a IA');
+}
+
+function networkHint(err) {
+  if (err?.name === 'AbortError') {
+    return 'A IA demorou mais de 45s para responder. Tente uma pergunta mais curta ou verifique sua internet.';
+  }
+  const mode = page.getAIMode();
+  if (mode === 'direct') {
+    return 'O navegador bloqueou a chamada direta (CORS) ou a internet falhou. Peça ao administrador para mudar o modo de conexão para "Automático" ou "Proxy" em Administração → API / IA.';
+  }
+  return 'A conexão falhou em todos os canais (direto e proxy). Verifique a internet e use o botão "Testar conexão" para ver qual canal está acessível.';
+}
+
+/* ================= FLUXO PRINCIPAL ================= */
+async function updateAIStatus() {
+  const box = document.getElementById('aiStatus');
+  const text = document.getElementById('aiStatusText');
+  box.className = 'ai-status';
+  try {
+    const apiKey = await page.getDeepseekKey();
+    const mode = page.getAIMode();
+    const modeLabel = { auto: 'Automático', direct: 'Direto', proxy: 'Proxy' }[mode] || 'Automático';
+    if (apiKey) {
+      box.classList.add('ok');
+      text.textContent = `IA pronta — chave encontrada. Modo de conexão: ${modeLabel}.`;
+    } else {
+      box.classList.add('warn');
+      text.textContent = 'Modo demonstração — nenhuma chave do DeepSeek encontrada. Um administrador configura em Administração → API / IA.';
+    }
+  } catch (e) {
+    box.classList.add('err');
+    text.textContent = 'Não foi possível verificar a chave (sincronização offline?). A IA tentará usar o cache local.';
+  }
 }
 
 async function askAI() {
@@ -97,7 +261,7 @@ Dados atuais:
 - Atrasadas: ${context.late.length}
 
 Atividades pendentes:
-${context.pending.map(t => `- ${t.title} (${t.category || 'Geral'}, prioridade: ${t.priority || 'média'}, data: ${t.date || 'sem data'})`).join('\n')}
+${context.pending.map(t => `- ${t.title} (${t.category || 'Geral'}, prioridade: ${t.priority || 'média'}, data: ${t.date || 'sem data'}${t.alertTime ? ', alerta às ' + t.alertTime : ''})`).join('\n')}
 
 Atividades atrasadas:
 ${context.late.map(t => `- ${t.title} (${t.category || 'Geral'}, data: ${t.date})`).join('\n')}
@@ -108,38 +272,14 @@ ${context.todayTasks.map(t => `- ${t.title} [${t.status}] (${t.category || 'Gera
 Responda de forma clara, organizada e prática. Use emojis para facilitar a leitura.`;
 
   try {
-    // A chave é resolvida em camadas (sessão → localStorage → Firestore).
-    // O Firestore foi liberado em rules para qualquer usuário autenticado,
-    // então a IA funciona também para os membros do app.
     const apiKey = await page.getDeepseekKey();
     if (apiKey) {
-      // Chamada real à API DeepSeek
-      const response = await fetch('https://api.deepseek.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model: 'deepseek-chat',
-          messages: [
-            { role: 'system', content: systemPrompt },
-            { role: 'user', content: question }
-          ],
-          temperature: 0.7,
-          max_tokens: 1500
-        })
+      const mode = page.getAIMode();
+      const { answer, channel } = await callDeepSeek(apiKey, systemPrompt, question, mode, attempt => {
+        btn.textContent = `⏳ Conectando (${attempt.label})...`;
       });
-
-      if (!response.ok) {
-        let detail = '';
-        try { detail = (await response.json())?.error?.message || ''; } catch(e) {}
-        throw new Error('Erro na API: ' + response.status + (detail ? ' — ' + detail : ''));
-      }
-
-      const result = await response.json();
-      const answer = result.choices?.[0]?.message?.content || 'Sem resposta da IA';
-      showAnswer(answer, question);
+      showAnswer(answer, question, channel);
+      updateAIStatus();
     } else {
       // Modo preview sem API key
       showAnswer(
@@ -150,15 +290,84 @@ Responda de forma clara, organizada e prática. Use emojis para facilitar a leit
       );
     }
   } catch (err) {
-    showAnswer(`⚠️ Erro ao consultar IA: ${err.message}\n\nUm administrador pode configurar a API Key em Administração > API / IA.`, question);
+    const hint = err.status ? err.message : networkHint(err);
+    showAnswer(
+      `⚠️ **Não foi possível consultar a IA**\n\n${hint}\n\n💡 Dica: clique em **Testar conexão** para ver qual etapa está falhando.\n\n---\n\n` +
+      generateLocalResponse(question, context),
+      question
+    );
+    core.log('ai_error', user?.id, (err.message || 'erro').slice(0, 80));
+    updateAIStatus();
   }
 
   btn.disabled = false;
   btn.textContent = '✨ Consultar IA';
 }
 
-function showAnswer(text, question) {
+/* ================= TESTE DE CONEXÃO ================= */
+async function testAI() {
+  const btn = document.getElementById('btnTest');
+  const card = document.getElementById('diagCard');
+  const list = document.getElementById('diagList');
+  btn.disabled = true;
+  btn.textContent = '⏳ Testando...';
+  card.style.display = 'block';
+  list.innerHTML = diagRow('⏳', 'Configuração', 'Verificando chave salva...');
+
+  const items = [];
+  const mode = page.getAIMode();
+  const modeLabel = { auto: 'Automático (direto → proxy)', direct: 'Direto', proxy: 'Proxy' }[mode] || 'auto';
+  items.push({ icon: 'ℹ️', title: 'Modo de conexão', detail: modeLabel + ' — ajustável em Administração → API / IA' });
+
+  let apiKey = '';
+  try { apiKey = await page.getDeepseekKey(); } catch (e) {}
+  items.push(apiKey
+    ? { icon: '✅', title: 'API Key do DeepSeek', detail: 'Chave encontrada (navegador ou banco de dados).' }
+    : { icon: '❌', title: 'API Key do DeepSeek', detail: 'Nenhuma chave encontrada. Admin: salve em Administração → API / IA e atualize as regras do Firestore.' });
+  list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
+
+  if (apiKey) {
+    // Testa leitura da API (GET /models) via canal direto
+    items.push(await probe('Conexão direta com o DeepSeek', DS_ENDPOINTS[0].replace('/chat/completions', '/models'), apiKey));
+    list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
+
+    // Testa via proxy CORS
+    items.push(await probe('Conexão via proxy CORS (CorsProxy)', CORS_PROXIES[0].wrap(DS_ENDPOINTS[0].replace('/chat/completions', '/models')), apiKey));
+    list.innerHTML = items.map(i => diagRow(i.icon, i.title, i.detail)).join('');
+  }
+
+  btn.disabled = false;
+  btn.textContent = '🔌 Testar conexão';
+}
+
+function diagRow(icon, title, detail) {
+  return `<div class="ai-diag-item"><span class="ai-diag-ico">${icon}</span><div><b>${page.esc(title)}</b><small>${page.esc(detail)}</small></div></div>`;
+}
+
+async function probe(title, url, apiKey) {
+  try {
+    const res = await fetchWithTimeout(url, { headers: { 'Authorization': 'Bearer ' + apiKey } }, 15000);
+    if (res.ok) return { icon: '✅', title, detail: 'Canal acessível — respostas da IA devem chegar por aqui.' };
+    if (res.status === 401) return { icon: '❌', title, detail: 'Canal acessível, mas a chave foi rejeitada (401). Salve uma chave válida.' };
+    return { icon: '⚠️', title, detail: 'Canal respondeu HTTP ' + res.status + '. Tente novamente.' };
+  } catch (err) {
+    const why = err?.name === 'AbortError'
+      ? 'Sem resposta em 15s (rede lenta ou serviço fora do ar).'
+      : 'Bloqueado pelo navegador (CORS) ou sem internet.';
+    return { icon: '❌', title, detail: why };
+  }
+}
+
+/* ================= RESPOSTA / HISTÓRICO ================= */
+function showAnswer(text, question, channel) {
   document.getElementById('answerCard').style.display = 'block';
+  const channelEl = document.getElementById('answerChannel');
+  if (channel) {
+    channelEl.style.display = 'block';
+    channelEl.textContent = 'Respondido via ' + channel;
+  } else {
+    channelEl.style.display = 'none';
+  }
   document.getElementById('answer').innerHTML = formatAnswer(text);
 
   // Salvar no histórico

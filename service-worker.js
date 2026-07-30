@@ -7,7 +7,10 @@
 // v10 = página Macros + botão de adicionar arquivo + claim de admin de uso único.
 // v11 = correção do bug da API Key do DeepSeek (leitura de settings/admin
 //       liberada para usuários autenticados, cache em sessionStorage).
-const CACHE_NAME = 'checklist-ml-v11-apikey-fix';
+// v12 = menu superior com dropdowns no desktop, IA com fallback via proxy
+//       CORS + diagnóstico, atividades em cards compactos por status,
+//       categorias por checkbox e horário de alerta por atividade.
+const CACHE_NAME = 'checklist-ml-v12-topnav-ia';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',

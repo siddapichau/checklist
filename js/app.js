@@ -13,6 +13,17 @@ const App = {
   _swUpdateRequested: false,
   _recoveryListenersAttached: false,
   _lastConnectionRecovery: 0,
+  _alertTimer: null,
+
+  /* Agrupamento do menu superior (desktop). Cada grupo vira um dropdown;
+     a ordem interna segue settings.menuOrder e respeita visibilidade/adminOnly. */
+  MENU_GROUPS: [
+    { id: 'operacao',    icon: '📋', label: 'Operação',      items: ['home', 'atividades', 'kanban', 'calendario'] },
+    { id: 'produtividade', icon: '🎯', label: 'Produtividade', items: ['gamificacao', 'foco'] },
+    { id: 'recursos',    icon: '🗂️', label: 'Recursos',      items: ['arquivos', 'macros', 'relatorios'] },
+    { id: 'ferramentas', icon: '🧰', label: 'Ferramentas',   items: ['custom', 'IA'] },
+    { id: 'sistema',     icon: '⚙️', label: 'Sistema',       items: ['perfil', 'admin'] },
+  ],
 
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
@@ -283,6 +294,7 @@ const App = {
     this.updateUserInfo();
     this.injectLanguageSwitcher();
     this.injectNotificationButton();
+    this.startTaskAlertMonitor();
     const page = location.hash.slice(1) || 'home';
     this.navigate(page);
   },
@@ -1086,8 +1098,13 @@ const App = {
 
     document.querySelectorAll('.nav-item').forEach(n =>
       n.classList.toggle('active', n.dataset.page === page));
+    document.querySelectorAll('.topnav-item').forEach(n =>
+      n.classList.toggle('active', n.dataset.page === page));
+    document.querySelectorAll('.topnav-group').forEach(g =>
+      g.classList.toggle('has-active', Boolean(g.querySelector(`.topnav-item[data-page="${page}"]`))));
 
     this.closeSidebar();
+    this.closeTopnavMenus();
     try { history.replaceState({}, '', '#' + page); } catch(e) {}
   },
 
@@ -1102,44 +1119,150 @@ const App = {
   },
 
   renderSidebar() {
-    const nav = document.getElementById('sidebarNav');
-    if (!nav || !this.settings?.menuItems) return;
+    if (!this.settings?.menuItems) return;
     const items = this.settings.menuItems;
     const order = this.settings.menuOrder || items.map(i => i.id);
 
-    let html = '<div class="nav-section"><div class="nav-section-title">Menu</div>';
+    const visibleItems = order
+      .map(id => items.find(i => i.id === id))
+      .filter(item => item && item.visible && (!item.adminOnly || this.currentUser?.role === 'admin'));
 
-    order.forEach(id => {
-      const item = items.find(i => i.id === id);
-      if (!item || !item.visible) return;
-      if (item.adminOnly && this.currentUser?.role !== 'admin') return;
+    /* ---- Gaveta lateral (mobile) ---- */
+    const nav = document.getElementById('sidebarNav');
+    if (nav) {
+      let html = '<div class="nav-section"><div class="nav-section-title">Menu</div>';
+      visibleItems.forEach(item => {
+        const isActive = this.currentPage === item.id ? 'active' : '';
+        const badge = this.getBadge(item.id);
+        const label = this.tr(item.label, item.id);
+        html += `<div class="nav-item ${isActive}" data-page="${item.id}" onclick="App.navigate('${item.id}')">
+          <span class="icon">${item.icon}</span>
+          <span>${label}</span>
+          ${badge ? `<span class="badge">${badge}</span>` : ''}
+        </div>`;
+      });
+      html += '</div>';
+      nav.innerHTML = html;
+    }
 
-      const isActive = this.currentPage === id ? 'active' : '';
-      const badge = this.getBadge(id);
-      const label = this.tr(item.label, item.id);
-
-      html += `<div class="nav-item ${isActive}" data-page="${id}" onclick="App.navigate('${id}')">
-        <span class="icon">${item.icon}</span>
-        <span>${label}</span>
-        ${badge ? `<span class="badge">${badge}</span>` : ''}
-      </div>`;
-    });
-
-    html += '</div>';
-    nav.innerHTML = html;
+    this.renderTopnav(visibleItems);
 
     const brandEl = document.getElementById('sidebarBrand');
     if (brandEl) brandEl.textContent = this.settings.brand;
+    const topBrandEl = document.getElementById('topbarBrand');
+    if (topBrandEl) topBrandEl.textContent = this.settings.brand;
     document.title = this.settings.brand || 'Checklist ML';
 
     if (this.settings.logo) {
       const logoEl = document.getElementById('sidebarLogo');
       if (logoEl) logoEl.src = this.settings.logo;
+      const topLogoEl = document.getElementById('topbarLogo');
+      if (topLogoEl) topLogoEl.src = this.settings.logo;
     }
     if (this.settings.favicon) {
       const fav = document.querySelector('link[rel="icon"]');
       if (fav) fav.href = this.settings.favicon;
     }
+  },
+
+  /* ---- Menu superior (desktop): grupos com dropdown de submenus ---- */
+  renderTopnav(visibleItems) {
+    const nav = document.getElementById('topnav');
+    if (!nav || !Array.isArray(visibleItems)) return;
+
+    const html = this.MENU_GROUPS.map(group => {
+      const groupItems = visibleItems.filter(item => group.items.includes(item.id));
+      if (!groupItems.length) return '';
+
+      const badgeTotal = groupItems.reduce((sum, item) => sum + (parseInt(this.getBadge(item.id), 10) || 0), 0);
+      const hasActive = groupItems.some(item => item.id === this.currentPage);
+
+      const menuItems = groupItems.map(item => {
+        const badge = this.getBadge(item.id);
+        return `<div class="topnav-item ${this.currentPage === item.id ? 'active' : ''}" data-page="${item.id}" onclick="App.navigate('${item.id}')">
+          <span class="icon">${item.icon}</span>
+          <span>${this.tr(item.label, item.id)}</span>
+          ${badge ? `<span class="badge">${badge}</span>` : ''}
+        </div>`;
+      }).join('');
+
+      return `<div class="topnav-group ${hasActive ? 'has-active' : ''}" data-group="${group.id}">
+        <button type="button" class="topnav-trigger" onclick="App.toggleTopnavMenu('${group.id}', event)" aria-haspopup="true">
+          <span>${group.icon}</span>
+          <span>${this.tr(group.label, 'group-' + group.id)}</span>
+          <span class="caret">▾</span>
+          ${badgeTotal ? `<span class="trigger-badge">${badgeTotal}</span>` : ''}
+        </button>
+        <div class="topnav-menu">${menuItems}</div>
+      </div>`;
+    }).join('');
+
+    nav.innerHTML = html;
+  },
+
+  toggleTopnavMenu(groupId, event) {
+    if (event) event.stopPropagation();
+    const group = document.querySelector(`.topnav-group[data-group="${groupId}"]`);
+    if (!group) return;
+    const willOpen = !group.classList.contains('open');
+    document.querySelectorAll('.topnav-group.open').forEach(g => g.classList.remove('open'));
+    if (willOpen) group.classList.add('open');
+  },
+
+  closeTopnavMenus() {
+    document.querySelectorAll('.topnav-group.open').forEach(g => g.classList.remove('open'));
+  },
+
+  /* ========== ALERTAS AGENDADOS DAS ATIVIDADES ==========
+     Roda no shell (iframe-agnóstico): a cada 30s verifica atividades de hoje
+     com "alertTime" definido e dispara notificação no horário. Cada alerta é
+     marcado por tarefa/data/horário para não repetir. */
+  startTaskAlertMonitor() {
+    if (this._alertTimer) return;
+    const tick = () => {
+      try { this._checkTaskAlerts(); } catch (e) { console.warn('taskAlerts:', e); }
+    };
+    this._alertTimer = setInterval(tick, 30000);
+    setTimeout(tick, 4000);
+  },
+
+  _checkTaskAlerts() {
+    if (!this.currentUser) return;
+    const uid = this.currentUser.id || this.currentUser.uid;
+    const now = new Date();
+    const today = core.today();
+    const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const data = core.getLocalDB();
+
+    (data.tasks || []).forEach(task => {
+      if (!task.alertTime || task.date !== today) return;
+      if (task.alertTime > hhmm) return;
+      if (task.status === 'finished' || task.status === 'notdone') return;
+      if (task.owner && uid && String(task.owner) !== String(uid)) return;
+
+      const marker = `cl-alert-${task.id}-${task.date}-${task.alertTime}`;
+      try { if (localStorage.getItem(marker)) return; } catch (e) {}
+      try { localStorage.setItem(marker, '1'); } catch (e) {}
+
+      const title = '⏰ Lembrete de atividade';
+      const body = `${task.alertTime} — ${task.title}`;
+      // Entrada na central (silenciosa) + alerta visual/navegador com destaque.
+      core._createNotification(uid, title, body, 'warning', {
+        dedupeKey: `alert:${task.id}:${task.date}:${task.alertTime}`,
+        data: { page: 'atividades', taskId: task.id },
+        showToast: false,
+        showBrowser: false,
+      });
+      core.chromeNotification(title, body, 'warning');
+      try { this.renderNotifications(); } catch (e) {}
+    });
+
+    // Limpa marcadores de dias anteriores para não acumular no localStorage.
+    try {
+      Object.keys(localStorage)
+        .filter(key => key.startsWith('cl-alert-') && !key.includes(`-${today}-`))
+        .forEach(key => localStorage.removeItem(key));
+    } catch (e) {}
   },
 
   getBadge(pageId) {
@@ -1462,6 +1585,7 @@ const App = {
       if (e.key === 'Escape') {
         document.getElementById('langMenu')?.classList.add('hidden');
         document.getElementById('notifMenu')?.classList.add('hidden');
+        this.closeTopnavMenus();
       }
 
       const tag = document.activeElement?.tagName;
@@ -1503,6 +1627,9 @@ const App = {
       }
       if (!e.target.closest('#notifButton')) {
         document.getElementById('notifMenu')?.classList.add('hidden');
+      }
+      if (!e.target.closest('.topnav-group')) {
+        this.closeTopnavMenus();
       }
     });
   },

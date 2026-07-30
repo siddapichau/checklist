@@ -579,6 +579,7 @@ const FireSync = {
 
   async getAdminConfig() {
     let hasKey = false;
+    let aiMode = this.getAIMode();
     try {
       hasKey = Boolean(sessionStorage.getItem('cl-admin-deepseek-key') ||
                        localStorage.getItem('cl-admin-deepseek-key'));
@@ -586,13 +587,26 @@ const FireSync = {
 
     try {
       const doc = await db.collection('settings').doc('admin').get();
-      if (doc.exists && doc.data().deepseekKey) {
-        hasKey = true;
+      if (doc.exists) {
+        const data = doc.data() || {};
+        if (data.deepseekKey) hasKey = true;
+        if (data.aiMode && ['auto', 'direct', 'proxy'].includes(data.aiMode)) {
+          aiMode = data.aiMode;
+          try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
+        }
       }
     } catch (err) {
       console.warn('admin config load:', err);
     }
-    return { hasDeepseekKey: hasKey, updatedAt: null };
+    return { hasDeepseekKey: hasKey, aiMode, updatedAt: null };
+  },
+
+  /* Modo de conexão da IA: 'auto' (direto → proxy), 'direct', 'proxy'. */
+  getAIMode() {
+    try {
+      const mode = localStorage.getItem('cl-admin-ai-mode');
+      return ['auto', 'direct', 'proxy'].includes(mode) ? mode : 'auto';
+    } catch(e) { return 'auto'; }
   },
 
   async getDeepseekKey() {
@@ -621,6 +635,9 @@ const FireSync = {
       const doc = await db.collection('settings').doc('admin').get();
       if (doc.exists) {
         const data = doc.data();
+        if (data && data.aiMode && ['auto', 'direct', 'proxy'].includes(data.aiMode)) {
+          try { localStorage.setItem('cl-admin-ai-mode', data.aiMode); } catch(e) {}
+        }
         if (data && data.deepseekKey) {
           const key = String(data.deepseekKey || '');
           // cache local para chamadas subsequentes
@@ -636,31 +653,40 @@ const FireSync = {
   },
 
   async saveAdminConfig(config = {}) {
-    const deepseekKey = String(config.deepseekKey || '').trim();
+    const hasKeyField = Object.prototype.hasOwnProperty.call(config, 'deepseekKey');
+    const hasModeField = Object.prototype.hasOwnProperty.call(config, 'aiMode');
+    const deepseekKey = hasKeyField ? String(config.deepseekKey || '').trim() : undefined;
+    const aiMode = hasModeField && ['auto', 'direct', 'proxy'].includes(config.aiMode)
+      ? config.aiMode : undefined;
 
     // Save in localStorage DB always as robust DB persistence
-    try {
-      localStorage.setItem('cl-admin-deepseek-key', deepseekKey);
-    } catch(e) {}
+    if (deepseekKey !== undefined) {
+      try { localStorage.setItem('cl-admin-deepseek-key', deepseekKey); } catch(e) {}
+      // Save in sessionStorage for the current tab (quicker fallback)
+      try { sessionStorage.setItem('cl-admin-deepseek-key', deepseekKey); } catch(e) {}
+    }
+    if (aiMode) {
+      try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
+    }
 
-    // Save in sessionStorage for the current tab (quicker fallback)
+    // Save in Firestore (merge: não apaga a chave ao salvar somente o modo)
     try {
-      sessionStorage.setItem('cl-admin-deepseek-key', deepseekKey);
-    } catch(e) {}
-
-    // Save in Firestore
-    try {
-      await db.collection('settings').doc('admin').set({
-        deepseekKey,
+      const payload = {
         updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
         updatedBy: auth.currentUser?.uid || ''
-      }, { merge: true });
+      };
+      if (deepseekKey !== undefined) payload.deepseekKey = deepseekKey;
+      if (aiMode) payload.aiMode = aiMode;
+      await db.collection('settings').doc('admin').set(payload, { merge: true });
       console.log('🔐 Configuração privada salva no Firestore');
     } catch (err) {
       console.warn('Firestore admin config save warning (saved locally):', err);
     }
 
-    return { hasDeepseekKey: Boolean(deepseekKey) };
+    const result = {};
+    if (deepseekKey !== undefined) result.hasDeepseekKey = Boolean(deepseekKey);
+    if (aiMode) result.aiMode = aiMode;
+    return result;
   }
 };
 

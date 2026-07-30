@@ -215,6 +215,20 @@ document.addEventListener('keydown', function(e){
   <div class="main">
     <header class="topbar">
       <button class="btn-mobile" onclick="App.toggleSidebar()">☰</button>
+
+      <!-- Marca (desktop: menu no topo) -->
+      <div class="topbar-brand" onclick="App.navigate('home')" title="Ir para Visão geral">
+        <img src="assets/logo-modern.png" alt="Logo" id="topbarLogo">
+        <span id="topbarBrand">Checklist ML</span>
+      </div>
+
+      <!-- MENU SUPERIOR (desktop): grupos com dropdown — populado por app.js -->
+      <nav class="topnav" id="topnav" aria-label="Menu principal"></nav>
+
+      <button class="btn-new-top" onclick="App.quickNewTask()" title="Nova atividade (N)">
+        <span class="plus">＋</span><span class="lbl">Nova atividade</span>
+      </button>
+
       <span class="breadcrumb" id="breadcrumb">📊 Visão geral</span>
       <div class="topbar-actions">
         <button onclick="App.toggleTheme()" title="Alternar tema" id="btnTheme">🌙</button>

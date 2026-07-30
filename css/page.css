@@ -873,3 +873,124 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   padding-bottom:6px;
   border-bottom:1px solid var(--line,#E2E8F0);
 }
+
+/* ---------- CATEGORIAS POR CAIXA MARCÁVEL (checkbox chips) ---------- */
+.cat-check-grid{
+  display:flex;flex-wrap:wrap;gap:8px;margin-top:2px;
+  max-height:132px;overflow-y:auto;padding:2px;
+}
+.cat-check{
+  position:relative;display:inline-flex;align-items:center;gap:7px;margin:0;
+  padding:7px 13px 7px 9px;border:1.5px solid var(--line,#E2E8F0);border-radius:20px;
+  background:var(--bg-secondary,#F1F5F9);font-size:13px;font-weight:600;
+  color:var(--text-secondary,#64748B);cursor:pointer;transition:.15s;user-select:none;
+}
+/* anula a regra global "label span" para os chips ficarem alinhados */
+.cat-check span{display:inline-block;margin:0;font-size:13px;font-weight:600;color:inherit}
+.cat-check input{position:absolute;opacity:0;width:0;height:0;margin:0;padding:0}
+.cat-check .check-dot{
+  width:17px;height:17px;border-radius:50%;border:2px solid var(--line,#E2E8F0);
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:10px;line-height:1;color:transparent;background:var(--card,#fff);
+  transition:.15s;flex-shrink:0;
+}
+.cat-check:hover{border-color:var(--primary,#2563EB);color:var(--primary,#2563EB);transform:translateY(-1px)}
+.cat-check.checked{
+  background:var(--primary-light,#DBEAFE);border-color:var(--primary,#2563EB);
+  color:var(--primary,#2563EB);
+}
+.cat-check.checked .check-dot{
+  background:var(--primary,#2563EB);border-color:var(--primary,#2563EB);color:#fff;
+}
+.cat-check:active{transform:scale(.96)}
+/* Tema mercado (amarelo): contraste no chip marcado */
+[data-theme="mercado"][data-mode="light"] .cat-check.checked{color:#333}
+[data-theme="mercado"][data-mode="light"] .cat-check.checked .check-dot{color:#333}
+
+/* ---------- ATIVIDADES: CARDS COMPACTOS AGRUPADOS POR STATUS ---------- */
+.task-group{margin-bottom:20px;animation:fadeInUp .3s ease}
+.task-group-header{
+  display:flex;align-items:center;gap:9px;font-size:13px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary,#64748B);
+  margin:4px 2px 10px;padding-bottom:8px;border-bottom:2px solid var(--line,#E2E8F0);
+}
+.task-group-header .tg-icon{font-size:16px}
+.task-group-header .tg-count{
+  background:var(--bg-secondary,#F1F5F9);color:var(--text,#1E293B);
+  border:1px solid var(--line,#E2E8F0);border-radius:12px;
+  padding:1px 9px;font-size:11px;font-weight:800;
+}
+.task-group-header.late .tg-count{background:var(--danger-light,#FEE2E2);color:var(--danger,#EF4444);border-color:transparent}
+.task-group-header.analyzing .tg-count{background:var(--info-light,#DBEAFE);color:var(--info,#3B82F6);border-color:transparent}
+.task-group-header.pending .tg-count{background:var(--warning-light,#FEF3C7);color:var(--warning,#D97706);border-color:transparent}
+.task-group-header.finished .tg-count{background:var(--success-light,#D1FAE5);color:var(--success,#059669);border-color:transparent}
+.task-group-header.notdone .tg-count{background:var(--danger-light,#FEE2E2);color:var(--danger,#DC2626);border-color:transparent}
+
+.task-card-grid{
+  display:grid;grid-template-columns:repeat(auto-fill,minmax(235px,1fr));gap:10px;
+}
+@media(max-width:600px){
+  .task-card-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:8px}
+}
+
+.task-card{
+  background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);
+  border-left:4px solid var(--warning,#F59E0B);border-radius:10px;
+  padding:10px 12px;display:flex;flex-direction:column;gap:7px;
+  transition:transform .15s,box-shadow .15s;position:relative;min-width:0;
+}
+.task-card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(2,6,23,.09)}
+.task-card.st-analyzing{border-left-color:var(--info,#3B82F6)}
+.task-card.st-finished{border-left-color:var(--success,#10B981)}
+.task-card.st-notdone{border-left-color:var(--danger,#EF4444)}
+.task-card.late{border-left-color:var(--danger,#EF4444);background:linear-gradient(0deg,rgba(239,68,68,.045),rgba(239,68,68,.045)),var(--card,#fff)}
+
+.task-card .tc-top{display:flex;align-items:flex-start;gap:8px;min-width:0}
+.task-card .tc-check{
+  border:0;background:transparent;font-size:17px;line-height:1.2;padding:0;cursor:pointer;
+  flex-shrink:0;transition:transform .12s;
+}
+.task-card .tc-check:hover{transform:scale(1.15)}
+.task-card .tc-title{
+  flex:1;min-width:0;font-size:13.5px;font-weight:700;color:var(--text,#1E293B);
+  line-height:1.3;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  cursor:pointer;
+}
+.task-card .tc-title:hover{color:var(--primary,#2563EB)}
+.task-card.st-finished .tc-title{text-decoration:line-through;opacity:.55}
+
+.task-card .tc-prio{
+  width:8px;height:8px;border-radius:50%;flex-shrink:0;margin-top:5px;
+}
+.task-card .tc-prio.low{background:#10B981}
+.task-card .tc-prio.medium{background:#F59E0B}
+.task-card .tc-prio.high{background:#F97316}
+.task-card .tc-prio.urgent{background:#EF4444;box-shadow:0 0 0 3px rgba(239,68,68,.18);animation:pulse 1.6s infinite}
+
+.task-card .tc-meta{display:flex;flex-wrap:wrap;gap:5px;font-size:11px}
+.task-card .tc-chip{
+  display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;
+  background:var(--bg-secondary,#F1F5F9);color:var(--text-secondary,#64748B);
+  font-weight:600;font-size:11px;white-space:nowrap;
+}
+.task-card .tc-chip.late{background:var(--danger-light,#FEE2E2);color:var(--danger,#EF4444)}
+.task-card .tc-chip.alert{background:var(--warning-light,#FEF3C7);color:var(--warning,#B45309)}
+.task-card .tc-desc{
+  font-size:12px;color:var(--muted,#94A3B8);line-height:1.35;
+  overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+}
+.task-card .tc-actions{display:flex;gap:4px;margin-top:auto;opacity:0;transition:.15s}
+.task-card:hover .tc-actions{opacity:1}
+@media(hover:none){.task-card .tc-actions{opacity:1}}
+.task-card .tc-actions .btn-icon{width:28px;height:28px;font-size:13px;border-radius:7px}
+
+.task-card .tc-badge{
+  position:absolute;top:-7px;right:10px;font-size:9.5px;font-weight:800;
+  text-transform:uppercase;letter-spacing:.4px;padding:2px 8px;border-radius:10px;
+  background:var(--bg-secondary,#F1F5F9);color:var(--text-secondary,#64748B);
+  border:1px solid var(--line,#E2E8F0);
+}
+.task-card.late .tc-badge{background:var(--danger,#EF4444);color:#fff;border-color:var(--danger,#EF4444)}
+
+/* Campo de horário com ícone */
+.time-hint{font-size:11px;color:var(--muted,#94A3B8);margin-top:3px;display:block}

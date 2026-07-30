@@ -16,7 +16,12 @@
     "relatorios": "Relatórios",
     "IA": "IA Assistente",
     "perfil": "Meu Perfil",
-    "admin": "Administração"
+    "admin": "Administração",
+    "group-operacao": "Operação",
+    "group-produtividade": "Produtividade",
+    "group-recursos": "Recursos",
+    "group-ferramentas": "Ferramentas",
+    "group-sistema": "Sistema"
   },
   "common": {
     "save": "Salvar",
