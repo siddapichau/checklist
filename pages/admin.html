@@ -246,7 +246,8 @@
 <script>
 const user = page.getUser();
 if (!user || user.role !== 'admin') {
-  document.body.innerHTML = '<div class="empty"><div class="icon">🔒</div><p>Acesso restrito a administradores</p></div>';
+  document.body.innerHTML = '<div class="empty"><div class="icon">🔒</div><h2>Acesso restrito</h2><p>Somente administradores podem abrir o Painel Admin.</p></div>';
+  throw new Error('Acesso administrativo negado');
 }
 
 let data = page.getDB();
