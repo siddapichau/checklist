@@ -147,23 +147,42 @@
 <div class="tab-content" id="tab-files">
   <div class="card">
     <h2>📁 Adicionar arquivo/link</h2>
-    <label><span>Título</span>
-      <input type="text" id="fileTitle" placeholder="Nome do arquivo">
-    </label>
-    <label><span>URL</span>
-      <input type="text" id="fileUrl" placeholder="https://...">
+    <p class="text-muted mb-2" style="margin-bottom:14px">A thumbnail é gerada automaticamente conforme o tipo se não for informada. Formatos: <b>📊 Planilha · 📝 Documento · 📽️ Apresentação · 🎬 Vídeo · 🖼️ Imagem · 📕 PDF · 🔗 Link</b></p>
+    <div class="form-row">
+      <label style="flex:2"><span>Título *</span>
+        <input type="text" id="fileTitle" placeholder="Nome do arquivo ou documento">
+      </label>
+      <label style="flex:1"><span>Tipo</span>
+        <select id="fileType">
+          <option value="">Auto-detectar</option>
+          <option value="spreadsheet">📊 Planilha</option>
+          <option value="document">📝 Documento</option>
+          <option value="presentation">📽️ Apresentação</option>
+          <option value="video">🎬 Vídeo</option>
+          <option value="image">🖼️ Imagem</option>
+          <option value="pdf">📕 PDF</option>
+          <option value="link">🔗 Link</option>
+          <option value="other">📎 Outros</option>
+        </select>
+      </label>
+    </div>
+    <label><span>URL / Link *</span>
+      <input type="text" id="fileUrl" placeholder="https://... ou caminho do arquivo">
     </label>
     <label><span>Categoria</span>
       <select id="fileCategory"></select>
     </label>
     <label><span>Descrição</span>
-      <input type="text" id="fileDesc" placeholder="Descrição breve">
+      <input type="text" id="fileDesc" placeholder="Descrição breve para busca e identificação">
     </label>
-    <label><span>Imagem/Thumbnail (URL ou upload)</span>
-      <input type="text" id="fileImage" placeholder="URL da thumbnail">
-      <input type="file" accept="image/*" onchange="uploadFileImage(event)" style="margin-top:6px">
+    <label><span>Thumbnail personalizada (opcional — auto-gerada por tipo se vazia)</span>
+      <div style="display:flex;gap:8px;align-items:end">
+        <input type="text" id="fileImage" placeholder="URL da thumbnail" style="flex:1">
+        <span style="color:var(--muted);font-size:12px;white-space:nowrap">ou</span>
+        <input type="file" accept="image/*" onchange="uploadFileImage(event)" style="flex:1;min-width:0">
+      </div>
     </label>
-    <button class="btn btn-primary" onclick="addFile()">＋ Adicionar</button>
+    <button class="btn btn-primary" onclick="addFile()">＋ Adicionar arquivo</button>
   </div>
 
   <div class="card">
@@ -596,18 +615,47 @@ async function uploadFileImage(e) {
   page.toast('Thumbnail carregada!', 'info');
 }
 
+function getFileTypeInfo(f) {
+  if (f.fileType) {
+    const map = {
+      spreadsheet: '📊 Planilha', document: '📝 Documento', presentation: '📽️ Apresentação',
+      video: '🎬 Vídeo', image: '🖼️ Imagem', pdf: '📕 PDF', link: '🔗 Link', other: '📎 Outro'
+    };
+    return map[f.fileType] || '📎 Outro';
+  }
+  const url = (f.url || '').toLowerCase();
+  if (/\.(xlsx|xls|csv|ods)$/.test(url)) return '📊 Planilha';
+  if (/\.(docx|doc|odt|txt|rtf)$/.test(url)) return '📝 Documento';
+  if (/\.(pptx|ppt|odp)$/.test(url)) return '📽️ Apresentação';
+  if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(url)) return '🎬 Vídeo';
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(url)) return '🖼️ Imagem';
+  if (/\.pdf$/.test(url)) return '📕 PDF';
+  if (/^https?:\/\//.test(url) && !/\.\w{2,5}$/.test(url)) return '🔗 Link';
+  return '📎 Outro';
+}
+
+function getFileThumbEmoji(f) {
+  if (f.fileType) {
+    const map = { spreadsheet: '📊', document: '📝', presentation: '📽️', video: '🎬', image: '🖼️', pdf: '📕', link: '🔗', other: '📎' };
+    return map[f.fileType] || '📎';
+  }
+  return '📄';
+}
+
 function addFile() {
   const title = document.getElementById('fileTitle').value.trim();
   const url = document.getElementById('fileUrl').value.trim();
   if (!title || !url) return page.toast('Preencha título e URL', 'warning');
 
   data = page.getDB();
+  const fileType = document.getElementById('fileType').value;
   const fileEntry = {
     id: Date.now(),
     title, url,
     category: document.getElementById('fileCategory').value,
     description: document.getElementById('fileDesc').value.trim(),
     image: document.getElementById('fileImage').value.trim(),
+    fileType: fileType || '',
     updatedAt: core.now()
   };
   data.files.push(fileEntry);
@@ -619,6 +667,7 @@ function addFile() {
   document.getElementById('fileUrl').value = '';
   document.getElementById('fileDesc').value = '';
   document.getElementById('fileImage').value = '';
+  document.getElementById('fileType').value = '';
   renderFiles();
   page.toast('Arquivo adicionado! 📁', 'success');
 }
@@ -627,16 +676,20 @@ function renderFiles() {
   data = page.getDB();
   const files = data.files || [];
   document.getElementById('filesList').innerHTML = files.length > 0
-    ? files.map(f => `
+    ? files.map(f => {
+        const typeInfo = getFileTypeInfo(f);
+        const thumbEmoji = getFileThumbEmoji(f);
+        return `
       <div class="item">
-        ${f.image ? `<img src="${f.image}" style="width:40px;height:40px;border-radius:6px;object-fit:cover">` : '<span style="font-size:22px">📄</span>'}
+        ${f.image ? `<img src="${f.image}" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : `<div style="width:48px;height:48px;border-radius:8px;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:24px">${thumbEmoji}</div>`}
         <div class="item-info">
           <b>${page.esc(f.title)}</b>
-          <small>${page.esc(f.category || 'Geral')} · <a href="${page.esc(f.url)}" target="_blank">Abrir</a></small>
+          <small>${typeInfo} · ${page.esc(f.category || 'Geral')}${f.description ? ' · ' + page.esc(f.description) : ''} · <a href="${page.esc(f.url)}" target="_blank">Abrir 🔗</a></small>
         </div>
-        <button class="btn-icon" onclick="deleteFile(${f.id})">🗑️</button>
+        <button class="btn-icon" onclick="deleteFile(${f.id})" title="Excluir">🗑️</button>
       </div>
-    `).join('')
+    `;
+      }).join('')
     : '<div class="empty"><p>Nenhum arquivo cadastrado</p></div>';
 }
 

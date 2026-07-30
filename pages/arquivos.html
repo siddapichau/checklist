@@ -11,29 +11,78 @@
 <div class="page-header">
   <div class="info">
     <small>BIBLIOTECA</small>
-    <h1>Arquivos</h1>
-    <p>Documentos, links e recursos da operação</p>
+    <h1>📁 Arquivos e recursos</h1>
+    <p>Documentos, planilhas, vídeos e links da operação</p>
   </div>
 </div>
 
-<!-- FILTROS -->
+<!-- FILTROS AVANÇADOS -->
 <div class="filters">
-  <input type="text" id="search" placeholder="🔍 Buscar arquivo..." oninput="render()">
+  <input type="text" id="search" placeholder="🔍 Buscar por título ou descrição..." oninput="render()">
   <select id="filterCategory" onchange="render()">
-    <option value="all">Todas categorias</option>
+    <option value="all">📂 Todas categorias</option>
+  </select>
+  <select id="filterType" onchange="render()">
+    <option value="all">📄 Todos os tipos</option>
+    <option value="document">📝 Documentos</option>
+    <option value="spreadsheet">📊 Planilhas</option>
+    <option value="presentation">📽️ Apresentações</option>
+    <option value="video">🎬 Vídeos</option>
+    <option value="image">🖼️ Imagens</option>
+    <option value="pdf">📕 PDFs</option>
+    <option value="link">🔗 Links</option>
+    <option value="other">📎 Outros</option>
   </select>
 </div>
 
-<!-- LISTA -->
-<div class="card">
-  <div id="fileList"></div>
+<!-- GRID DE CARDS -->
+<div class="file-grid" id="fileGrid"></div>
+
+<!-- VAZIO -->
+<div id="fileEmpty" class="empty" style="display:none">
+  <div class="icon">📁</div>
+  <h2>Nenhum arquivo encontrado</h2>
+  <p>Arquivos são adicionados pelo administrador no painel de controle</p>
 </div>
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
-const user = page.getUser();
 const settings = page.getDB().settings;
+
+// Detectar tipo do arquivo pela URL/extensão
+function detectFileType(file) {
+  if (file.fileType) return file.fileType;
+  const url = (file.url || '').toLowerCase();
+  const title = (file.title || '').toLowerCase();
+
+  if (/\.(xlsx|xls|csv|ods)$/.test(url) || /planilha|excel|spreadsheet/i.test(title)) return 'spreadsheet';
+  if (/\.(docx|doc|odt|txt|rtf)$/.test(url) || /documento|word|doc/i.test(title)) return 'document';
+  if (/\.(pptx|ppt|odp)$/.test(url) || /apresentação|slides|ppt/i.test(title)) return 'presentation';
+  if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(url) || /vídeo|video|player/i.test(title)) return 'video';
+  if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(url) || /imagem|foto|image/i.test(title)) return 'image';
+  if (/\.pdf$/.test(url) || /pdf/i.test(title)) return 'pdf';
+  if (/^https?:\/\//.test(url) && !/\.\w{2,5}$/.test(url)) return 'link';
+  return 'other';
+}
+
+// Thumbnail automática baseada no tipo
+function getFileIcon(file) {
+  if (file.image && file.image.trim()) return null; // tem imagem customizada
+
+  const type = detectFileType(file);
+  const icons = {
+    spreadsheet: { icon: '📊', bg: '#D1FAE5', color: '#059669', label: 'Planilha' },
+    document:    { icon: '📝', bg: '#DBEAFE', color: '#2563EB', label: 'Documento' },
+    presentation:{ icon: '📽️', bg: '#FEF3C7', color: '#D97706', label: 'Apresentação' },
+    video:       { icon: '🎬', bg: '#FEE2E2', color: '#DC2626', label: 'Vídeo' },
+    image:       { icon: '🖼️', bg: '#EDE9FE', color: '#7C3AED', label: 'Imagem' },
+    pdf:         { icon: '📕', bg: '#FCE7F3', color: '#DB2777', label: 'PDF' },
+    link:        { icon: '🔗', bg: '#E0F2FE', color: '#0284C7', label: 'Link' },
+    other:       { icon: '📎', bg: '#F1F5F9', color: '#64748B', label: 'Arquivo' },
+  };
+  return icons[type] || icons.other;
+}
 
 // Popular filtro de categorias
 (function init() {
@@ -48,34 +97,63 @@ const settings = page.getDB().settings;
 function render() {
   const data = page.getDB();
   const files = data.files || [];
-  const search = document.getElementById('search').value.toLowerCase();
+  const search = document.getElementById('search').value.toLowerCase().trim();
   const category = document.getElementById('filterCategory').value;
+  const filterType = document.getElementById('filterType').value;
 
   let filtered = files.filter(f => {
     if (search && !f.title.toLowerCase().includes(search) && !(f.description || '').toLowerCase().includes(search)) return false;
     if (category !== 'all' && f.category !== category) return false;
+    if (filterType !== 'all' && detectFileType(f) !== filterType) return false;
     return true;
   });
 
-  const list = document.getElementById('fileList');
+  // Sort: newest first if has date
+  filtered.sort((a, b) => {
+    const da = a.updatedAt || a.createdAt || 0;
+    const db = b.updatedAt || b.createdAt || 0;
+    return new Date(db) - new Date(da);
+  });
+
+  const grid = document.getElementById('fileGrid');
+  const empty = document.getElementById('fileEmpty');
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div class="empty"><div class="icon">📁</div><p>Nenhum arquivo encontrado</p><p class="text-muted">Arquivos são adicionados pelo administrador</p></div>';
+    grid.innerHTML = '';
+    empty.style.display = 'block';
     return;
   }
 
-  list.innerHTML = filtered.map(f => `
-    <div class="item">
-      ${f.image ? `<img src="${f.image}" alt="" style="width:48px;height:48px;border-radius:8px;object-fit:cover">` : '<div style="width:48px;height:48px;border-radius:8px;background:var(--info-light,#DBEAFE);display:flex;align-items:center;justify-content:center;font-size:22px">📄</div>'}
-      <div class="item-info">
-        <b>${page.esc(f.title)}</b>
-        <small>${page.esc(f.category || 'Geral')}${f.description ? ' · ' + page.esc(f.description) : ''}</small>
+  empty.style.display = 'none';
+
+  grid.innerHTML = filtered.map(f => {
+    const typeInfo = getFileIcon(f);
+    const type = detectFileType(f);
+    const hasImage = f.image && f.image.trim();
+
+    return `
+      <div class="file-card" onclick="window.open('${page.esc(f.url)}', '_blank')">
+        <div class="file-card-thumb" style="background:${hasImage ? 'var(--bg-secondary)' : typeInfo.bg}">
+          ${hasImage
+            ? `<img src="${f.image}" alt="${page.esc(f.title)}" loading="lazy">`
+            : `<span class="file-card-icon">${typeInfo.icon}</span>`
+          }
+          <span class="file-card-type-badge" style="background:${typeInfo.color}">${typeInfo.label}</span>
+        </div>
+        <div class="file-card-body">
+          <h4 class="file-card-title">${page.esc(f.title)}</h4>
+          ${f.description ? `<p class="file-card-desc">${page.esc(f.description)}</p>` : ''}
+          <div class="file-card-meta">
+            <span class="badge ${f.category ? 'member' : ''}" style="font-size:10px">${page.esc(f.category || 'Geral')}</span>
+            ${f.updatedAt ? `<span style="font-size:10px;color:var(--muted)">${core.formatDate(f.updatedAt)}</span>` : ''}
+          </div>
+          <a href="${page.esc(f.url)}" target="_blank" class="file-card-link" onclick="event.stopPropagation()">
+            ${type === 'video' ? '▶️ Assistir' : type === 'link' ? '🔗 Acessar' : '📥 Abrir'}
+          </a>
+        </div>
       </div>
-      <div class="item-actions">
-        <a href="${page.esc(f.url)}" target="_blank" class="btn-icon" title="Abrir">🔗</a>
-      </div>
-    </div>
-  `).join('');
+    `;
+  }).join('');
 }
 </script>
 </body>

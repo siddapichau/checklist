@@ -693,3 +693,183 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .avatar-role{font-size:9px!important;font-weight:700;line-height:1;white-space:nowrap;color:var(--muted)}
 .avatar-role.admin{color:var(--accent)}.avatar-role.editor{color:var(--primary)}
 @media(max-width:600px){.user-cell{gap:8px}.avatar-role{font-size:8px!important}}
+
+/* ---------- FILE CARD GRID ---------- */
+.file-grid {
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(240px,1fr));
+  gap:16px;
+}
+.file-card {
+  background:var(--card,#fff);
+  border:1px solid var(--line,#E2E8F0);
+  border-radius:14px;
+  overflow:hidden;
+  cursor:pointer;
+  transition:all .25s ease;
+  display:flex;flex-direction:column;
+}
+.file-card:hover {
+  transform:translateY(-4px);
+  box-shadow:0 12px 28px rgba(0,0,0,.1);
+  border-color:var(--primary,#2563EB);
+}
+.file-card-thumb {
+  height:160px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  position:relative;
+  overflow:hidden;
+}
+.file-card-thumb img {
+  width:100%;height:100%;object-fit:cover;
+  transition:transform .4s ease;
+}
+.file-card:hover .file-card-thumb img {
+  transform:scale(1.05);
+}
+.file-card-icon {
+  font-size:64px;
+  line-height:1;
+  transition:transform .3s ease;
+}
+.file-card:hover .file-card-icon {
+  transform:scale(1.1);
+}
+.file-card-type-badge {
+  position:absolute;
+  top:10px;
+  right:10px;
+  padding:3px 8px;
+  border-radius:6px;
+  font-size:10px;
+  font-weight:700;
+  color:#fff;
+  letter-spacing:.3px;
+  text-transform:uppercase;
+}
+.file-card-body {
+  padding:14px 16px;
+  flex:1;
+  display:flex;
+  flex-direction:column;
+  gap:6px;
+}
+.file-card-title {
+  font-size:14px;
+  font-weight:700;
+  color:var(--text,#1E293B);
+  margin:0;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.file-card-desc {
+  font-size:12px;
+  color:var(--muted,#94A3B8);
+  margin:0;
+  display:-webkit-box;
+  -webkit-line-clamp:2;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+  line-height:1.4;
+}
+.file-card-meta {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:8px;
+  margin-top:auto;
+}
+.file-card-link {
+  display:block;
+  text-align:center;
+  padding:8px;
+  border-radius:8px;
+  background:var(--primary,#2563EB);
+  color:#fff;
+  text-decoration:none;
+  font-size:12px;
+  font-weight:700;
+  transition:.15s;
+  margin-top:4px;
+}
+.file-card-link:hover {
+  background:var(--primary-hover,#1D4ED8);
+}
+@media(max-width:600px){
+  .file-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:12px}
+  .file-card-thumb{height:120px}
+  .file-card-icon{font-size:48px}
+}
+
+/* ---------- PÓDIO ---------- */
+.podium-container {
+  display:flex;
+  align-items:flex-end;
+  justify-content:center;
+  gap:16px;
+  padding:20px 10px 0;
+}
+.podium-column {
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  min-width:80px;
+  flex:1;
+  max-width:140px;
+}
+.podium-bar {
+  width:100%;
+  min-width:70px;
+  transition:all .5s ease;
+}
+@media(max-width:600px){
+  .podium-container{gap:8px;padding:10px 4px 0}
+  .podium-column{min-width:60px}
+  .podium-bar{min-width:50px}
+}
+
+/* ---------- FORM ROW (side by side fields) ---------- */
+.form-row {
+  display:flex;
+  gap:12px;
+}
+@media(max-width:500px){
+  .form-row{flex-direction:column;gap:0}
+}
+
+/* ---------- INPUT PREFIX ---------- */
+.input-group {
+  display:flex;
+  align-items:stretch;
+}
+.input-prefix {
+  display:flex;
+  align-items:center;
+  padding:10px 10px 10px 14px;
+  background:var(--bg-secondary,#F1F5F9);
+  border:1.5px solid var(--line,#E2E8F0);
+  border-right:0;
+  border-radius:8px 0 0 8px;
+  font-weight:700;
+  color:var(--muted);
+  font-size:14px;
+}
+.input-group input {
+  border-radius:0 8px 8px 0;
+}
+
+/* ---------- PROFILE SECTION LABEL ---------- */
+.profile-section-label {
+  font-size:11px;
+  font-weight:700;
+  text-transform:uppercase;
+  letter-spacing:.5px;
+  color:var(--primary,#2563EB);
+  margin-bottom:10px;
+  margin-top:4px;
+  padding-bottom:6px;
+  border-bottom:1px solid var(--line,#E2E8F0);
+}

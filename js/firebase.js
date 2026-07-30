@@ -212,9 +212,22 @@ const FireSync = {
   _isCurrentUserAdmin() {
     const currentUser = core.getCurrentUser();
     if (currentUser?.role === 'admin') return true;
-    const localUser = core.getLocalDB().users
+    // Verificar email bootstrap (wesleystudio@gmail.com)
+    if (currentUser?.email && String(currentUser.email).trim().toLowerCase() === 'wesleystudio@gmail.com') return true;
+    const data = core.getLocalDB();
+    const localUser = data.users
       .find(account => account.id === currentUser?.id || account.uid === currentUser?.uid);
-    return localUser?.role === 'admin';
+    if (localUser?.role === 'admin') return true;
+    if (localUser?.email && String(localUser.email).trim().toLowerCase() === 'wesleystudio@gmail.com') {
+      // Auto-promover e salvar
+      localUser.role = 'admin';
+      core.saveLocalDB(data);
+      // Atualizar sessão
+      const sessionUser = { ...currentUser, role: 'admin' };
+      core.setCurrentUser(sessionUser);
+      return true;
+    }
+    return false;
   },
 
   _handleSyncError(err, collection, critical = true) {

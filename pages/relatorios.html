@@ -12,48 +12,83 @@
 <div class="page-header">
   <div class="info">
     <small>RELATÓRIOS</small>
-    <h1>📊 Relatórios e análises</h1>
-    <p>Visualize dados de produtividade, status e tendências</p>
+    <h1>📊 Relatórios e análises detalhadas</h1>
+    <p>Visualize métricas de produtividade, tendências e desempenho</p>
+  </div>
+  <div class="actions">
+    <button class="btn btn-secondary" onclick="exportReport()">📥 Exportar CSV</button>
+    <button class="btn btn-primary" onclick="printReport()">🖨️ Imprimir</button>
   </div>
 </div>
 
-<!-- MÉTRICAS -->
+<!-- MÉTRICAS PRINCIPAIS COM CARDS DETALHADOS -->
 <div class="metrics" id="metrics"></div>
 
-<!-- GRÁFICOS -->
+<!-- RESUMO EXECUTIVO -->
+<div class="card" id="execSummary"></div>
+
+<!-- GRÁFICOS PRINCIPAIS -->
 <div class="cols">
   <!-- Pizza: Atividades por status -->
   <div class="card">
-    <h2>🍩 Atividades por status</h2>
-    <canvas id="chartStatus" height="260"></canvas>
+    <h2>🍩 Distribuição por status</h2>
+    <canvas id="chartStatus" height="280"></canvas>
+    <div id="statusLegend" style="margin-top:12px"></div>
   </div>
 
   <!-- Barras: Atividades por categoria -->
   <div class="card">
-    <h2>📊 Atividades por categoria</h2>
-    <canvas id="chartCategory" height="260"></canvas>
+    <h2>📊 Volume por categoria</h2>
+    <canvas id="chartCategory" height="280"></canvas>
   </div>
 </div>
 
 <div class="cols">
   <!-- Linha: Produtividade semanal -->
   <div class="card">
-    <h2>📈 Produtividade semanal</h2>
-    <canvas id="chartWeekly" height="260"></canvas>
+    <h2>📈 Tendência semanal</h2>
+    <canvas id="chartWeekly" height="280"></canvas>
   </div>
 
-  <!-- Tempo médio de conclusão -->
+  <!-- Barras: Tempo médio por categoria -->
   <div class="card">
     <h2>⏱️ Tempo médio de conclusão</h2>
     <div id="avgTime"></div>
-    <canvas id="chartTime" height="200" style="margin-top:12px"></canvas>
+    <canvas id="chartTime" height="220" style="margin-top:12px"></canvas>
   </div>
 </div>
 
-<!-- ATIVIDADES POR PRIORIDADE -->
+<div class="cols">
+  <!-- Pizza: Atividades por prioridade -->
+  <div class="card">
+    <h2>🎯 Distribuição por prioridade</h2>
+    <canvas id="chartPriorityDonut" height="260"></canvas>
+  </div>
+
+  <!-- Barras: Taxa de conclusão -->
+  <div class="card">
+    <h2>📊 Taxa de conclusão por categoria</h2>
+    <canvas id="chartCompletionRate" height="260"></canvas>
+  </div>
+</div>
+
+<!-- TENDÊNCIA MENSAL -->
 <div class="card">
-  <h2>🎯 Atividades por prioridade</h2>
-  <canvas id="chartPriority" height="100"></canvas>
+  <h2>📅 Tendência mensal (últimos 6 meses)</h2>
+  <canvas id="chartMonthly" height="200"></canvas>
+</div>
+
+<!-- TABELA DETALHADA -->
+<div class="card">
+  <h2>📋 Detalhamento por categoria</h2>
+  <div style="overflow-x:auto">
+    <table id="detailTable">
+      <thead>
+        <tr><th>Categoria</th><th>Total</th><th>Concluídas</th><th>Pendentes</th><th>Atrasadas</th><th>Taxa</th><th>Tempo médio</th></tr>
+      </thead>
+      <tbody id="detailBody"></tbody>
+    </table>
+  </div>
 </div>
 
 <script src="../js/core.js"></script>
@@ -66,55 +101,89 @@
   const now = new Date();
   const user = page.getUser();
 
-  // ---------- MÉTRICAS ----------
+  // ---------- CORES ----------
+  const colors = {
+    finished: '#10B981', pending: '#F59E0B', analyzing: '#3B82F6', notdone: '#EF4444',
+    urgent: '#EF4444', high: '#F97316', medium: '#F59E0B', low: '#10B981',
+  };
+  const colorsLight = {
+    finished: '#D1FAE5', pending: '#FEF3C7', analyzing: '#DBEAFE', notdone: '#FEE2E2',
+  };
+  const palette = ['#2563EB','#06B6D4','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#F97316','#14B8A6','#6366F1'];
+
+  // ---------- CÁLCULOS ----------
   const total = tasks.length;
   const finished = tasks.filter(t => t.status === 'finished').length;
   const pending = tasks.filter(t => t.status === 'pending').length;
   const analyzing = tasks.filter(t => t.status === 'analyzing').length;
   const notdone = tasks.filter(t => t.status === 'notdone').length;
   const late = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  const urgent = tasks.filter(t => t.priority === 'urgent').length;
+  const high = tasks.filter(t => t.priority === 'high').length;
   const pct = total > 0 ? Math.round(finished / total * 100) : 0;
 
-  // Calcula tempo médio de conclusão
-  let avgHours = 0;
-  let completedWithTime = 0;
+  // Tempo médio global
+  let avgHours = 0, completedWithTime = 0;
   tasks.forEach(t => {
     if (t.status === 'finished' && t.createdAt && t.finishedAt) {
       const created = new Date(t.createdAt);
-      const finished = new Date(t.finishedAt);
-      const diff = (finished - created) / (1000 * 60 * 60); // horas
-      if (diff > 0 && diff < 720) { // ignorar > 30 dias
-        avgHours += diff;
-        completedWithTime++;
-      }
+      const finshd = new Date(t.finishedAt);
+      const diff = (finshd - created) / (1000 * 60 * 60);
+      if (diff > 0 && diff < 720) { avgHours += diff; completedWithTime++; }
     }
   });
   avgHours = completedWithTime > 0 ? avgHours / completedWithTime : 0;
 
+  // Taxa de conclusão por dia da semana
+  const dayNames = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+  const dayStats = Array(7).fill(null).map(() => ({ total: 0, finished: 0 }));
+  tasks.forEach(t => {
+    if (t.date) {
+      const d = new Date(t.date + 'T00:00:00');
+      const dow = d.getDay();
+      dayStats[dow].total++;
+      if (t.status === 'finished') dayStats[dow].finished++;
+    }
+  });
+
+  // ---------- MÉTRICAS ----------
   document.getElementById('metrics').innerHTML = `
-    <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total</small><strong>${total}</strong></div></div>
-    <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong></div></div>
+    <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total de atividades</small><strong>${total}</strong></div></div>
+    <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong><span style="font-size:11px;color:var(--success)">${pct}%</span></div></div>
     <div class="metric"><div class="icon-box yellow">⏳</div><div class="data"><small>Pendentes</small><strong>${pending}</strong></div></div>
-    <div class="metric"><div class="icon-box red">⚠️</div><div class="data"><small>Atrasadas</small><strong>${late.length}</strong></div></div>
-    <div class="metric"><div class="icon-box purple">⏱️</div><div class="data"><small>Tempo médio</small><strong>${avgHours.toFixed(1)}h</strong></div></div>
-    <div class="metric"><div class="icon-box green">📈</div><div class="data"><small>Conclusão</small><strong>${pct}%</strong></div></div>
+    <div class="metric"><div class="icon-box red">⚠️</div><div class="data"><small>Atrasadas</small><strong>${late.length}</strong><span style="font-size:11px;color:var(--danger)">${total>0?Math.round(late.length/total*100):0}%</span></div></div>
+    <div class="metric"><div class="icon-box purple">⏱️</div><div class="data"><small>Tempo médio</small><strong>${avgHours < 1 ? (avgHours*60).toFixed(0)+'min' : avgHours.toFixed(1)+'h'}</strong></div></div>
+    <div class="metric"><div class="icon-box blue">📈</div><div class="data"><small>Taxa conclusão</small><strong>${pct}%</strong></div></div>
   `;
 
-  // ---------- CORES ----------
-  // O layout dos gráficos é controlado pelo CSS para evitar crescimento infinito do canvas.
-  const colors = {
-    finished: '#10B981',
-    pending: '#F59E0B',
-    analyzing: '#3B82F6',
-    notdone: '#EF4444',
-  };
-
-  const colorsLight = {
-    finished: '#D1FAE5',
-    pending: '#FEF3C7',
-    analyzing: '#DBEAFE',
-    notdone: '#FEE2E2',
-  };
+  // ---------- RESUMO EXECUTIVO ----------
+  const lateNames = late.slice(0, 5).map(t => t.title).join(', ') || 'Nenhuma';
+  const bestDay = dayStats.reduce((best, curr, i) => curr.finished > (dayStats[best]?.finished||0) ? i : best, 0);
+  document.getElementById('execSummary').innerHTML = `
+    <h2>📝 Resumo executivo</h2>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:16px;margin-top:8px">
+      <div style="padding:12px;background:var(--bg-secondary);border-radius:8px">
+        <b style="color:var(--text)">🎯 Taxa de conclusão geral:</b>
+        <span style="font-size:24px;font-weight:800;color:${pct>=70?'var(--success)':pct>=40?'var(--warning)':'var(--danger)'};display:block">${pct}%</span>
+        <small style="color:var(--muted)">${pct>=70?'✅ Excelente desempenho!':pct>=40?'⚠️ Há espaço para melhorar':'🔴 Atenção necessária'}</small>
+      </div>
+      <div style="padding:12px;background:var(--bg-secondary);border-radius:8px">
+        <b style="color:var(--text)">📅 Melhor dia:</b>
+        <span style="font-size:24px;font-weight:800;color:var(--primary);display:block">${dayNames[bestDay]}</span>
+        <small style="color:var(--muted)">${dayStats[bestDay].finished} concluídas de ${dayStats[bestDay].total}</small>
+      </div>
+      <div style="padding:12px;background:var(--bg-secondary);border-radius:8px">
+        <b style="color:var(--text)">⚠️ Atividades atrasadas:</b>
+        <span style="font-size:24px;font-weight:800;color:${late.length>0?'var(--danger)':'var(--success)'};display:block">${late.length}</span>
+        <small style="color:var(--muted)" title="${page.esc(lateNames)}">${late.length > 0 ? lateNames.substring(0, 60) + (lateNames.length>60?'...':'') : 'Tudo em dia! ✅'}</small>
+      </div>
+      <div style="padding:12px;background:var(--bg-secondary);border-radius:8px">
+        <b style="color:var(--text)">🚨 Urgentes:</b>
+        <span style="font-size:24px;font-weight:800;color:var(--danger);display:block">${urgent}</span>
+        <small style="color:var(--muted)">${urgent} urgentes · ${high} alta prioridade</small>
+      </div>
+    </div>
+  `;
 
   // ---------- CHART: PIZZA STATUS ----------
   new Chart(document.getElementById('chartStatus'), {
@@ -125,22 +194,45 @@
         data: [pending, analyzing, finished, notdone],
         backgroundColor: [colors.pending, colors.analyzing, colors.finished, colors.notdone],
         borderColor: '#fff',
-        borderWidth: 2,
-        hoverBorderWidth: 3,
+        borderWidth: 3,
+        hoverBorderWidth: 4,
+        hoverBorderColor: '#fff',
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      cutout: '65%',
       plugins: {
         legend: {
           position: 'bottom',
-          labels: { padding: 20, usePointStyle: true, pointStyleWidth: 10 }
+          labels: { padding: 18, usePointStyle: true, pointStyleWidth: 12, font: { size: 12 } }
+        },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const val = ctx.raw;
+              const pct = total > 0 ? Math.round(val/total*100) : 0;
+              return ` ${ctx.label}: ${val} (${pct}%)`;
+            }
+          }
         }
       },
-      animation: { animateScale: true, animateRotate: true, duration: 1200 }
+      animation: { animateScale: true, animateRotate: true, duration: 1500 }
     }
   });
+
+  // Status legend extra
+  document.getElementById('statusLegend').innerHTML = `
+    <div style="display:flex;gap:12px;flex-wrap:wrap;justify-content:center">
+      ${[{label:'Pendentes',v:pending,c:colors.pending},{label:'Analisando',v:analyzing,c:colors.analyzing},{label:'Finalizadas',v:finished,c:colors.finished},{label:'Não realizadas',v:notdone,c:colors.notdone}].map(s => `
+        <div style="display:flex;align-items:center;gap:6px;font-size:12px">
+          <div style="width:12px;height:12px;border-radius:3px;background:${s.c}"></div>
+          <b>${s.label}:</b> ${s.v} <span style="color:var(--muted)">(${total>0?Math.round(s.v/total*100):0}%)</span>
+        </div>
+      `).join('')}
+    </div>
+  `;
 
   // ---------- CHART: BARRAS CATEGORIA ----------
   const cats = data.settings.categories || [];
@@ -149,38 +241,39 @@
   tasks.forEach(t => {
     if (t.category && catData[t.category] !== undefined) catData[t.category]++;
   });
-
   const catLabels = cats.filter(c => catData[c] > 0);
   const catValues = catLabels.map(c => catData[c]);
-
-  const barColors = catLabels.map((_, i) => {
-    const palette = ['#2563EB','#06B6D4','#10B981','#F59E0B','#EF4444','#8B5CF6','#EC4899','#F97316'];
-    return palette[i % palette.length];
-  });
 
   new Chart(document.getElementById('chartCategory'), {
     type: 'bar',
     data: {
       labels: catLabels,
       datasets: [{
-        label: 'Atividades',
+        label: 'Total de atividades',
         data: catValues,
-        backgroundColor: barColors.map(c => c + '99'),
-        borderColor: barColors,
+        backgroundColor: catLabels.map((_, i) => palette[i % palette.length] + '99'),
+        borderColor: catLabels.map((_, i) => palette[i % palette.length]),
         borderWidth: 2,
-        borderRadius: 8,
+        borderRadius: 10,
         borderSkipped: false,
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) { return ` ${ctx.raw} atividades`; }
+          }
+        }
+      },
       scales: {
         y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
         x: { grid: { display: false } }
       },
-      animation: { duration: 1000 }
+      animation: { duration: 1200 }
     }
   });
 
@@ -188,17 +281,17 @@
   const weekDays = [];
   const weekDoneData = [];
   const weekTotalData = [];
-
+  const weekPendingData = [];
   for (let i = 6; i >= 0; i--) {
     const d = new Date(now);
     d.setDate(d.getDate() - i);
     const ds = d.toISOString().slice(0, 10);
     const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
     weekDays.push(dayName);
-
     const dayTasks = tasks.filter(t => t.date === ds);
     weekDoneData.push(dayTasks.filter(t => t.status === 'finished').length);
     weekTotalData.push(dayTasks.length);
+    weekPendingData.push(dayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length);
   }
 
   new Chart(document.getElementById('chartWeekly'), {
@@ -210,24 +303,40 @@
           label: 'Concluídas',
           data: weekDoneData,
           borderColor: '#10B981',
-          backgroundColor: 'rgba(16,185,129,.1)',
+          backgroundColor: 'rgba(16,185,129,.15)',
           fill: true,
           tension: 0.4,
-          pointRadius: 5,
+          pointRadius: 6,
           pointBackgroundColor: '#10B981',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
           borderWidth: 3,
         },
         {
-          label: 'Total',
+          label: 'Total planejado',
           data: weekTotalData,
           borderColor: '#3B82F6',
-          backgroundColor: 'rgba(59,130,246,.05)',
+          backgroundColor: 'rgba(59,130,246,.08)',
           fill: true,
           tension: 0.4,
-          pointRadius: 4,
+          pointRadius: 5,
           pointBackgroundColor: '#3B82F6',
+          pointBorderColor: '#fff',
+          pointBorderWidth: 2,
           borderWidth: 2,
-          borderDash: [5, 5],
+          borderDash: [6, 4],
+        },
+        {
+          label: 'Pendentes',
+          data: weekPendingData,
+          borderColor: '#F59E0B',
+          backgroundColor: 'transparent',
+          fill: false,
+          tension: 0.4,
+          pointRadius: 4,
+          pointBackgroundColor: '#F59E0B',
+          borderWidth: 2,
+          borderDash: [3, 3],
         }
       ]
     },
@@ -235,25 +344,23 @@
       responsive: true,
       maintainAspectRatio: false,
       plugins: {
-        legend: { position: 'bottom', labels: { padding: 20, usePointStyle: true } }
+        legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true, pointStyleWidth: 8 } }
       },
       scales: {
         y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
         x: { grid: { display: false } }
       },
-      animation: { duration: 1200 }
+      animation: { duration: 1400 }
     }
   });
 
-  // ---------- CHART: TEMPO DE CONCLUSÃO ----------
-  // Agrupar por categoria
-  const timeByCat = {};
-  const countByCat = {};
+  // ---------- TEMPO DE CONCLUSÃO POR CATEGORIA ----------
+  const timeByCat = {}, countByCat = {};
   tasks.forEach(t => {
     if (t.status === 'finished' && t.createdAt && t.finishedAt && t.category) {
       const created = new Date(t.createdAt);
-      const finished = new Date(t.finishedAt);
-      const diff = (finished - created) / (1000 * 60 * 60);
+      const finshd = new Date(t.finishedAt);
+      const diff = (finshd - created) / (1000 * 60 * 60);
       if (diff > 0 && diff < 720) {
         timeByCat[t.category] = (timeByCat[t.category] || 0) + diff;
         countByCat[t.category] = (countByCat[t.category] || 0) + 1;
@@ -261,19 +368,18 @@
     }
   });
 
-  const timeLabels = [];
-  const timeValues = [];
-  Object.keys(timeByCat).forEach(cat => {
+  const timeLabels = [], timeValues = [];
+  Object.keys(timeByCat).sort((a,b) => (timeByCat[b]/countByCat[b]) - (timeByCat[a]/countByCat[a])).forEach(cat => {
     timeLabels.push(cat);
     timeValues.push(Math.round((timeByCat[cat] / countByCat[cat]) * 10) / 10);
   });
 
-  // Mostrar tabela de tempos
-  let timeHtml = '<div style="overflow-x:auto"><table><thead><tr><th>Categoria</th><th>Atividades</th><th>Tempo médio</th></tr></thead><tbody>';
+  let timeHtml = '<div style="overflow-x:auto"><table><thead><tr><th>Categoria</th><th>Atividades</th><th>Tempo médio</th><th>Indicador</th></tr></thead><tbody>';
   timeLabels.forEach((cat, i) => {
     const h = timeValues[i];
-    const display = h >= 24 ? `${(h/24).toFixed(1)} dias` : `${h}h`;
-    timeHtml += `<tr><td><b>${cat}</b></td><td>${countByCat[cat]}</td><td>${display}</td></tr>`;
+    const display = h >= 24 ? `${(h/24).toFixed(1)} dias` : h >= 1 ? `${h.toFixed(1)}h` : `${(h*60).toFixed(0)}min`;
+    const indicator = h < 24 ? '🟢 Rápido' : h < 72 ? '🟡 Moderado' : '🔴 Lento';
+    timeHtml += `<tr><td><b>${page.esc(cat)}</b></td><td>${countByCat[cat]}</td><td>${display}</td><td>${indicator}</td></tr>`;
   });
   timeHtml += '</tbody></table></div>';
   document.getElementById('avgTime').innerHTML = timeHtml || '<div class="empty"><p>Sem dados de conclusão</p></div>';
@@ -289,53 +395,226 @@
           backgroundColor: timeValues.map(v => v < 24 ? '#10B98199' : v < 72 ? '#F59E0B99' : '#EF444499'),
           borderColor: timeValues.map(v => v < 24 ? '#10B981' : v < 72 ? '#F59E0B' : '#EF4444'),
           borderWidth: 2,
-          borderRadius: 6,
+          borderRadius: 8,
+          borderSkipped: false,
         }]
       },
       options: {
         responsive: true,
         maintainAspectRatio: false,
         indexAxis: 'y',
-        plugins: { legend: { display: false } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const v = ctx.raw;
+                return v >= 24 ? ` ${(v/24).toFixed(1)} dias` : ` ${v.toFixed(1)} horas`;
+              }
+            }
+          }
+        },
         scales: {
           x: { beginAtZero: true, title: { display: true, text: 'Horas' }, grid: { color: 'var(--line,#E2E8F0)' } },
           y: { grid: { display: false } }
-        }
+        },
+        animation: { duration: 1000 }
       }
     });
   }
 
-  // ---------- CHART: PRIORIDADE ----------
+  // ---------- CHART: PIZZA PRIORIDADE ----------
   const prioCount = { urgent: 0, high: 0, medium: 0, low: 0 };
   tasks.forEach(t => {
     if (prioCount[t.priority] !== undefined) prioCount[t.priority]++;
   });
 
-  new Chart(document.getElementById('chartPriority'), {
-    type: 'bar',
+  new Chart(document.getElementById('chartPriorityDonut'), {
+    type: 'doughnut',
     data: {
       labels: ['Urgente 🚨', 'Alta 🔴', 'Média 🟡', 'Baixa 🟢'],
       datasets: [{
-        label: 'Atividades',
         data: [prioCount.urgent, prioCount.high, prioCount.medium, prioCount.low],
-        backgroundColor: ['#EF444499','#F9731699','#F59E0B99','#10B98199'],
-        borderColor: ['#EF4444','#F97316','#F59E0B','#10B981'],
-        borderWidth: 2,
-        borderRadius: 8,
-        borderSkipped: false,
+        backgroundColor: ['#EF4444','#F97316','#F59E0B','#10B981'],
+        borderColor: '#fff',
+        borderWidth: 3,
+        hoverBorderWidth: 4,
       }]
     },
     options: {
       responsive: true,
-      maintainAspectRatio: true,
-      plugins: { legend: { display: false } },
+      maintainAspectRatio: false,
+      cutout: '55%',
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 16, usePointStyle: true, pointStyleWidth: 10 } },
+        tooltip: {
+          callbacks: {
+            label: function(ctx) {
+              const pct = total > 0 ? Math.round(ctx.raw/total*100) : 0;
+              return ` ${ctx.label}: ${ctx.raw} (${pct}%)`;
+            }
+          }
+        }
+      },
+      animation: { animateScale: true, animateRotate: true, duration: 1200 }
+    }
+  });
+
+  // ---------- TAXA DE CONCLUSÃO POR CATEGORIA ----------
+  const compRateLabels = [], compRateValues = [];
+  cats.forEach(cat => {
+    const catTasks = tasks.filter(t => t.category === cat);
+    if (catTasks.length > 0) {
+      const done = catTasks.filter(t => t.status === 'finished').length;
+      compRateLabels.push(cat);
+      compRateValues.push(Math.round(done / catTasks.length * 100));
+    }
+  });
+
+  if (compRateLabels.length > 0) {
+    new Chart(document.getElementById('chartCompletionRate'), {
+      type: 'bar',
+      data: {
+        labels: compRateLabels,
+        datasets: [{
+          label: '% Concluída',
+          data: compRateValues,
+          backgroundColor: compRateValues.map(v => v >= 70 ? '#10B98199' : v >= 40 ? '#F59E0B99' : '#EF444499'),
+          borderColor: compRateValues.map(v => v >= 70 ? '#10B981' : v >= 40 ? '#F59E0B' : '#EF4444'),
+          borderWidth: 2,
+          borderRadius: 8,
+          borderSkipped: false,
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { label: function(ctx) { return ` ${ctx.raw}% concluído`; } }
+          }
+        },
+        scales: {
+          y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: 'var(--line,#E2E8F0)' } },
+          x: { grid: { display: false } }
+        },
+        animation: { duration: 1000 }
+      }
+    });
+  }
+
+  // ---------- TENDÊNCIA MENSAL ----------
+  const monthLabels = [], monthTotal = [], monthFinished = [];
+  for (let i = 5; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthKey = d.toISOString().slice(0, 7);
+    const monthName = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+    monthLabels.push(monthName);
+    const mTasks = tasks.filter(t => t.date && t.date.startsWith(monthKey));
+    monthTotal.push(mTasks.length);
+    monthFinished.push(mTasks.filter(t => t.status === 'finished').length);
+  }
+
+  new Chart(document.getElementById('chartMonthly'), {
+    type: 'bar',
+    data: {
+      labels: monthLabels,
+      datasets: [
+        {
+          label: 'Total',
+          data: monthTotal,
+          backgroundColor: '#3B82F644',
+          borderColor: '#3B82F6',
+          borderWidth: 2,
+          borderRadius: 6,
+          borderSkipped: false,
+        },
+        {
+          label: 'Concluídas',
+          data: monthFinished,
+          backgroundColor: '#10B98199',
+          borderColor: '#10B981',
+          borderWidth: 2,
+          borderRadius: 6,
+          borderSkipped: false,
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true } }
+      },
       scales: {
         y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
         x: { grid: { display: false } }
       },
-      animation: { duration: 800 }
+      animation: { duration: 1000 }
     }
   });
+
+  // ---------- TABELA DETALHADA ----------
+  const detailRows = [];
+  cats.forEach(cat => {
+    const catTasks = tasks.filter(t => t.category === cat);
+    if (catTasks.length === 0) return;
+    const done = catTasks.filter(t => t.status === 'finished').length;
+    const pend = catTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length;
+    const lateCount = catTasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length;
+    const rate = Math.round(done / catTasks.length * 100);
+    // avg time
+    let catTime = 0, catCount = 0;
+    catTasks.forEach(t => {
+      if (t.status === 'finished' && t.createdAt && t.finishedAt) {
+        const diff = (new Date(t.finishedAt) - new Date(t.createdAt)) / 3600000;
+        if (diff > 0 && diff < 720) { catTime += diff; catCount++; }
+      }
+    });
+    const avg = catCount > 0 ? catTime / catCount : 0;
+    const timeDisplay = avg >= 24 ? `${(avg/24).toFixed(1)}d` : avg >= 1 ? `${avg.toFixed(1)}h` : avg > 0 ? `${(avg*60).toFixed(0)}min` : '—';
+
+    detailRows.push({ cat, total: catTasks.length, done, pend, lateCount, rate, timeDisplay });
+  });
+
+  detailRows.sort((a, b) => b.total - a.total);
+  document.getElementById('detailBody').innerHTML = detailRows.map(r => `
+    <tr>
+      <td><b>${page.esc(r.cat)}</b></td>
+      <td>${r.total}</td>
+      <td style="color:var(--success)">${r.done}</td>
+      <td style="color:var(--warning)">${r.pend}</td>
+      <td style="color:${r.lateCount>0?'var(--danger)':'var(--muted)'}">${r.lateCount}</td>
+      <td>
+        <div style="display:flex;align-items:center;gap:8px">
+          <div class="progress" style="flex:1;height:6px"><div class="progress-bar ${r.rate>=70?'green':r.rate>=40?'yellow':''}" style="width:${r.rate}%;background:${r.rate>=70?'#10B981':r.rate>=40?'#F59E0B':'#EF4444'}"></div></div>
+          <span style="font-weight:700;font-size:13px;min-width:36px">${r.rate}%</span>
+        </div>
+      </td>
+      <td>${r.timeDisplay}</td>
+    </tr>
+  `).join('') || '<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px">Nenhum dado disponível</td></tr>';
+
+  // ---------- EXPORT CSV ----------
+  window.exportReport = function() {
+    let csv = 'Categoria,Total,Concluídas,Pendentes,Atrasadas,Taxa,Tempo Médio\n';
+    detailRows.forEach(r => {
+      csv += `"${r.cat}",${r.total},${r.done},${r.pend},${r.lateCount},${r.rate}%,"${r.timeDisplay}"\n`;
+    });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-${core.today()}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    page.toast('Relatório exportado! 📥', 'success');
+  };
+
+  window.printReport = function() {
+    window.print();
+  };
 
 })();
 </script>

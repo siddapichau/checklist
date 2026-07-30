@@ -12,7 +12,7 @@
   <div class="info">
     <small>CONTA</small>
     <h1>Meu Perfil</h1>
-    <p>Gerencie suas informações pessoais</p>
+    <p>Gerencie suas informações pessoais e personalize sua conta</p>
   </div>
 </div>
 
@@ -20,13 +20,25 @@
   <!-- DADOS PESSOAIS -->
   <div class="card">
     <h2>👤 Dados pessoais</h2>
-    <form onsubmit="saveProfile(event)">
-      <label><span>Nome</span>
-        <input type="text" id="pName" placeholder="Seu nome">
+    <form onsubmit="saveProfile(event)" id="profileForm">
+      <div class="profile-section-label">Identificação</div>
+      <label><span>Nome de usuário @</span>
+        <div class="input-group">
+          <span class="input-prefix">@</span>
+          <input type="text" id="pUsername" placeholder="seu.username" style="padding-left:8px" oninput="validateUsername()">
+        </div>
+        <small class="text-muted" id="usernameHint">Único. Use letras, números e underscore. Mín. 3 caracteres.</small>
+        <small class="text-muted" id="usernameError" style="color:var(--danger);display:none"></small>
       </label>
-      <label><span>Sobrenome</span>
-        <input type="text" id="pLastName" placeholder="Seu sobrenome">
-      </label>
+      <div class="form-row">
+        <label style="flex:1"><span>Nome real</span>
+          <input type="text" id="pName" placeholder="Seu nome">
+        </label>
+        <label style="flex:1"><span>Sobrenome</span>
+          <input type="text" id="pLastName" placeholder="Seu sobrenome">
+        </label>
+      </div>
+      <div class="profile-section-label">Contato</div>
       <label><span>E-mail</span>
         <input type="email" id="pEmail" disabled>
       </label>
@@ -36,7 +48,7 @@
       <label><span>Endereço</span>
         <input type="text" id="pAddress" placeholder="Rua, número, bairro, cidade">
       </label>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px">💾 Salvar perfil</button>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil</button>
     </form>
   </div>
 
@@ -48,6 +60,10 @@
         <div id="currentAvatar" style="width:100px;height:100px;border-radius:50%;background:var(--primary-light,#DBEAFE);
           display:inline-flex;align-items:center;justify-content:center;font-size:48px;overflow:hidden;
           border:4px solid var(--primary,#2563EB)"></div>
+        <p style="margin-top:8px;font-size:13px;color:var(--text-secondary)">
+          <span id="displayName"></span>
+          <span id="displayRole" style="display:inline-block;margin-left:8px"></span>
+        </p>
       </div>
 
       <h3>📷 Usar foto do Google</h3>
@@ -100,17 +116,41 @@
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
-const user = page.getUser();
+let user = page.getUser();
 const avatars = core.defaultAvatars;
 let selectedAvatar = user?.avatar || '';
 let selectedAvatarType = user?.avatarType || 'emoji';
+let isSaving = false;
+
+// --- Refresh user from parent periodically ---
+function refreshUser() {
+  user = page.getUser();
+}
 
 // Popular dados
+document.getElementById('pUsername').value = user?.username || '';
 document.getElementById('pName').value = user?.name || '';
 document.getElementById('pLastName').value = user?.lastName || '';
 document.getElementById('pEmail').value = user?.email || '';
 document.getElementById('pPhone').value = user?.phone || '';
 document.getElementById('pAddress').value = user?.address || '';
+
+// Display name
+function updateDisplayName() {
+  const displayName = document.getElementById('displayName');
+  if (displayName) {
+    const name = user?.name || user?.username || 'Usuário';
+    const lastName = user?.lastName || '';
+    displayName.textContent = lastName ? `${name} ${lastName}` : name;
+  }
+  const displayRole = document.getElementById('displayRole');
+  if (displayRole) {
+    const role = user?.role || 'member';
+    const badges = { admin: '<span class="badge admin">Admin</span>', editor: '<span class="badge editor">Editor</span>', member: '<span class="badge member">Membro</span>' };
+    displayRole.innerHTML = badges[role] || badges.member;
+  }
+}
+updateDisplayName();
 
 // Mostrar avatar atual
 updateAvatarDisplay();
@@ -125,17 +165,35 @@ if (user?.provider !== 'google.com' && user?.provider !== 'google') {
 const providerEl = document.getElementById('providerType');
 if (user?.provider === 'google.com' || user?.provider === 'google') {
   providerEl.innerHTML = '🔵 Google';
-  // Para Google, esconde o form de alterar senha (Google gerencia)
   document.getElementById('localPasswordForm').style.display = 'none';
 } else {
   providerEl.innerHTML = '📧 E-mail e senha';
 }
 
+// Username validation
+function validateUsername() {
+  const val = document.getElementById('pUsername').value.trim();
+  const hint = document.getElementById('usernameHint');
+  const err = document.getElementById('usernameError');
+  err.style.display = 'none';
+
+  if (!val) { hint.textContent = 'Único. Use letras, números e underscore. Mín. 3 caracteres.'; return true; }
+  if (val.length < 3) { err.textContent = 'Mínimo 3 caracteres'; err.style.display = 'block'; return false; }
+  if (!/^[a-zA-Z0-9_]+$/.test(val)) { err.textContent = 'Apenas letras, números e underscore'; err.style.display = 'block'; return false; }
+
+  // Check uniqueness
+  const data = page.getDB();
+  const exists = data.users.find(u => u.username === val && u.id !== user.id && (u.uid || u.id) !== (user.uid || user.id));
+  if (exists) { err.textContent = 'Este nome de usuário já está em uso'; err.style.display = 'block'; return false; }
+
+  hint.textContent = '✅ Disponível!';
+  hint.style.color = 'var(--success)';
+  return true;
+}
+
 async function sendResetEmail() {
   if (!user?.email) return page.toast('Sua conta não tem e-mail cadastrado', 'error');
   try {
-    // Fluxo padrão hospedado pelo Firebase: não depende de domínio de
-    // continuação autorizado nem de um template editável no Console.
     firebase.auth().useDeviceLanguage();
     await firebase.auth().sendPasswordResetEmail(user.email);
     page.toast('E-mail de redefinição enviado para ' + user.email + '! 📬', 'success');
@@ -157,6 +215,7 @@ grid.innerHTML = avatars.map((a, i) => `
 
 function updateAvatarDisplay() {
   const el = document.getElementById('currentAvatar');
+  if (!el) return;
   if (selectedAvatarType === 'google' || selectedAvatarType === 'upload') {
     el.innerHTML = `<img src="${selectedAvatar}" style="width:100%;height:100%;object-fit:cover">`;
   } else {
@@ -190,9 +249,9 @@ async function uploadAvatar(e) {
 }
 
 function useGooglePhoto() {
-  // Tentar pegar foto do perfil Google
   const data = page.getDB();
-  const userData = data.users.find(u => u.id === user.id);
+  const uid = user?.uid || user?.id;
+  const userData = data.users.find(u => (u.id || u.uid) === uid);
   if (userData && userData.googlePhoto) {
     selectedAvatar = userData.googlePhoto;
     selectedAvatarType = 'google';
@@ -205,9 +264,20 @@ function useGooglePhoto() {
   }
 }
 
+function findUserInDB(data) {
+  const uid = user?.uid || user?.id;
+  // Tenta vários critérios de busca
+  return data.users.find(u =>
+    (u.id && uid && String(u.id) === String(uid)) ||
+    (u.uid && uid && String(u.uid) === String(uid)) ||
+    (u.email && user?.email && u.email === user.email)
+  );
+}
+
 function saveAvatarToDB() {
+  refreshUser();
   const data = page.getDB();
-  const u = data.users.find(u => u.id === user.id);
+  const u = findUserInDB(data);
   if (u) {
     u.avatar = selectedAvatar;
     u.avatarType = selectedAvatarType;
@@ -216,18 +286,56 @@ function saveAvatarToDB() {
     // Atualizar sessão
     const sessionUser = { ...user, avatar: selectedAvatar, avatarType: selectedAvatarType };
     core.setCurrentUser(sessionUser);
+    user = sessionUser;
 
-    // Atualizar parent
+    // Sincronizar com Firebase
+    try {
+      page.syncDocument('users', u.uid || u.id, { ...u, passHash: undefined, pass: undefined });
+    } catch(e) {}
+
     window.parent.postMessage({ type: 'reload' }, '*');
   }
 }
 
 function saveProfile(e) {
   e.preventDefault();
-  const data = page.getDB();
-  const u = data.users.find(u => u.id === user.id);
-  if (!u) return;
+  if (isSaving) return;
+  isSaving = true;
 
+  refreshUser();
+  const data = page.getDB();
+  const u = findUserInDB(data);
+
+  if (!u) {
+    page.toast('Erro: usuário não encontrado no banco de dados', 'error');
+    isSaving = false;
+    return;
+  }
+
+  const newUsername = document.getElementById('pUsername').value.trim();
+  if (newUsername && !validateUsername()) {
+    isSaving = false;
+    return;
+  }
+
+  const btnSave = document.getElementById('btnSaveProfile');
+  const origText = btnSave.textContent;
+  btnSave.disabled = true;
+  btnSave.textContent = '⏳ Salvando...';
+
+  // Check username uniqueness
+  if (newUsername && newUsername !== u.username) {
+    const exists = data.users.find(usr => usr.username === newUsername && String(usr.id || usr.uid) !== String(u.id || u.uid));
+    if (exists) {
+      page.toast('Nome de usuário já está em uso', 'error');
+      btnSave.disabled = false;
+      btnSave.textContent = origText;
+      isSaving = false;
+      return;
+    }
+  }
+
+  u.username = newUsername || u.username;
   u.name = document.getElementById('pName').value.trim();
   u.lastName = document.getElementById('pLastName').value.trim();
   u.phone = document.getElementById('pPhone').value.trim();
@@ -235,13 +343,36 @@ function saveProfile(e) {
 
   page.saveDB(data);
 
-  // Atualizar sessão
-  const sessionUser = { ...user, name: u.name, lastName: u.lastName, phone: u.phone, address: u.address };
+  // Atualizar sessão com todos os campos
+  const sessionUser = {
+    ...user,
+    username: u.username,
+    name: u.name,
+    lastName: u.lastName,
+    phone: u.phone,
+    address: u.address
+  };
   core.setCurrentUser(sessionUser);
+  user = sessionUser;
 
-  core.log('profile_update', user.id, `${u.name} ${u.lastName}`);
-  page.toast('Perfil atualizado! ✅', 'success');
+  // Sincronizar com Firebase (sem dados sensíveis)
+  try {
+    const firestoreData = { ...u };
+    delete firestoreData.passHash;
+    delete firestoreData.pass;
+    page.syncDocument('users', u.uid || u.id, firestoreData);
+  } catch(e) {
+    console.warn('Firebase sync warning:', e);
+  }
+
+  updateDisplayName();
+  core.log('profile_update', user.id, `${u.name} ${u.lastName} (@${u.username})`);
+  page.toast('Perfil atualizado com sucesso! ✅', 'success');
   window.parent.postMessage({ type: 'reload' }, '*');
+
+  btnSave.disabled = false;
+  btnSave.textContent = origText;
+  isSaving = false;
 }
 
 async function changePassword(e) {
@@ -255,19 +386,17 @@ async function changePassword(e) {
   const validation = core.validatePassword(newP);
   if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
 
-  // Verificar senha atual
+  refreshUser();
   const data = page.getDB();
-  const u = data.users.find(u => u.id === user.id);
+  const u = findUserInDB(data);
   if (!u) return;
 
   const valid = await core.verifyPassword(oldP, u.passHash);
   if (!valid) return page.toast('Senha atual incorreta', 'error');
 
-  // Atualizar senha local (sempre)
   u.passHash = await core.hashPassword(newP);
   page.saveDB(data);
 
-  // Tentar atualizar no Firebase também (re-autenticação pode ser necessária)
   try {
     const fbUser = firebase.auth().currentUser;
     if (fbUser && fbUser.email === u.email && fbUser.providerData[0]?.providerId === 'password') {
