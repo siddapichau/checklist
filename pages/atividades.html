@@ -61,7 +61,7 @@
           <input type="date" id="taskDate">
         </label>
         <label><span>Categoria</span>
-          <select id="taskCategory"></select>
+          <select id="taskCategory" multiple size="3"></select>
         </label>
       </div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
@@ -88,7 +88,19 @@
           <option value="daily">Diária</option>
           <option value="weekly">Semanal</option>
           <option value="monthly">Mensal</option>
+          <option value="custom">Dias específicos (ex: seg, qua, sex)</option>
         </select>
+      </label>
+      <label id="customDaysLabel" style="display:none"><span>Dias da semana</span>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <label style="font-size:12px"><input type="checkbox" value="mon"> Seg</label>
+          <label style="font-size:12px"><input type="checkbox" value="tue"> Ter</label>
+          <label style="font-size:12px"><input type="checkbox" value="wed"> Qua</label>
+          <label style="font-size:12px"><input type="checkbox" value="thu"> Qui</label>
+          <label style="font-size:12px"><input type="checkbox" value="fri"> Sex</label>
+          <label style="font-size:12px"><input type="checkbox" value="sat"> Sáb</label>
+          <label style="font-size:12px"><input type="checkbox" value="sun"> Dom</label>
+        </div>
       </label>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
         <button type="button" class="btn btn-secondary" onclick="closeModal()">Cancelar</button>
@@ -128,6 +140,13 @@ function preserveCoreSideEffects(data) {
 // Listener para mensagem do parent (nova tarefa rápida)
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'newTask') openNewTask();
+});
+
+// Mostrar/ocultar dias personalizados
+const recSel = document.getElementById('taskRecurrence');
+const customLabel = document.getElementById('customDaysLabel');
+if (recSel) recSel.addEventListener('change', () => {
+  customLabel.style.display = recSel.value === 'custom' ? 'block' : 'none';
 });
 
 function render() {
@@ -249,10 +268,11 @@ function saveTask(e) {
     title: document.getElementById('taskTitle').value.trim(),
     description: document.getElementById('taskDesc').value.trim(),
     date: document.getElementById('taskDate').value,
-    category: document.getElementById('taskCategory').value,
+    category: Array.from(document.getElementById('taskCategory').selectedOptions).map(o => o.value).join(',') || 'Geral',
     priority: document.getElementById('taskPriority').value,
     status: document.getElementById('taskStatus').value,
     recurrence: document.getElementById('taskRecurrence').value,
+    recurrenceDays: document.getElementById('taskRecurrence').value === 'custom' ? Array.from(document.querySelectorAll('#customDaysLabel input[type="checkbox"]:checked')).map(c => c.value) : [],
   };
 
   if (id) {
