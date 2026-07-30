@@ -108,8 +108,9 @@ ${context.todayTasks.map(t => `- ${t.title} [${t.status}] (${t.category || 'Gera
 Responda de forma clara, organizada e prática. Use emojis para facilitar a leitura.`;
 
   try {
-    // A chave não é lida do localStorage. O shell a busca do documento privado
-    // do Firestore e só administradores autenticados conseguem acessá-la.
+    // A chave é resolvida em camadas (sessão → localStorage → Firestore).
+    // O Firestore foi liberado em rules para qualquer usuário autenticado,
+    // então a IA funciona também para os membros do app.
     const apiKey = await page.getDeepseekKey();
     if (apiKey) {
       // Chamada real à API DeepSeek
@@ -130,14 +131,23 @@ Responda de forma clara, organizada e prática. Use emojis para facilitar a leit
         })
       });
 
-      if (!response.ok) throw new Error('Erro na API: ' + response.status);
+      if (!response.ok) {
+        let detail = '';
+        try { detail = (await response.json())?.error?.message || ''; } catch(e) {}
+        throw new Error('Erro na API: ' + response.status + (detail ? ' — ' + detail : ''));
+      }
 
       const result = await response.json();
       const answer = result.choices?.[0]?.message?.content || 'Sem resposta da IA';
       showAnswer(answer, question);
     } else {
       // Modo preview sem API key
-      showAnswer(generateLocalResponse(question, context), question);
+      showAnswer(
+        generateLocalResponse(question, context) +
+        '\n\n— A chave do DeepSeek não foi encontrada para este navegador/conta. ' +
+        'Peça ao administrador para salvá-la em Administração → API / IA.',
+        question
+      );
     }
   } catch (err) {
     showAnswer(`⚠️ Erro ao consultar IA: ${err.message}\n\nUm administrador pode configurar a API Key em Administração > API / IA.`, question);

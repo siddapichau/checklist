@@ -191,8 +191,13 @@ service cloud.firestore {
 
     // Integrações privadas: nunca são lidas por membros e não devem ser
     // misturadas ao documento global (que é distribuído a todos os logados).
+    // ATENÇÃO: a leitura foi liberada para qualquer usuário autenticado para
+    // que a IA funcione para todos os membros do app. Em produção, prefira
+    // uma Cloud Function/proxy e restrinja a leitura novamente.
+    // (veja CORRECAO_APIKEY.md)
     match /settings/admin {
-      allow read, write: if isAdmin();
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     // Marcador do claim de admin de USO ÚNICO. É criado uma única vez, na
