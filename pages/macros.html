@@ -114,7 +114,7 @@
         <span class="tb-sep"></span>
         <button type="button" title="Emojis" onclick="toggleEmoji()">😀</button>
       </div>
-      <div class="editor-area" id="macroContent" contenteditable="true" data-placeholder="Escreva o modelo da mensagem... Use variáveis como {{nome}}, {{data}}, {{hora}}, {{usuario}}" oninput="updateStats();updatePreview()"></div>
+      <div class="editor-area" id="macroContent" contenteditable="true" data-placeholder="Escreva o modelo da mensagem... Use variáveis como {{nome}}, {{data}}, {{hora}}, {{usuario}}, {{saldação}}" oninput="updateStats();updatePreview()"></div>
       <div class="emoji-row chip-row hidden" id="emojiRow"></div>
       <div class="editor-stats">
         <span id="charCount">0 caracteres · 0 palavras</span>
@@ -161,15 +161,24 @@ let usingId = null;
 function builtinVarValues() {
   const user = page.getUser() || {};
   const now = new Date();
+  const hour = now.getHours();
+  let saudacao = 'Bom dia';
+  if (hour >= 12 && hour < 18) {
+    saudacao = 'Boa tarde';
+  } else if (hour >= 18 || hour < 5) {
+    saudacao = 'Boa noite';
+  }
   return {
     nome: '',
     cliente: '',
     data: now.toLocaleDateString('pt-BR'),
     hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
     usuario: user.name || user.username || '',
+    saldação: saudacao,
+    saudacao: saudacao,
   };
 }
-const VAR_CHIPS = ['nome', 'cliente', 'data', 'hora', 'usuario'];
+const VAR_CHIPS = ['nome', 'cliente', 'data', 'hora', 'usuario', 'saldação', 'saudacao'];
 const EMOJIS = ['😀','😊','👍','🙏','✅','⚠️','🚨','📦','🚚','⏰','📋','💬','🎉','🤝','❗','💡'];
 
 /* ========== INICIALIZAÇÃO ========== */

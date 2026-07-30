@@ -39,7 +39,7 @@
 
 const Page = {
   getUser() { return core.getCurrentUser(); }, getDB() { return core.getLocalDB(); }, saveDB(d) { core.saveLocalDB(d); },
-  toast(msg, type) { core.toast(msg, type); }, esc(s) { return core.escapeHTML(s); },
+  toast(msg, type) { core.toast(msg, type); }, chromeNotification(title, body, type) { core.chromeNotification(title, body, type); }, esc(s) { return core.escapeHTML(s); },
   _post(message) { if (window.parent && window.parent !== window) window.parent.postMessage(message, window.location.origin); },
   reload() { this._post({ type: 'reload' }); }, navigate(page) { this._post({ type: 'navigate', page }); },
   openModal(html) { this._post({ type: 'modal', html }); }, closeModal() { this._post({ type: 'closeModal' }); },

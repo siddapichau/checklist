@@ -334,6 +334,22 @@ input,select,textarea{font:inherit}
 .toast-exit{animation:toastOut .3s ease forwards}
 @keyframes toastOut{to{opacity:0;transform:translateX(30px)}}
 
+/* ---------- CHROME NOTIFICATION ALERT STYLE ---------- */
+.chrome-notif-container{
+  position:fixed;bottom:24px;right:24px;z-index:99999;display:flex;flex-direction:column;gap:10px;pointer-events:none;
+}
+.chrome-notif{
+  pointer-events:auto;background:var(--card,#fff);color:var(--text,#1E293B);
+  border:1px solid var(--line,#E2E8F0);border-radius:12px;padding:12px 16px;
+  box-shadow:0 10px 30px rgba(0,0,0,.18);width:350px;max-width:100%;
+  animation:slideUp .3s cubic-bezier(0.16, 1, 0.3, 1);display:flex;flex-direction:column;gap:6px;position:relative;
+}
+.chrome-notif-header{display:flex;align-items:center;justify-content:space-between}
+.chrome-notif-brand{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--muted,#94A3B8)}
+.chrome-notif-close{border:0;background:none;cursor:pointer;font-size:16px;color:var(--muted);padding:0 4px;line-height:1}
+.chrome-notif-title{font-weight:700;font-size:14px;color:var(--text)}
+.chrome-notif-body{font-size:13px;color:var(--text-secondary,#64748B)}
+
 /* ---------- MODAL ---------- */
 .modal-overlay{
   position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:1000;display:flex;

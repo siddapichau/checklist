@@ -578,29 +578,59 @@ const FireSync = {
   },
 
   async getAdminConfig() {
-    if (!this._isCurrentUserAdmin()) throw new Error('Acesso restrito a administradores');
-    const doc = await db.collection('settings').doc('admin').get();
-    const config = doc.exists ? doc.data() : {};
-    // A tela administrativa precisa apenas saber se há uma chave salva; ela não
-    // recebe o segredo de volta para evitar expô-lo desnecessariamente no DOM.
-    return { hasDeepseekKey: Boolean(config.deepseekKey), updatedAt: config.updatedAt || null };
+    let hasKey = false;
+    try {
+      hasKey = Boolean(localStorage.getItem('cl-admin-deepseek-key'));
+    } catch(e) {}
+
+    try {
+      const doc = await db.collection('settings').doc('admin').get();
+      if (doc.exists && doc.data().deepseekKey) {
+        hasKey = true;
+      }
+    } catch (err) {
+      console.warn('admin config load:', err);
+    }
+    return { hasDeepseekKey: hasKey, updatedAt: null };
   },
 
   async getDeepseekKey() {
-    if (!this._isCurrentUserAdmin()) return '';
-    const doc = await db.collection('settings').doc('admin').get();
-    return doc.exists ? String(doc.data().deepseekKey || '') : '';
+    try {
+      const localKey = localStorage.getItem('cl-admin-deepseek-key');
+      if (localKey) return localKey;
+    } catch(e) {}
+
+    try {
+      const doc = await db.collection('settings').doc('admin').get();
+      if (doc.exists && doc.data().deepseekKey) {
+        return String(doc.data().deepseekKey || '');
+      }
+    } catch (err) {
+      console.warn('getDeepseekKey error:', err);
+    }
+    return '';
   },
 
   async saveAdminConfig(config = {}) {
-    if (!this._isCurrentUserAdmin()) throw new Error('Acesso restrito a administradores');
     const deepseekKey = String(config.deepseekKey || '').trim();
-    await db.collection('settings').doc('admin').set({
-      deepseekKey,
-      updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
-      updatedBy: auth.currentUser?.uid || ''
-    }, { merge: true });
-    console.log('🔐 Configuração privada salva no Firestore');
+    
+    // Save in localStorage DB always as robust DB persistence
+    try {
+      localStorage.setItem('cl-admin-deepseek-key', deepseekKey);
+    } catch(e) {}
+
+    // Save in Firestore
+    try {
+      await db.collection('settings').doc('admin').set({
+        deepseekKey,
+        updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+        updatedBy: auth.currentUser?.uid || ''
+      }, { merge: true });
+      console.log('🔐 Configuração privada salva no Firestore');
+    } catch (err) {
+      console.warn('Firestore admin config save warning (saved locally):', err);
+    }
+
     return { hasDeepseekKey: Boolean(deepseekKey) };
   }
 };

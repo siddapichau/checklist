@@ -219,6 +219,47 @@ const Core = {
     }
   },
 
+  /* ---------- CHROME STYLE NOTIFICATION ALERT ---------- */
+  chromeNotification(title, body, type = 'info') {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try { new Notification(title, { body }); } catch(e) {}
+    } else if ('Notification' in window && Notification.permission !== 'denied') {
+      Notification.requestPermission().catch(() => {});
+    }
+
+    let container = document.getElementById('chromeNotifContainer');
+    if (!container && window.parent && window.parent !== window) {
+      window.parent.postMessage({ type: 'chromeNotif', title, body, notifType: type }, window.location.origin);
+      return;
+    }
+
+    if (!container) {
+      container = document.createElement('div');
+      container.id = 'chromeNotifContainer';
+      container.className = 'chrome-notif-container';
+      document.body.appendChild(container);
+    }
+
+    const notif = document.createElement('div');
+    notif.className = `chrome-notif ${type}`;
+    notif.innerHTML = `
+      <div class="chrome-notif-header">
+        <div class="chrome-notif-brand">
+          <span>🌐</span> <span>Google Chrome • Alerta</span>
+        </div>
+        <button class="chrome-notif-close" onclick="this.closest('.chrome-notif').remove()">×</button>
+      </div>
+      <div class="chrome-notif-title">${this.escapeHTML(title)}</div>
+      <div class="chrome-notif-body">${this.escapeHTML(body)}</div>
+    `;
+
+    container.appendChild(notif);
+    setTimeout(() => {
+      notif.style.animation = 'slideDown .3s ease reverse forwards';
+      setTimeout(() => notif.remove(), 300);
+    }, 6000);
+  },
+
   /* ---------- DATA / HORA ---------- */
   today() { return new Date().toISOString().slice(0, 10); },
   now() { return new Date().toISOString(); },
