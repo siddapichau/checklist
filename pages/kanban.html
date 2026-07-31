@@ -150,8 +150,14 @@ function render() {
   const search = document.getElementById('search').value.toLowerCase();
   const filterCat = document.getElementById('filterCategory').value;
   const today = core.today();
+  // O quadro acompanha a rotina: hoje em qualquer status + pendências atrasadas.
+  // Atividades futuras e finalizadas de dias anteriores aparecem no dia certo
+  // (ou ao escolher explicitamente uma busca/categoria não muda esta regra).
+  const isDailyVisible = t => !t.date || t.date === today ||
+    (t.date < today && t.status !== 'finished' && t.status !== 'notdone');
 
   const filtered = tasks.filter(t => {
+    if (!isDailyVisible(t)) return false;
     if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
     if (filterCat !== 'all' && t.category !== filterCat) return false;
     return true;
@@ -230,13 +236,13 @@ function onDrop(e) {
   const col = e.currentTarget.closest('.kanban-column') || e.currentTarget;
   col.classList.remove('drag-over');
   const newStatus = col.dataset.status;
-  const taskId = parseInt(dragId || e.dataTransfer.getData('text/plain'));
+  const taskId = String(dragId || e.dataTransfer.getData('text/plain') || '');
 
   if (!taskId || !newStatus) return;
 
   const data = page.getDB();
   const user = page.getUser();
-  const task = data.tasks.find(t => t.id === taskId);
+  const task = data.tasks.find(t => String(t.id) === taskId);
   if (!task || task.status === newStatus) return;
 
   const oldStatus = task.status;
@@ -295,7 +301,7 @@ function openAddCard(status) {
 
 function editCard(id) {
   const data = page.getDB();
-  const t = data.tasks.find(t => t.id === id);
+  const t = data.tasks.find(t => String(t.id) === String(id));
   if (!t) return;
   document.getElementById('cardModalTitle').textContent = 'Editar cartão';
   document.getElementById('cardId').value = id;
@@ -363,8 +369,8 @@ function saveCard(e) {
 function deleteCard(id) {
   if (!confirm('Excluir este cartão?')) return;
   const data = page.getDB();
-  const t = data.tasks.find(t => t.id === id);
-  data.tasks = data.tasks.filter(t => t.id !== id);
+  const t = data.tasks.find(t => String(t.id) === String(id));
+  data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
   page.saveDB(data);
   if (t) page.deleteDocument('tasks', t.id);
   core.log('kanban_delete', page.getUser()?.id, t?.title || '');

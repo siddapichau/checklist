@@ -95,7 +95,7 @@ self.addEventListener('message', event => {
 function isApiRequest(request) {
   const url = request.url;
   return url.includes('firestore') || url.includes('googleapis') ||
-    url.includes('deepseek.com') || url.includes('firebaseio.com');
+    url.includes('deepseek.com') || url.includes('api.groq.com') || url.includes('firebaseio.com');
 }
 
 async function fetchWithTimeout(request) {

@@ -626,11 +626,13 @@ const FireSync = {
 
   async getAdminConfig() {
     let hasKey = false;
+    let hasGroqKey = false;
+    let aiProvider = 'deepseek';
     let aiMode = this.getAIMode();
     let aiProxyUrl = this.getAIProxyUrl();
     try {
-      hasKey = Boolean(sessionStorage.getItem('cl-admin-deepseek-key') ||
-                       localStorage.getItem('cl-admin-deepseek-key'));
+      hasKey = Boolean(sessionStorage.getItem('cl-admin-deepseek-key') || localStorage.getItem('cl-admin-deepseek-key'));
+      hasGroqKey = Boolean(sessionStorage.getItem('cl-admin-groq-key') || localStorage.getItem('cl-admin-groq-key'));
     } catch(e) {}
 
     try {
@@ -638,6 +640,8 @@ const FireSync = {
       if (doc.exists) {
         const data = doc.data() || {};
         if (data.deepseekKey) hasKey = true;
+        if (data.groqKey) hasGroqKey = true;
+        if (data.aiProvider === 'groq' || data.aiProvider === 'deepseek') aiProvider = data.aiProvider;
         if (data.aiMode && this.AI_MODES.includes(data.aiMode)) {
           aiMode = data.aiMode;
           try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
@@ -650,7 +654,7 @@ const FireSync = {
     } catch (err) {
       console.warn('admin config load:', err);
     }
-    return { hasDeepseekKey: hasKey, aiMode, aiProxyUrl, updatedAt: null };
+    return { hasDeepseekKey: hasKey, hasGroqKey, aiProvider, aiMode, aiProxyUrl, updatedAt: null };
   },
 
   /* Modo de conexão da IA: 'auto' (proxy próprio → direto → públicos),
@@ -715,9 +719,24 @@ const FireSync = {
     return '';
   },
 
+  async getGroqKey() {
+    try {
+      const cached = sessionStorage.getItem('cl-admin-groq-key') || localStorage.getItem('cl-admin-groq-key');
+      if (cached) return cached;
+    } catch(e) {}
+    try {
+      const doc = await db.collection('settings').doc('admin').get();
+      const key = doc.exists ? String(doc.data()?.groqKey || '') : '';
+      if (key) { localStorage.setItem('cl-admin-groq-key', key); sessionStorage.setItem('cl-admin-groq-key', key); }
+      return key;
+    } catch (err) { console.warn('getGroqKey error:', err); return ''; }
+  },
+
   async saveAdminConfig(config = {}) {
     const has = (field) => Object.prototype.hasOwnProperty.call(config, field);
     const deepseekKey = has('deepseekKey') ? String(config.deepseekKey || '').trim() : undefined;
+    const groqKey = has('groqKey') ? String(config.groqKey || '').trim() : undefined;
+    const aiProvider = has('aiProvider') && ['deepseek','groq'].includes(config.aiProvider) ? config.aiProvider : undefined;
     const aiMode = has('aiMode') && this.AI_MODES.includes(config.aiMode) ? config.aiMode : undefined;
     // Normaliza a URL do proxy: sem barra final, para concatenar os caminhos.
     const aiProxyUrl = has('aiProxyUrl')
@@ -728,6 +747,12 @@ const FireSync = {
       try { localStorage.setItem('cl-admin-deepseek-key', deepseekKey); } catch(e) {}
       // Save in sessionStorage for the current tab (quicker fallback)
       try { sessionStorage.setItem('cl-admin-deepseek-key', deepseekKey); } catch(e) {}
+    }
+    if (groqKey !== undefined) {
+      try { localStorage.setItem('cl-admin-groq-key', groqKey); sessionStorage.setItem('cl-admin-groq-key', groqKey); } catch(e) {}
+    }
+    if (aiProvider) {
+      try { localStorage.setItem('cl-admin-ai-provider', aiProvider); } catch(e) {}
     }
     if (aiMode) {
       try { localStorage.setItem('cl-admin-ai-mode', aiMode); } catch(e) {}
@@ -743,6 +768,8 @@ const FireSync = {
         updatedBy: auth.currentUser?.uid || ''
       };
       if (deepseekKey !== undefined) payload.deepseekKey = deepseekKey;
+      if (groqKey !== undefined) payload.groqKey = groqKey;
+      if (aiProvider) payload.aiProvider = aiProvider;
       if (aiMode) payload.aiMode = aiMode;
       if (aiProxyUrl !== undefined) payload.aiProxyUrl = aiProxyUrl;
       await db.collection('settings').doc('admin').set(payload, { merge: true });
@@ -753,6 +780,8 @@ const FireSync = {
 
     const result = {};
     if (deepseekKey !== undefined) result.hasDeepseekKey = Boolean(deepseekKey);
+    if (groqKey !== undefined) result.hasGroqKey = Boolean(groqKey);
+    if (aiProvider) result.aiProvider = aiProvider;
     if (aiMode) result.aiMode = aiMode;
     if (aiProxyUrl !== undefined) result.aiProxyUrl = aiProxyUrl;
     return result;

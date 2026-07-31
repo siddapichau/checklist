@@ -106,8 +106,13 @@ function quickQ(q) {
 
 async function aiConfig() {
   let apiKey = '';
-  try { apiKey = await page.getDeepseekKey(); } catch (e) {}
-  return { apiKey, mode: page.getAIMode(), proxyUrl: page.getAIProxyUrl() };
+  let provider = localStorage.getItem('cl-admin-ai-provider') || 'deepseek';
+  try { const cfg = await window.parent?.fireSync?.getAdminConfig?.(); provider = cfg?.aiProvider || provider; localStorage.setItem('cl-admin-ai-provider', provider); } catch (_) {}
+  try {
+    if (provider === 'groq') apiKey = await page.getGroqKey();
+    else apiKey = await page.getDeepseekKey();
+  } catch (e) {}
+  return { apiKey, provider, mode: page.getAIMode(), proxyUrl: page.getAIProxyUrl() };
 }
 
 function networkHint(err, cfg) {
@@ -216,7 +221,7 @@ Responda de forma clara, organizada e prática. Use emojis para facilitar a leit
       // Modo preview sem API key
       showAnswer(
         generateLocalResponse(question, context) +
-        '\n\n— A chave do DeepSeek não foi encontrada para este navegador/conta. ' +
+        '\n\n— A chave da IA selecionada não foi encontrada para este navegador/conta. ' +
         'Peça ao administrador para salvá-la em Administração → API / IA.',
         question
       );
@@ -226,6 +231,7 @@ Responda de forma clara, organizada e prática. Use emojis para facilitar a leit
         systemPrompt,
         question,
         mode: cfg.mode,
+        provider: cfg.provider,
         proxyUrl: cfg.proxyUrl,
         onProgress: attempt => { btn.textContent = `⏳ Conectando (${attempt.label})...`; },
       });
