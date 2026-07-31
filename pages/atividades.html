@@ -233,6 +233,12 @@ function isLateTask(t, today) {
   return t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
 }
 
+// Atividade "pulada hoje" não aparece no dia nem entra em contagem, mas
+// continua existindo para voltar amanhã (especialmente as recorrentes).
+function isSkippedToday(t, today) {
+  return t.date === today && t.recurrenceSkip && t.recurrenceSkip[today];
+}
+
 function render() {
   const data = page.getDB();
   const tasks = data.tasks || [];
@@ -245,9 +251,14 @@ function render() {
 
   // Regra diária: mostrar hoje em qualquer status e manter somente atrasadas
   // que ainda precisam de ação. Futuras ficam para o dia marcado; finalizadas
-  // de dias anteriores não poluem a lista.
-  const isDailyVisible = t => !t.date || t.date === today ||
-    (t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  // de dias anteriores não poluem a lista. Atividades puladas via "Não irei
+  // fazer hoje" SÓ somem da visualização do dia atual — em outras vistas
+  // (ex.: atrasadas, calendário) continuam visíveis como estavam.
+  const isDailyVisible = t => {
+    if (isSkippedToday(t, today)) return false;
+    return !t.date || t.date === today ||
+      (t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  };
 
   const taskCats = t => String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
 
@@ -327,6 +338,14 @@ function renderTaskCard(t, today, showLateBadge) {
     ? `<span class="tc-chip">🔁 ${recLabel(t.recurrence)}</span>` : '';
   const catChips = cats.map(c => `<span class="tc-chip">🏷️ ${page.esc(c)}</span>`).join('');
 
+  // "Não irei fazer hoje" só faz sentido para atividades do dia atual,
+  // ainda pendentes/em análise, e que não foram puladas antes.
+  const skippedToday = t.recurrenceSkip && t.recurrenceSkip[today];
+  const showSkipBtn = t.date === today && (t.status === 'pending' || t.status === 'analyzing') && !skippedToday;
+  const skipBadge = skippedToday
+    ? `<span class="tc-chip" style="background:var(--bg-secondary);color:var(--muted)">⏭️ Pulada hoje</span>`
+    : '';
+
   return `
   <div class="task-card st-${t.status} ${late ? 'late' : ''}">
     ${showLateBadge ? '<span class="tc-badge">Atrasada</span>' : ''}
@@ -335,13 +354,18 @@ function renderTaskCard(t, today, showLateBadge) {
       <div class="tc-title" onclick="editTask('${t.id}')" title="Editar atividade">${page.esc(t.title)}</div>
       <span class="tc-prio ${page.esc(prio)}" title="Prioridade: ${prioLabels[prio] || prio}"></span>
     </div>
-    <div class="tc-meta">${dateChip}${alertChip}${recChip}${catChips}</div>
+    <div class="tc-meta">${dateChip}${alertChip}${recChip}${catChips}${skipBadge}</div>
     ${t.description ? `<div class="tc-desc">${page.esc(t.description)}</div>` : ''}
     <div class="tc-actions">
       <button class="btn-icon" onclick="openComments('${t.id}')" title="Comentários">💬</button>
       <button class="btn-icon" onclick="shareTask('${t.id}')" title="Compartilhar">🔗</button>
+      ${showSkipBtn
+        ? `<button class="btn-icon" onclick="skipTaskToday('${t.id}')" title="Não irei fazer hoje (apenas este dia)">⏭️</button>`
+        : (skippedToday
+            ? `<button class="btn-icon" onclick="undoSkipTaskToday('${t.id}')" title="Reativar para hoje">↩️</button>`
+            : '')}
       <button class="btn-icon" onclick="editTask('${t.id}')" title="Editar">✏️</button>
-      <button class="btn-icon" onclick="deleteTask('${t.id}')" title="Excluir">🗑️</button>
+      <button class="btn-icon" onclick="deleteTask('${t.id}')" title="Excluir definitivamente">🗑️</button>
     </div>
   </div>`;
 }
@@ -471,17 +495,102 @@ function saveTask(e) {
 }
 
 function deleteTask(id) {
-  if (!confirm('Excluir esta atividade?')) return;
   const data = page.getDB();
   const task = findTask(data, id);
-  data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
-  core.log('task_delete', user?.id, task?.title || '');
+  if (!task) return;
+  // Modal próprio de confirmação (mais seguro que o confirm() do navegador,
+  // mostra o NOME da atividade e exige digitar "excluir" para confirmar).
+  const html = `
+    <div style="text-align:center;margin-bottom:10px">
+      <div style="font-size:54px">🗑️</div>
+      <h2 style="margin:6px 0 4px">Excluir atividade?</h2>
+      <p style="color:var(--text-secondary);font-size:13.5px;margin:0">Esta ação é <b>definitiva</b> — a atividade sairá do app e do banco na nuvem.</p>
+    </div>
+    <div style="background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:12px 14px;margin:14px 0">
+      <b>${page.esc(task.title)}</b><br>
+      <small style="color:var(--muted)">${page.esc(task.category || 'Geral')} · ${page.esc(task.date || 'sem data')} · status: ${statusLabel(task.status)}</small>
+    </div>
+    <label style="display:block;margin-top:6px"><span style="font-size:13px">Para confirmar, digite <b>excluir</b> abaixo:</span>
+      <input type="text" id="confirmDeleteInput" placeholder="excluir" autocomplete="off">
+    </label>
+    <div class="form-error" id="confirmDeleteError" style="display:none"></div>
+    <div class="modal-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
+      <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnConfirmDelete" style="background:var(--danger,#EF4444);border-color:var(--danger,#EF4444)" onclick="confirmDeleteTask('${page.esc(String(id))}')">🗑️ Excluir definitivamente</button>
+    </div>
+  `;
+  page.openModal(html);
+  setTimeout(() => document.getElementById('confirmDeleteInput')?.focus(), 120);
+}
+
+function confirmDeleteTask(id) {
+  const input = document.getElementById('confirmDeleteInput');
+  const err = document.getElementById('confirmDeleteError');
+  if (err) err.style.display = 'none';
+  if (!input || String(input.value || '').trim().toLowerCase() !== 'excluir') {
+    if (err) { err.textContent = 'Digite exatamente "excluir" para confirmar.'; err.style.display = 'block'; }
+    return;
+  }
+  const btn = document.getElementById('btnConfirmDelete');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Excluindo...'; }
+  try {
+    const data = page.getDB();
+    const task = findTask(data, id);
+    data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
+    core.log('task_delete', user?.id, task?.title || '');
+    preserveCoreSideEffects(data);
+    page.saveDB(data);
+    // Exclui do Firestore em background — o Firestore replica a exclusão
+    // local, então a atividade some em todos os dispositivos do usuário.
+    if (task) page.deleteDocument('tasks', task.id);
+    App.closeModal();
+    page.toast('Atividade excluída definitivamente 🗑️', 'info');
+    render();
+    window.parent.postMessage({ type: 'updateBadge' }, '*');
+  } catch (err) {
+    if (err) { err.textContent = 'Erro ao excluir: ' + (err.message || err); err.style.display = 'block'; }
+    if (btn) { btn.disabled = false; btn.textContent = '🗑️ Excluir definitivamente'; }
+  }
+}
+
+/* ===== PULAR ATIVIDADE APENAS HOJE =====
+   Não muda o status (continua pendente) e não deleta — apenas marca a data
+   de hoje no mapa recurrenceSkip. O render() filtra pelo skip do dia atual
+   para que a atividade não entre na contagem e nem apareça na lista do dia.
+   Amanhã ela volta normalmente, inclusive a recorrência diária. */
+function skipTaskToday(id) {
+  const data = page.getDB();
+  const task = findTask(data, id);
+  if (!task) return;
+  const today = core.today();
+  if (!task.recurrenceSkip || typeof task.recurrenceSkip !== 'object') task.recurrenceSkip = {};
+  if (task.recurrenceSkip[today]) return; // já pulada
+  task.recurrenceSkip[today] = true;
+  task.updatedAt = core.now();
   preserveCoreSideEffects(data);
   page.saveDB(data);
-  if (task) page.deleteDocument('tasks', task.id);
-  page.toast('Atividade excluída', 'info');
+  page.syncDocument('tasks', task.id, { recurrenceSkip: task.recurrenceSkip, updatedAt: task.updatedAt });
+  core.log('task_skip_today', user?.id, task.title);
+  page.toast('Pulada só hoje — amanhã ela volta. ⏭️', 'info');
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
+}
+
+function undoSkipTaskToday(id) {
+  const data = page.getDB();
+  const task = findTask(data, id);
+  if (!task) return;
+  const today = core.today();
+  if (task.recurrenceSkip && task.recurrenceSkip[today]) {
+    delete task.recurrenceSkip[today];
+    task.updatedAt = core.now();
+    preserveCoreSideEffects(data);
+    page.saveDB(data);
+    page.syncDocument('tasks', task.id, { recurrenceSkip: task.recurrenceSkip, updatedAt: task.updatedAt });
+    page.toast('Atividade reativada para hoje. ↩️', 'success');
+    render();
+    window.parent.postMessage({ type: 'updateBadge' }, '*');
+  }
 }
 
 function toggleStatus(id) {

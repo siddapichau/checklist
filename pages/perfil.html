@@ -164,8 +164,9 @@ if (user?.provider !== 'google.com' && user?.provider !== 'google') {
 // Provider info
 const providerEl = document.getElementById('providerType');
 if (user?.provider === 'google.com' || user?.provider === 'google') {
-  providerEl.innerHTML = '🔵 Google';
+  providerEl.innerHTML = '🔵 Google (não tem senha local — gerencie pelo Google)';
   document.getElementById('localPasswordForm').style.display = 'none';
+  document.getElementById('forgotPasswordBlock').style.display = 'none';
 } else {
   providerEl.innerHTML = '📧 E-mail e senha';
 }
@@ -192,17 +193,108 @@ function validateUsername() {
 }
 
 async function sendResetEmail() {
-  if (!user?.email) return page.toast('Sua conta não tem e-mail cadastrado', 'error');
+  if (!user?.email) {
+    page.toast('Sua conta não tem e-mail cadastrado', 'error');
+    return;
+  }
+
+  // Tenta Firebase Auth primeiro (caso o usuário tenha conta lá).
+  // Se a conta for APENAS local (seed / criada sem Firebase), o Firebase vai
+  // devolver "auth/user-not-found" — nesse caso mostramos o fluxo de reset
+  // LOCAL (modal próprio, sem dependência de e-mail externo).
+  const isGoogleOnly = user?.provider === 'google.com' || user?.provider === 'google';
+  if (isGoogleOnly) {
+    page.toast('Sua conta entra pelo Google. A senha é gerenciada por lá (myaccount.google.com).', 'info');
+    return;
+  }
+
   try {
     firebase.auth().useDeviceLanguage();
     await firebase.auth().sendPasswordResetEmail(user.email);
     page.toast('E-mail de redefinição enviado para ' + user.email + '! 📬', 'success');
   } catch (err) {
-    if (err.code === 'auth/user-not-found') {
-      page.toast('E-mail não encontrado no Firebase. Conta apenas local.', 'warning');
+    if (err && err.code === 'auth/user-not-found') {
+      // Conta só existe no DB local → oferecemos reset 100% local.
+      page.toast('Esta conta é só local — não tem cadastro no Firebase Auth. Vamos redefinir aqui mesmo.', 'warning');
+      showLocalResetModal();
+    } else if (err && err.code === 'auth/invalid-email') {
+      page.toast('E-mail inválido no Firebase Auth', 'error');
     } else {
-      page.toast('Erro: ' + err.message, 'error');
+      page.toast('Erro Firebase: ' + (err?.message || 'desconhecido') + '. Vou abrir o reset local como plano B.', 'warning');
+      showLocalResetModal();
     }
+  }
+}
+
+/* ---------- RESET LOCAL (sem Firebase) ----------
+   Quando a conta foi criada como local (seed.js ou signup só com DB local),
+   não existe usuário correspondente no Firebase Auth, então o link externo
+   NUNCA chega. Esta modal troca a senha direto no DB local (com hash SHA-256
+   idêntico ao usado no login) e mostra a nova senha para o usuário. */
+function showLocalResetModal() {
+  const html = `
+    <div style="text-align:center;margin-bottom:12px">
+      <div style="font-size:48px">🔑</div>
+      <h2 style="margin:0 0 6px">Redefinir senha (local)</h2>
+      <p style="color:var(--muted);font-size:13px">Sua conta é só local — o link por e-mail não funciona. Defina uma nova senha aqui.</p>
+    </div>
+    <label><span>Nova senha</span>
+      <div class="input-group">
+        <input type="password" id="localResetPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" oninput="App.checkPasswordStrength(this.value)">
+        <button type="button" class="toggle-pass" onclick="App.togglePassword('localResetPass', this)">👁</button>
+      </div>
+      <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBarReset"></div></div>
+      <small class="text-muted" id="passStrengthTextReset"></small>
+    </label>
+    <label><span>Confirmar nova senha</span>
+      <div class="input-group">
+        <input type="password" id="localResetPassConfirm" placeholder="Repita a senha">
+        <button type="button" class="toggle-pass" onclick="App.togglePassword('localResetPassConfirm', this)">👁</button>
+      </div>
+    </label>
+    <div class="form-error" id="localResetError"></div>
+    <div class="modal-actions">
+      <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
+      <button class="btn btn-primary" id="btnLocalResetConfirm" onclick="confirmLocalReset()">💾 Redefinir senha local</button>
+    </div>
+  `;
+  page.openModal(html);
+}
+
+async function confirmLocalReset() {
+  refreshUser();
+  const np = document.getElementById('localResetPass')?.value || '';
+  const cf = document.getElementById('localResetPassConfirm')?.value || '';
+  const errEl = document.getElementById('localResetError');
+  if (errEl) { errEl.textContent = ''; errEl.classList.remove('show'); }
+  if (np !== cf) {
+    if (errEl) { errEl.textContent = 'As senhas não coincidem'; errEl.classList.add('show'); }
+    return;
+  }
+  const v = core.validatePassword(np);
+  if (!v.valid) {
+    if (errEl) { errEl.textContent = v.errors.join(', '); errEl.classList.add('show'); }
+    return;
+  }
+  const data = page.getDB();
+  const u = findUserInDB(data);
+  if (!u) {
+    if (errEl) { errEl.textContent = 'Usuário não encontrado no DB local'; errEl.classList.add('show'); }
+    return;
+  }
+  const btn = document.getElementById('btnLocalResetConfirm');
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
+  try {
+    u.passHash = await core.hashPassword(np);
+    page.saveDB(data);
+    try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e) {}
+    core.log('password_reset_local', user?.id);
+    page.toast('Senha redefinida localmente! Use a nova senha no próximo login. 🔒', 'success');
+    App.closeModal();
+  } catch (err) {
+    if (errEl) { errEl.textContent = 'Erro: ' + (err?.message || err); errEl.classList.add('show'); }
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha local'; }
   }
 }
 
@@ -381,6 +473,8 @@ async function changePassword(e) {
   const newP = document.getElementById('newPass').value;
   const confP = document.getElementById('confirmPass').value;
 
+  if (!oldP) return page.toast('Digite a senha atual', 'warning');
+  if (!newP) return page.toast('Digite a nova senha', 'warning');
   if (newP !== confP) return page.toast('As senhas não coincidem', 'error');
 
   const validation = core.validatePassword(newP);
@@ -389,34 +483,53 @@ async function changePassword(e) {
   refreshUser();
   const data = page.getDB();
   const u = findUserInDB(data);
-  if (!u) return;
+
+  if (!u) {
+    return page.toast('Conta local não encontrada — sua conta entra pelo Google ou foi criada em outro dispositivo.', 'error');
+  }
+  if (!u.passHash) {
+    // Conta sem hash local (ex.: logou só pelo Google) → não tem como validar
+    // a senha "atual". Oferecemos o fluxo de reset local em vez de erro.
+    return showLocalResetModal();
+  }
 
   const valid = await core.verifyPassword(oldP, u.passHash);
-  if (!valid) return page.toast('Senha atual incorreta', 'error');
+  if (!valid) {
+    return page.toast('Senha atual incorreta. Se você entrou pelo Google, use o link "Esqueci minha senha" abaixo.', 'error');
+  }
+
+  const btn = e.target.querySelector('button[type="submit"]');
+  const origText = btn?.textContent;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
 
   u.passHash = await core.hashPassword(newP);
   page.saveDB(data);
 
+  let fbMsg = '';
   try {
     const fbUser = firebase.auth().currentUser;
-    if (fbUser && fbUser.email === u.email && fbUser.providerData[0]?.providerId === 'password') {
+    if (fbUser && fbUser.email === u.email && (fbUser.providerData[0]?.providerId === 'password' || fbUser.providerData[0]?.providerId === 'firebase')) {
       await fbUser.updatePassword(newP);
-      page.toast('Senha alterada localmente e no Firebase! 🔒', 'success');
+      fbMsg = ' Senha também atualizada no Firebase!';
     } else {
-      page.toast('Senha alterada localmente! (Firebase: requer re-login)', 'info');
+      fbMsg = ' Senha local atualizada. (Para atualizar no Firebase, faça logout e login novamente com a nova senha.)';
     }
   } catch (err) {
     if (err.code === 'auth/requires-recent-login') {
-      page.toast('Senha local alterada. Para alterar no Firebase, faça logout e login novamente.', 'warning');
+      fbMsg = ' Senha local atualizada. Para atualizar no Firebase também, faça logout e login novamente.';
     } else {
-      page.toast('Senha local alterada. Erro Firebase: ' + err.message, 'warning');
+      fbMsg = ' Senha local atualizada. (Firebase: ' + (err.message || err.code) + ').';
     }
   }
 
+  try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e) {}
   core.log('password_change', user.id);
+  page.toast('Senha alterada com sucesso! 🔒' + fbMsg, 'success');
   document.getElementById('oldPass').value = '';
   document.getElementById('newPass').value = '';
   document.getElementById('confirmPass').value = '';
+
+  if (btn) { btn.disabled = false; btn.textContent = origText || '💾 Alterar senha'; }
 }
 </script>
 
