@@ -5,6 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
   <title>Visão geral</title>
+  <style>
+    .period-filter{display:flex;background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:12px;padding:4px;gap:3px;flex-wrap:wrap}
+    .period-filter button{border:0;background:transparent;padding:8px 14px;border-radius:9px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text-secondary,#64748B);transition:.15s;white-space:nowrap}
+    .period-filter button.active{background:var(--primary,#2563EB);color:#fff;box-shadow:0 3px 10px rgba(37,99,235,.25)}
+    .period-label{font-size:12px;color:var(--muted,#94A3B8);margin-left:8px;display:flex;align-items:center}
+    .ai-tip-card{background:linear-gradient(135deg,#EEF2FF 0%,#F0FDF4 100%);border:1px solid var(--primary-light,#DBEAFE);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+    [data-mode="dark"] .ai-tip-card{background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(16,185,129,.12));border-color:rgba(37,99,235,.3)}
+    .ai-tip-card .icon{font-size:26px;flex-shrink:0}
+    .ai-tip-card b{color:var(--primary)}
+  </style>
 </head>
 <body>
 
@@ -12,12 +22,39 @@
   <div class="info">
     <small>PAINEL OPERACIONAL</small>
     <h1 id="greeting">Bom dia! 👋</h1>
-    <p>Acompanhe seu turno e não deixe nada para trás.</p>
+    <p>Dados sempre do dia atual para trás — sem atividades futuras. Use os filtros abaixo.</p>
   </div>
   <div class="actions">
     <button class="btn btn-primary" onclick="page.navigate('atividades')">＋ Nova atividade</button>
     <button class="btn btn-secondary" onclick="page.navigate('relatorios')">📊 Relatórios</button>
   </div>
+</div>
+
+<!-- IA DICAS -->
+<div class="ai-tip-card" id="aiTipCard">
+  <div class="icon">🤖</div>
+  <div style="flex:1">
+    <b style="font-size:14px">Como funciona a Visão Geral?</b>
+    <p style="font-size:13px;color:var(--text-secondary,#64748B);margin:4px 0 8px;line-height:1.5">Este painel mostra apenas o que já aconteceu até hoje. Filtre por <b>Dia</b> (só hoje), <b>Semana</b> (últimos 7 dias) ou <b>Mês</b> (últimos 30 dias). Atividades futuras não contam como pendentes — assim você foca no que importa.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="askAI('Como funciona este dashboard?')">💬 Perguntar à IA</button>
+      <button class="btn btn-secondary btn-sm" onclick="askAI('Me dê dicas para melhorar minha produtividade hoje')">💡 Dicas de produtividade</button>
+    </div>
+    <div id="aiAnswer" style="margin-top:10px;display:none" class="ai-answer-box"></div>
+  </div>
+</div>
+
+<div class="filters" style="align-items:center;justify-content:space-between">
+  <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+    <div class="period-filter" id="periodFilter">
+      <button data-period="day" class="active" onclick="setPeriod('day')">📅 Hoje</button>
+      <button data-period="week" onclick="setPeriod('week')">📆 7 dias</button>
+      <button data-period="month" onclick="setPeriod('month')">🗓️ 30 dias</button>
+      <button data-period="all" onclick="setPeriod('all')">♾️ Tudo</button>
+    </div>
+    <span class="period-label" id="periodLabel"></span>
+  </div>
+  <button class="btn btn-secondary btn-sm" onclick="resetWidgets()">↺ Widgets padrão</button>
 </div>
 
 <!-- SKELETON LOADING -->
@@ -30,10 +67,6 @@
     <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
     <div class="skeleton" style="height:80px;border-radius:12px;flex:1;min-width:150px"></div>
   </div>
-  <div class="cols">
-    <div class="card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
-    <div class="card"><div class="skeleton skeleton-title"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div><div class="skeleton skeleton-card"></div></div>
-  </div>
 </div>
 
 <!-- CONTEÚDO REAL -->
@@ -43,12 +76,12 @@
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
+<script src="../js/ai.js"></script>
 <script>
 (async function() {
   await page.i18nReady();
   page.applyI18n(document.body);
 
-  // Saudação
   const user = page.getUser();
   const hour = new Date().getHours();
   let greet = 'Boa noite';
@@ -56,13 +89,69 @@
   else if (hour < 18) greet = 'Boa tarde';
   document.getElementById('greeting').textContent = `${greet}, ${user?.name || user?.username || 'Operador'}! 👋`;
 
-  renderWidgets();
+  const savedPeriod = localStorage.getItem('cl-dash-period') || 'day';
+  setPeriod(savedPeriod, true);
 
   setTimeout(() => {
     document.getElementById('skeletonLoad').style.display = 'none';
     document.getElementById('realContent').style.display = 'block';
-  }, 300);
+  }, 250);
 })();
+
+let currentPeriod = localStorage.getItem('cl-dash-period') || 'day';
+
+function setPeriod(p, initial=false) {
+  currentPeriod = p;
+  localStorage.setItem('cl-dash-period', p);
+  document.querySelectorAll('#periodFilter button').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.period === p);
+  });
+  if (!initial) renderWidgets();
+  else setTimeout(renderWidgets, 0);
+  updatePeriodLabel();
+}
+
+function updatePeriodLabel() {
+  const today = core.today();
+  const todayDate = new Date(today + 'T00:00:00');
+  let startDate = new Date(todayDate);
+  let label = '';
+  if (currentPeriod === 'day') {
+    label = `📅 ${core.formatDate(today)} — só hoje`;
+  } else if (currentPeriod === 'week') {
+    startDate.setDate(startDate.getDate() - 6);
+    label = `📆 ${core.formatDate(startDate.toISOString().slice(0,10))} até ${core.formatDate(today)} (7 dias)`;
+  } else if (currentPeriod === 'month') {
+    startDate.setDate(startDate.getDate() - 29);
+    label = `🗓️ ${core.formatDate(startDate.toISOString().slice(0,10))} até ${core.formatDate(today)} (30 dias)`;
+  } else {
+    label = `♾️ Tudo até hoje (${core.formatDate(today)}) — sem futuro`;
+  }
+  const el = document.getElementById('periodLabel');
+  if (el) el.textContent = label;
+}
+
+function getFilteredTasks(allTasks) {
+  const today = core.today();
+  const todayDate = new Date(today + 'T00:00:00');
+  let startDate = new Date(todayDate);
+  if (currentPeriod === 'day') {
+    // start = today
+  } else if (currentPeriod === 'week') {
+    startDate.setDate(startDate.getDate() - 6);
+  } else if (currentPeriod === 'month') {
+    startDate.setDate(startDate.getDate() - 29);
+  } else {
+    startDate = new Date(1970,0,1);
+  }
+  const startStr = startDate.toISOString().slice(0,10);
+  return allTasks.filter(t => {
+    if (!t.date) return currentPeriod === 'all';
+    if (t.date > today) return false; // NUNCA futuro
+    if (currentPeriod === 'all') return true;
+    return t.date >= startStr && t.date <= today;
+  });
+}
 
 function statusLabel(s) {
   return { pending:'Pendente', analyzing:'Analisando', finished:'Finalizada', notdone:'Não realizada' }[s] || s;
@@ -77,23 +166,37 @@ function sizeClass(size) {
 
 function renderWidgets() {
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const allTasks = data.tasks || [];
+  const tasks = getFilteredTasks(allTasks);
   const posts = data.posts || [];
   const today = core.today();
   const now = new Date();
   const user = page.getUser();
 
+  // Métricas baseadas no filtro (sem futuro)
   const total = tasks.length;
   const finished = tasks.filter(t => t.status === 'finished').length;
   const pending = tasks.filter(t => t.status === 'pending').length;
-  const late = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
-  const todayTasks = tasks.filter(t => t.date === today);
+  const analyzing = tasks.filter(t => t.status === 'analyzing').length;
+  // Atrasadas: sempre date < today, mas dentro do período
+  const late = allTasks.filter(t => {
+    if (!t.date) return false;
+    if (t.date >= today) return false;
+    if (t.status === 'finished' || t.status === 'notdone') return false;
+    if (currentPeriod === 'all') return true;
+    // para filtro, atrasadas dentro do período
+    const todayDate = new Date(today + 'T00:00:00');
+    let startDate = new Date(todayDate);
+    if (currentPeriod === 'day') return false; // no dia, não há atrasadas (só hoje)
+    if (currentPeriod === 'week') startDate.setDate(startDate.getDate() - 6);
+    if (currentPeriod === 'month') startDate.setDate(startDate.getDate() - 29);
+    const startStr = startDate.toISOString().slice(0,10);
+    return t.date >= startStr;
+  });
+  const todayTasks = allTasks.filter(t => t.date === today);
   const todayDone = todayTasks.filter(t => t.status === 'finished').length;
   const pct = total > 0 ? Math.round(finished / total * 100) : 0;
-  const points = user ? (core.getUserStats(user.id || user.uid).points || 0) : 0;
-  const streak = user ? (core.getUserStats(user.id || user.uid).streak || 0) : 0;
 
-  // Construir widgets baseado na configuração
   const widgets = core.getDashboardWidgets().filter(w => w.visible !== false);
   const grid = document.getElementById('widgetGrid');
 
@@ -104,21 +207,22 @@ function renderWidgets() {
         return `<div class="widget ${cls}" draggable="true" data-wtype="${w.type}">
           <div class="widget-handle" title="Arrastar">⠿</div>
           <div class="metrics" style="margin:0">
-            <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total</small><strong>${total}</strong></div></div>
+            <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total (${currentPeriod})</small><strong>${total}</strong></div></div>
             <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong></div></div>
             <div class="metric"><div class="icon-box yellow">⏳</div><div class="data"><small>Pendentes</small><strong>${pending}</strong></div></div>
             <div class="metric"><div class="icon-box red">⚠️</div><div class="data"><small>Atrasadas</small><strong>${late.length}</strong></div></div>
             <div class="metric"><div class="icon-box purple">📅</div><div class="data"><small>Hoje</small><strong>${todayDone}/${todayTasks.length}</strong></div></div>
             <div class="metric"><div class="icon-box green">📈</div><div class="data"><small>Conclusão</small><strong>${pct}%</strong></div></div>
           </div>
+          <small style="display:block;margin-top:10px;color:var(--muted);font-size:11px">Filtro: ${currentPeriodLabel()} — sem dados futuros</small>
         </div>`;
 
       case 'late':
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>⚠️ Atividades atrasadas</h2>
-          ${late.length === 0 ? '<div class="empty"><p>🎉 Nenhuma atividade atrasada!</p></div>' :
-            late.slice(0, 5).map(t => `
+          <h2>⚠️ Atrasadas no período</h2>
+          ${late.length === 0 ? '<div class="empty"><p>🎉 Nenhuma atrasada neste filtro!</p><small style="color:var(--muted)">Filtre por semana ou mês para ver atrasos.</small></div>' :
+            late.slice(0, 6).map(t => `
               <div class="item">
                 <div class="item-info">
                   <b>${page.esc(t.title)}</b>
@@ -133,17 +237,19 @@ function renderWidgets() {
         </div>`;
 
       case 'next':
-        const upcoming = tasks
-          .filter(t => t.date >= today && t.status !== 'finished' && t.status !== 'notdone')
-          .sort((a, b) => a.date.localeCompare(b.date))
+        // Agora: pendentes do período (não futuras)
+        const pendingPeriod = tasks
+          .filter(t => t.status !== 'finished' && t.status !== 'notdone')
+          .sort((a,b) => b.date.localeCompare(a.date))
           .slice(0, 8);
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>📋 Próximas atividades</h2>
-          ${upcoming.length === 0 ? '<div class="empty"><div class="icon">🎉</div><p>Nenhuma atividade pendente!</p></div>' :
-            upcoming.map(t => {
-              const days = core.daysUntil(t.date);
-              const dayLabel = days === 0 ? 'Hoje' : days === 1 ? 'Amanhã' : `Em ${days} dias`;
+          <h2>📋 Pendentes — ${currentPeriodLabel()}</h2>
+          <small style="color:var(--muted);display:block;margin-bottom:8px">Somente até hoje, sem amanhã</small>
+          ${pendingPeriod.length === 0 ? '<div class="empty"><div class="icon">🎉</div><p>Nenhuma pendente neste período!</p></div>' :
+            pendingPeriod.map(t => {
+              const daysAgo = Math.floor((new Date(today) - new Date(t.date)) / 86400000);
+              const dayLabel = daysAgo === 0 ? 'Hoje' : daysAgo === 1 ? 'Ontem' : `${daysAgo}d atrás`;
               return `<div class="item">
                 <div class="item-info">
                   <b>${page.esc(t.title)}</b>
@@ -156,53 +262,55 @@ function renderWidgets() {
         </div>`;
 
       case 'weekProgress':
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        const weekTasks = tasks.filter(t => {
-          if (!t.date) return false;
-          const d = new Date(t.date + 'T00:00:00');
-          return d >= weekStart && d <= now;
-        });
-        const weekDone = weekTasks.filter(t => t.status === 'finished').length;
-        const weekTotal = weekTasks.length;
-        const weekPct = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0;
+        // Progresso baseado no período atual
         let bars = '';
-        for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const ds = d.toISOString().slice(0, 10);
-          const dayTasks = tasks.filter(t => t.date === ds);
-          const dayDone = dayTasks.filter(t => t.status === 'finished').length;
-          const dayTotal = dayTasks.length;
-          const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
-          const h = dayTotal > 0 ? Math.max(8, (dayDone / dayTotal) * 60) : 8;
-          const color = dayTotal === 0 ? 'var(--line,#E2E8F0)' : dayDone === dayTotal ? 'var(--success,#10B981)' : 'var(--warning,#F59E0B)';
-          bars += `<div style="flex:1;text-align:center">
-            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">
-              <div style="width:24px;height:${h}px;background:${color};border-radius:4px" title="${dayDone}/${dayTotal}"></div>
-            </div>
-            <small style="font-size:11px;color:var(--muted)">${dayName}</small>
-          </div>`;
+        let periodTotal = 0, periodDone = 0;
+        if (currentPeriod === 'day') {
+          const cats = [...new Set(tasks.map(t=>t.category||'Geral'))];
+          periodTotal = tasks.length;
+          periodDone = tasks.filter(t=>t.status==='finished').length;
+          cats.forEach(cat => {
+            const catTasks = tasks.filter(t=> (t.category||'Geral')===cat);
+            const catDone = catTasks.filter(t=>t.status==='finished').length;
+            const h = catTasks.length ? Math.max(12, (catDone/catTasks.length)*60) : 8;
+            const color = catTasks.length===0 ? 'var(--line)' : catDone===catTasks.length ? 'var(--success)' : 'var(--primary)';
+            bars += `<div style="flex:1;text-align:center"><div style="height:60px;display:flex;align-items:flex-end;justify-content:center"><div style="width:28px;height:${h}px;background:${color};border-radius:6px" title="${catDone}/${catTasks.length} - ${cat}"></div></div><small style="font-size:10px;color:var(--muted)">${page.esc(cat.slice(0,6))}</small></div>`;
+          });
+          if (!bars) bars = '<small style="color:var(--muted)">Sem atividades hoje</small>';
+        } else {
+          const daysToShow = currentPeriod === 'week' ? 7 : currentPeriod === 'month' ? 30 : 14;
+          const displayDays = currentPeriod === 'month' ? 30 : 7;
+          for (let i = displayDays-1; i >=0; i--) {
+            const d = new Date(now);
+            d.setDate(d.getDate() - i);
+            const ds = d.toISOString().slice(0,10);
+            const dayTasks = allTasks.filter(t => t.date === ds);
+            if (currentPeriod !== 'all' && ds < getStartDateStr()) continue;
+            const dayDone = dayTasks.filter(t=>t.status==='finished').length;
+            const dayTotal = dayTasks.length;
+            periodTotal += dayTotal;
+            periodDone += dayDone;
+            const dayName = d.toLocaleDateString('pt-BR',{weekday:'short'}).slice(0,3);
+            const h = dayTotal>0 ? Math.max(8,(dayDone/dayTotal)*60) : 8;
+            const color = dayTotal===0 ? 'var(--line)' : dayDone===dayTotal ? 'var(--success)' : 'var(--primary)';
+            bars += `<div style="flex:1;text-align:center"><div style="height:60px;display:flex;align-items:flex-end;justify-content:center"><div style="width:${displayDays>14?8:20}px;height:${h}px;background:${color};border-radius:4px" title="${dayDone}/${dayTotal} ${ds}"></div></div><small style="font-size:10px;color:var(--muted)">${dayName}</small></div>`;
+          }
         }
+        const weekPct = periodTotal>0 ? Math.round(periodDone/periodTotal*100) : 0;
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>📈 Progresso da semana</h2>
-          <div style="margin-bottom:12px"><b>${weekDone}/${weekTotal}</b> atividades concluídas esta semana</div>
+          <h2>📈 Progresso — ${currentPeriodLabel()}</h2>
+          <div style="margin-bottom:12px"><b>${periodDone}/${periodTotal}</b> concluídas no período · <b>${weekPct}%</b></div>
           <div class="progress"><div class="progress-bar green" style="width:${weekPct}%"></div></div>
-          <div style="display:flex;gap:6px;margin-top:16px">${bars}</div>
+          <div style="display:flex;gap:4px;margin-top:16px;overflow-x:auto">${bars}</div>
         </div>`;
 
       case 'posts':
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>📰 Notícias e comunicados</h2>
-          ${posts.length === 0 ? '<div class="empty"><div class="icon">📰</div><p>Nenhuma notícia publicada</p></div>' :
-            posts.slice(0, 3).map(p => `<article>
-              <b>${page.esc(p.title)}</b>
-              ${p.image ? `<img src="${p.image}" alt="">` : ''}
-              <p>${page.esc(p.body || '').slice(0, 150)}${(p.body || '').length > 150 ? '...' : ''}</p>
-              <small>${page.esc(p.category || 'Geral')} · ${core.formatDateTime(p.publishedAt)}</small>
-            </article>`).join('')
+          <h2>📰 Notícias</h2>
+          ${posts.length===0 ? '<div class="empty"><div class="icon">📰</div><p>Sem notícias</p></div>' :
+            posts.slice(0,3).map(p=>`<article><b>${page.esc(p.title)}</b>${p.image?`<img src="${p.image}" alt="">`:''}<p>${page.esc(p.body||'').slice(0,120)}${(p.body||'').length>120?'...':''}</p><small>${page.esc(p.category||'Geral')} · ${core.formatDateTime(p.publishedAt)}</small></article>`).join('')
           }
         </div>`;
 
@@ -211,24 +319,12 @@ function renderWidgets() {
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
           <h2>🏆 Ranking semanal</h2>
-          ${weeklyRank.length === 0 ? '<div class="empty"><p>Sem dados ainda</p></div>' :
-            `<table class="ranking-table">
-              <thead><tr><th>#</th><th>Usuário</th><th>Semana</th></tr></thead>
-              <tbody>${weeklyRank.map((u, i) => {
-                const medal = i === 0 ? '🥇' : i === 1 ? '🥈' : i === 2 ? '🥉' : '';
-                const isMe = user && (user.id === u.userId || user.uid === u.userId);
-                return `<tr class="${i < 3 ? 'top-' + (i+1) : ''}" style="${isMe ? 'background:var(--primary-light);font-weight:700' : ''}">
-                  <td class="rank-cell">${medal} ${i+1}</td>
-                  <td>
-                    <div class="user-cell">
-                      <div class="avatar-with-role"><div class="avatar">${u.avatar && u.avatar.length > 2 ? `<img src="${u.avatar}" alt="">` : (u.avatar || '👤')}</div><small class="avatar-role ${u.role || 'member'}">${u.role === 'admin' ? '⚙️ Admin' : u.role === 'editor' ? '✏️ Editor' : '👤 Membro'}</small></div>
-                      <span>${page.esc(u.name)}</span>
-                    </div>
-                  </td>
-                  <td class="points-cell">${u.points} pts</td>
-                </tr>`;
-              }).join('')}</tbody>
-            </table>`
+          ${weeklyRank.length===0 ? '<div class="empty"><p>Sem dados</p></div>' :
+            `<table class="ranking-table"><thead><tr><th>#</th><th>Usuário</th><th>Semana</th></tr></thead><tbody>${weeklyRank.map((u,i)=>{
+              const medal=i===0?'🥇':i===1?'🥈':i===2?'🥉':'';
+              const isMe=user&&(user.id===u.userId||user.uid===u.userId);
+              return `<tr class="${i<3?'top-'+(i+1):''}" style="${isMe?'background:var(--primary-light);font-weight:700':''}"><td class="rank-cell">${medal} ${i+1}</td><td><div class="user-cell"><div class="avatar-with-role"><div class="avatar">${u.avatar&&u.avatar.length>2?`<img src="${u.avatar}" alt="">`:(u.avatar||'👤')}</div><small class="avatar-role ${u.role||'member'}">${u.role==='admin'?'⚙️ Admin':u.role==='editor'?'✏️ Editor':'👤 Membro'}</small></div><span>${page.esc(u.name)}</span></div></td><td class="points-cell">${u.points} pts</td></tr>`;
+            }).join('')}</tbody></table>`
           }
         </div>`;
 
@@ -237,93 +333,114 @@ function renderWidgets() {
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
           <h2>🎯 Modo Foco</h2>
-          <div style="text-align:center;padding:20px 0">
-            <div style="font-size:48px;margin-bottom:12px">🍅</div>
-            <div style="font-size:24px;font-weight:800;color:var(--primary)">${ps.todayCount || 0}</div>
-            <small class="text-muted">Sessões hoje</small>
-            <div style="margin-top:16px">
-              <button class="btn btn-primary" onclick="page.navigate('foco')">Iniciar Pomodoro</button>
-            </div>
-          </div>
+          <div style="text-align:center;padding:20px 0"><div style="font-size:48px;margin-bottom:12px">🍅</div><div style="font-size:24px;font-weight:800;color:var(--primary)">${ps.todayCount||0}</div><small class="text-muted">Sessões hoje</small><div style="margin-top:16px"><button class="btn btn-primary" onclick="page.navigate('foco')">Iniciar Pomodoro</button></div></div>
         </div>`;
 
-      default:
-        return '';
+      default: return '';
     }
   }).join('');
 
-  // Permitir arrastar widgets
   initWidgetDrag();
 }
 
-function initWidgetDrag() {
-  const grid = document.getElementById('widgetGrid');
-  let dragEl = null;
-  grid.querySelectorAll('.widget').forEach(w => {
-    w.addEventListener('dragstart', (e) => {
-      dragEl = w;
-      w.classList.add('dragging-widget');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    w.addEventListener('dragend', () => {
-      w.classList.remove('dragging-widget');
-      dragEl = null;
-      saveWidgetOrder();
-    });
-    w.addEventListener('dragover', (e) => {
+function currentPeriodLabel(){
+  return {day:'Hoje',week:'7 dias',month:'30 dias',all:'Tudo até hoje'}[currentPeriod]||currentPeriod;
+}
+function getStartDateStr(){
+  const today = core.today();
+  const td = new Date(today+'T00:00:00');
+  if(currentPeriod==='day') return today;
+  if(currentPeriod==='week') { td.setDate(td.getDate()-6); return td.toISOString().slice(0,10); }
+  if(currentPeriod==='month') { td.setDate(td.getDate()-29); return td.toISOString().slice(0,10); }
+  return '1970-01-01';
+}
+
+function initWidgetDrag(){
+  const grid=document.getElementById('widgetGrid'); let dragEl=null;
+  grid.querySelectorAll('.widget').forEach(w=>{
+    w.addEventListener('dragstart',e=>{dragEl=w; w.classList.add('dragging-widget'); e.dataTransfer.effectAllowed='move';});
+    w.addEventListener('dragend',()=>{w.classList.remove('dragging-widget'); dragEl=null; saveWidgetOrder();});
+    w.addEventListener('dragover',e=>{
       e.preventDefault();
-      const rect = w.getBoundingClientRect();
-      const after = (e.clientY - rect.top) > rect.height / 2;
-      if (dragEl && dragEl !== w) {
-        if (after) w.parentNode.insertBefore(dragEl, w.nextSibling);
-        else w.parentNode.insertBefore(dragEl, w);
-      }
+      const rect=w.getBoundingClientRect(); const after=(e.clientY-rect.top)>rect.height/2;
+      if(dragEl&&dragEl!==w){ if(after) w.parentNode.insertBefore(dragEl,w.nextSibling); else w.parentNode.insertBefore(dragEl,w); }
     });
   });
 }
-
-function saveWidgetOrder() {
-  const widgets = core.getDashboardWidgets();
-  const orderedTypes = Array.from(document.querySelectorAll('.widget')).map(w => w.dataset.wtype);
-  // Reordenar
-  const newOrder = orderedTypes.map(t => widgets.find(w => w.type === t)).filter(Boolean);
-  // Adicionar widgets não visíveis no final
-  widgets.forEach(w => {
-    if (!orderedTypes.includes(w.type)) newOrder.push(w);
-  });
+function saveWidgetOrder(){
+  const widgets=core.getDashboardWidgets();
+  const orderedTypes=Array.from(document.querySelectorAll('.widget')).map(w=>w.dataset.wtype);
+  const newOrder=orderedTypes.map(t=>widgets.find(w=>w.type===t)).filter(Boolean);
+  widgets.forEach(w=>{ if(!orderedTypes.includes(w.type)) newOrder.push(w); });
   core.saveDashboardWidgets(newOrder);
-  page.toast('Ordem salva ✓', 'success');
+  page.toast('Ordem salva ✓','success');
+}
+function resetWidgets(){
+  if(!confirm('Restaurar ordem padrão dos widgets?')) return;
+  const data=page.getDB();
+  data.dashboardWidgets=JSON.parse(JSON.stringify(core._defaults.dashboardWidgets));
+  page.saveDB(data);
+  core.saveDashboardWidgets(data.dashboardWidgets);
+  renderWidgets();
+  page.toast('Widgets restaurados','info');
+}
+function finishTask(id){
+  const data=page.getDB();
+  const task=data.tasks.find(t=>String(t.id)===String(id));
+  if(task){
+    task.status='finished'; task.finishedAt=core.now();
+    page.saveDB(data); core.log('task_finished',page.getUser()?.id,task.title);
+    const user=page.getUser();
+    if(user){ const result=core.awardPoints(user.id||user.uid,task,'finish'); if(result) page.toast(`+${result.total} pts! 🏆`,'success'); }
+    core.runAutomations('task_finished',{task,userId:user?.id});
+    renderWidgets(); window.parent.postMessage({type:'updateBadge'},'*');
+  }
 }
 
-function finishTask(id) {
-  const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
-  if (task) {
-    task.status = 'finished';
-    task.finishedAt = core.now();
-    page.saveDB(data);
-    core.log('task_finished', page.getUser()?.id, task.title);
-
-    // Gamificação
+// IA
+async function askAI(question){
+  const box=document.getElementById('aiAnswer');
+  box.style.display='block';
+  box.innerHTML='<div style="padding:12px;color:var(--muted)">🤖 Pensando...</div>';
+  try{
+    const key = await page.getDeepseekKey().catch(()=> '') || await page.getGroqKey().catch(()=> '');
+    const mode = page.getAIMode ? page.getAIMode() : 'auto';
+    const proxyUrl = page.getAIProxyUrl ? page.getAIProxyUrl() : '';
     const user = page.getUser();
-    if (user) {
-      const result = core.awardPoints(user.id || user.uid, task, 'finish');
-      if (result) {
-        page.toast(`+${result.total} pontos! 🏆`, 'success');
-      }
+    const data = page.getDB();
+    const filtered = getFilteredTasks(data.tasks||[]);
+    const ctx = `Você é assistente do Checklist ML. Página: Visão Geral (dashboard). Período atual: ${currentPeriod}. Dados: total ${filtered.length}, finalizadas ${filtered.filter(t=>t.status==='finished').length}, pendentes ${filtered.filter(t=>t.status!=='finished').length}. Usuário: ${user?.name||'operador'}.`;
+    if(!key){
+      box.innerHTML=`<div style="padding:12px;background:var(--bg-secondary);border-radius:8px;font-size:13px"><b>🤖 Dica (modo offline):</b><br>${getOfflineTip(question)}</div>`;
+      return;
     }
-    // Automação
-    core.runAutomations('task_finished', { task, userId: user?.id });
-
-    location.reload();
-    window.parent.postMessage({ type: 'updateBadge' }, '*');
+    const prov = (await page.getAdminConfig().catch(()=>({aiProvider:'deepseek'}))).aiProvider || 'deepseek';
+    const res = await AIClient.chat({
+      apiKey: key,
+      provider: prov,
+      systemPrompt: ctx + ' Explique como funciona esta página, dê dicas práticas de organização e produtividade. Seja curto, direto, em português. Use bullets quando útil.',
+      question,
+      mode,
+      proxyUrl
+    });
+    box.innerHTML=`<div style="padding:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;font-size:13px;line-height:1.6;white-space:pre-wrap">${page.esc(res.answer)}</div>`;
+  }catch(err){
+    box.innerHTML=`<div style="padding:12px;background:#FEF3C7;border-radius:8px;font-size:13px;color:#92400E">⚠️ ${page.esc(err.message||'Erro ao consultar IA')} <br><small>${getOfflineTip(question)}</small></div>`;
   }
+}
+function getOfflineTip(q){
+  q=(q||'').toLowerCase();
+  if(q.includes('produtiv')){
+    return 'Use o filtro de 7 dias para ver seu progresso. Finalize primeiro as atrasadas (vermelhas) e depois foque no hoje. Pequenas vitórias mantêm a sequência!';
+  }
+  return 'O dashboard mostra só o passado até hoje. Filtre por Dia para foco total, Semana para ver tendência, Mês para análise. Widgets são arrastáveis — organize como preferir. Atividades futuras não entram como pendentes.';
 }
 
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
     setTimeout(() => { page.applyI18n(document.body); renderWidgets(); }, 100);
   }
+  if (e.data?.type === 'firebaseSync') renderWidgets();
 });
 </script>
 </body>

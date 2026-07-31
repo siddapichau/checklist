@@ -40,16 +40,27 @@ const App = {
 
     core.initAutoTheme();
     await core.tReady(this.settings.language);
-    this.applyTheme(this.settings.theme, this.settings.mode);
 
-    // Verificar se há usuário logado (session + remember)
+    // Verificar se há usuário logado (session + remember) ANTES de aplicar tema,
+    // para que o tema por usuário tenha prioridade
     this.currentUser = core.getCurrentUser();
     if (!this.currentUser) {
       this.currentUser = core.getRememberedUser();
       if (this.currentUser) core.setCurrentUser(this.currentUser);
     }
+
+    // Aplicar tema: por usuário se existir, senão global + modo do sistema na primeira vez
     if (this.currentUser) {
       try { core.updateStreak(this.currentUser.id || this.currentUser.uid); } catch(e) {}
+      const uid = this.currentUser.id || this.currentUser.uid;
+      const ensured = core.ensureUserTheme(uid, this.settings.theme);
+      this.applyTheme(ensured.theme, ensured.mode, { saveUser: false, saveGlobal: false });
+    } else {
+      // sem usuário: usar tema global e detectar modo do sistema para primeira visita
+      const sysMode = core.detectSystemMode();
+      // se o global está em 'auto', mantém auto, senão usa detecção apenas se não houver preferência salva
+      const modeToUse = (this.settings.mode === 'auto') ? 'auto' : (this.settings.mode || sysMode);
+      this.applyTheme(this.settings.theme, modeToUse, { saveUser: false, saveGlobal: false });
     }
 
     window.addEventListener('message', (e) => this.handleMessage(e));
@@ -115,9 +126,41 @@ const App = {
       if (type === 'tasks') this.renderSidebar();
       if (type === 'settings') {
         this.settings = core.getLocalDB().settings;
-        this.applyTheme(this.settings.theme, this.settings.mode);
+        // Respeitar tema por usuário: se o usuário já tem preferência, não sobrescrever
+        const uid = this.currentUser?.id || this.currentUser?.uid;
+        const pref = uid ? core.getUserThemePref(uid) : null;
+        if (pref && (pref.theme || pref.mode)) {
+          const theme = pref.theme || this.settings.theme;
+          const mode = pref.mode || this.settings.mode;
+          this.applyTheme(theme, mode, { saveUser: false, saveGlobal: false });
+        } else {
+          this.applyTheme(this.settings.theme, this.settings.mode, { saveUser: false, saveGlobal: false });
+        }
         this.renderSidebar();
         this.updateLangMenuActive();
+      }
+      if (type === 'users') {
+        // Se o perfil do usuário trouxe tema/modo do Firestore, aplicar
+        try {
+          const uid = this.currentUser?.id || this.currentUser?.uid;
+          if (uid) {
+            const freshPref = core.getUserThemePref(uid);
+            if (freshPref && (freshPref.theme || freshPref.mode)) {
+              // só aplicar se diferente do atual para evitar loop
+              const curTheme = document.documentElement.dataset.theme;
+              const curMode = document.documentElement.dataset.mode;
+              const sys = freshPref.mode === 'auto' ? (core.detectSystemMode()) : freshPref.mode;
+              const actualMode = freshPref.mode === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : freshPref.mode;
+              if (freshPref.theme && freshPref.theme !== curTheme) {
+                this.applyTheme(freshPref.theme, freshPref.mode || curMode, { saveUser: false, saveGlobal: false });
+              } else if (freshPref.mode && freshPref.mode !== curMode && freshPref.mode !== 'auto') {
+                this.applyTheme(curTheme, freshPref.mode, { saveUser: false, saveGlobal: false });
+              } else if (freshPref.mode === 'auto' && curMode !== actualMode) {
+                this.applyTheme(curTheme, 'auto', { saveUser: false, saveGlobal: false });
+              }
+            }
+          }
+        } catch {}
       }
       // Notificar o iframe que algo mudou no banco local via Firebase
       const frame = document.getElementById('pageFrame');
@@ -880,8 +923,21 @@ const App = {
       avatar: profile.avatar || fbUser.photoURL || '',
       avatarType: profile.avatarType || (fbUser.photoURL ? 'google' : 'emoji'),
       role: profile.role || 'member',
-      provider: profile.provider || 'password'
+      provider: profile.provider || 'password',
+      theme: profile.theme || null,
+      mode: profile.mode || null,
     };
+
+    // Tema por usuário: se o perfil já tem tema/modo salvo no Firestore, usar; senão detectar do sistema
+    try{
+      if(profile.theme || profile.mode){
+        core.saveUserThemePref(fbUser.uid, profile.theme || this.settings?.theme, profile.mode || core.detectSystemMode());
+        this.applyTheme(profile.theme || this.settings?.theme || 'ocean', profile.mode || core.detectSystemMode(), {saveUser:false, saveGlobal:false});
+      } else {
+        const ensured = core.ensureUserTheme(fbUser.uid, this.settings?.theme || 'ocean');
+        this.applyTheme(ensured.theme, ensured.mode, {saveUser:false, saveGlobal:false});
+      }
+    }catch{}
 
     core.setCurrentUser(this.currentUser);
     if (remember) core.setRememberedUser(this.currentUser);
@@ -1458,46 +1514,97 @@ const App = {
     if (btnTheme) btnTheme.textContent = this.getThemeIcon();
   },
 
-  /* ========== TEMA ========== */
-  applyTheme(theme, mode, sync = false) {
+  /* ========== TEMA POR USUÁRIO ========== */
+  applyTheme(theme, mode, optsOrSync = false) {
     if (!theme) return;
-    document.documentElement.dataset.theme = theme || 'ocean';
-    if (mode === 'auto') {
+    let saveUser = true;
+    let saveGlobal = false;
+    if (typeof optsOrSync === 'boolean') {
+      saveUser = optsOrSync;
+    } else if (typeof optsOrSync === 'object' && optsOrSync !== null) {
+      if ('saveUser' in optsOrSync) saveUser = !!optsOrSync.saveUser;
+      if ('saveGlobal' in optsOrSync) saveGlobal = !!optsOrSync.saveGlobal;
+    }
+
+    const effectiveTheme = theme || 'ocean';
+    const effectiveMode = mode || 'light';
+
+    document.documentElement.dataset.theme = effectiveTheme;
+    if (effectiveMode === 'auto') {
       this._setupAutoListener();
       const mq = window.matchMedia('(prefers-color-scheme: dark)');
       document.documentElement.dataset.mode = mq.matches ? 'dark' : 'light';
     } else {
       this._removeAutoListener();
-      document.documentElement.dataset.mode = mode || 'light';
-    }
-    localStorage.setItem('cl-theme', theme);
-    localStorage.setItem('cl-mode', mode);
-    if (this.settings) {
-      this.settings.theme = theme;
-      this.settings.mode = mode;
+      document.documentElement.dataset.mode = effectiveMode;
     }
 
-    const data = core.getLocalDB();
-    const customThemes = data.customThemes || [];
-    const isCustom = customThemes.find(t => t.id === theme);
-    if (isCustom) {
-      core.applyCustomTheme(theme);
+    // Legacy keys for shell fallback (iframe sync reads dataset anyway)
+    localStorage.setItem('cl-theme', effectiveTheme);
+    localStorage.setItem('cl-mode', effectiveMode);
+
+    // Custom theme handling
+    try {
+      const data = core.getLocalDB();
+      const customThemes = data.customThemes || [];
+      const isCustom = customThemes.find(t => t.id === effectiveTheme);
+      if (isCustom) {
+        core.applyCustomTheme(effectiveTheme);
+      } else {
+        const el = document.getElementById('custom-theme-style');
+        if (el) el.textContent = '';
+      }
+    } catch {}
+
+    // Salvar preferência por usuário
+    if (saveUser && this.currentUser) {
+      const uid = this.currentUser.id || this.currentUser.uid;
+      if (uid) {
+        core.saveUserThemePref(uid, effectiveTheme, effectiveMode);
+        this.currentUser.theme = effectiveTheme;
+        this.currentUser.mode = effectiveMode;
+        try { core.setCurrentUser(this.currentUser); } catch {}
+        try {
+          const remembered = core.getRememberedUser();
+          if (remembered && (remembered.id === uid || remembered.uid === uid || remembered.id === this.currentUser.id)) {
+            remembered.theme = effectiveTheme;
+            remembered.mode = effectiveMode;
+            core.setRememberedUser(remembered);
+          }
+        } catch {}
+        // Firestore sync is handled inside saveUserThemePref
+      }
+    }
+
+    // Salvar como padrão global apenas quando solicitado (admin)
+    if (saveGlobal) {
+      try {
+        const d = core.getLocalDB();
+        d.settings.theme = effectiveTheme;
+        d.settings.mode = effectiveMode;
+        core.saveLocalDB(d);
+        if (this.settings) {
+          this.settings.theme = effectiveTheme;
+          this.settings.mode = effectiveMode;
+        }
+        // Push global se admin
+        if (this.currentUser && this.currentUser.role === 'admin' && window.fireSync) {
+          window.fireSync.pushSettings(d.settings);
+        }
+      } catch {}
     } else {
-      const el = document.getElementById('custom-theme-style');
-      if (el) el.textContent = '';
-    }
-
-    const data2 = core.getLocalDB();
-    data2.settings.theme = theme;
-    data2.settings.mode = mode;
-    core.saveLocalDB(data2);
-
-    if (sync && this.currentUser && !this.currentUser.id.includes('local-')) {
-      fireSync.pushDocument('users', this.currentUser.id, { theme, mode });
+      // Não sobrescrever global para escolha pessoal, mas manter referência para ícone
+      if (this.settings) {
+        // Guardar modo atual separadamente para o ciclo de toggle
+        this.settings._currentTheme = effectiveTheme;
+        this.settings._currentMode = effectiveMode;
+        // Ainda manter settings.theme/mode como default, não atualizando com pessoal
+        // Mas para getThemeIcon precisamos do modo atual
+      }
     }
 
     const btn = document.getElementById('btnTheme');
-    if (btn) btn.textContent = this.getThemeIcon();
+    if (btn) btn.textContent = this.getThemeIcon(effectiveMode);
   },
 
   _setupAutoListener() {
@@ -1525,18 +1632,21 @@ const App = {
     this._autoMqlistener = null;
   },
 
-  getThemeIcon() {
-    const mode = this.settings?.mode || 'light';
+  getThemeIcon(forMode) {
+    const mode = forMode || this.settings?._currentMode || this.settings?.mode || document.documentElement.dataset.mode || 'light';
     if (mode === 'auto') return '🌓';
     return mode === 'dark' ? '☀️' : '🌙';
   },
 
   toggleTheme() {
     if (!this.settings) return;
+    const currentMode = this.settings._currentMode || document.documentElement.dataset.mode || this.settings.mode || 'light';
+    const effectiveCurrent = ['light','dark','auto'].includes(currentMode) ? currentMode : 'light';
     const cycle = ['light', 'dark', 'auto'];
-    const idx = cycle.indexOf(this.settings.mode);
+    const idx = cycle.indexOf(effectiveCurrent);
     const newMode = cycle[(idx + 1) % cycle.length];
-    this.applyTheme(this.settings.theme, newMode, true);
+    const currentTheme = document.documentElement.dataset.theme || this.settings._currentTheme || this.settings.theme || 'ocean';
+    this.applyTheme(currentTheme, newMode, { saveUser: true, saveGlobal: false });
     core.toast(
       newMode === 'auto' ? 'Modo automático (segue o sistema)' :
       newMode === 'dark' ? 'Modo escuro' : 'Modo claro',
@@ -1544,14 +1654,19 @@ const App = {
     );
     const frame = document.getElementById('pageFrame');
     if (frame?.contentWindow) {
-      frame.contentWindow.postMessage({ type: 'themeChanged', theme: this.settings.theme, mode: newMode }, '*');
+      frame.contentWindow.postMessage({ type: 'themeChanged', theme: currentTheme, mode: newMode }, '*');
     }
   },
 
   setTheme(theme) {
     if (!this.settings) return;
-    this.applyTheme(theme, this.settings.mode);
+    const currentMode = this.settings._currentMode || document.documentElement.dataset.mode || this.settings.mode || 'light';
+    this.applyTheme(theme, currentMode, { saveUser: true, saveGlobal: false });
     this.renderSidebar();
+    const frame = document.getElementById('pageFrame');
+    if (frame?.contentWindow) {
+      frame.contentWindow.postMessage({ type: 'themeChanged', theme, mode: currentMode }, '*');
+    }
   },
 
   /* ========== LANGUAGE SWITCHER (i18n) ========== */

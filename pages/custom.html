@@ -301,25 +301,32 @@ function renderMyThemes() {
 }
 
 function applyBuiltIn(theme) {
-  // Aplicar tema integrado via app
   const data = page.getDB();
-  data.settings.theme = theme;
-  page.saveDB(data);
-  // Remove custom style
+  const uid = page.getUser()?.id || page.getUser()?.uid;
+  const currentMode = document.documentElement.dataset.mode || data.settings._currentMode || data.settings.mode || 'light';
+  if(uid){
+    core.saveUserThemePref(uid, theme, currentMode);
+    // também garantir que está no currentUser para UI
+    const cu = page.getUser();
+    if(cu){ cu.theme=theme; cu.mode=currentMode; }
+  }
+  // Não sobrescrever global para escolha pessoal; apenas manter como fallback se for admin editando padrão?
   const el = document.getElementById('custom-theme-style');
   if (el) el.textContent = '';
-  window.parent.postMessage({ type: 'themeChanged', theme, mode: data.settings.mode }, '*');
-  window.parent.postMessage({ type: 'reload' }, '*');
-  page.toast(`Tema aplicado! 🎨`, 'success');
+  window.parent.postMessage({ type: 'themeChanged', theme, mode: currentMode }, '*');
+  page.toast(`Tema aplicado só para você! 🎨 (claro/escuro segue seu modo)`, 'success');
+  setTimeout(() => renderMyThemes(), 300);
 }
 
 function applyCustom(themeId) {
   const data = page.getDB();
-  data.settings.theme = themeId;
-  page.saveDB(data);
-  window.parent.postMessage({ type: 'themeChanged', theme: themeId, mode: data.settings.mode }, '*');
-  window.parent.postMessage({ type: 'reload' }, '*');
-  page.toast('Tema aplicado! 🎨', 'success');
+  const uid = page.getUser()?.id || page.getUser()?.uid;
+  const currentMode = document.documentElement.dataset.mode || data.settings._currentMode || data.settings.mode || 'light';
+  if(uid){
+    core.saveUserThemePref(uid, themeId, currentMode);
+  }
+  window.parent.postMessage({ type: 'themeChanged', theme: themeId, mode: currentMode }, '*');
+  page.toast('Tema personalizado aplicado só para você! 🎨', 'success');
   setTimeout(() => renderMyThemes(), 300);
 }
 
@@ -372,12 +379,14 @@ function changeLang(lang) {
 /* ========== MODE PICKER ========== */
 function setMode(mode) {
   const data = page.getDB();
-  data.settings.mode = mode;
-  page.saveDB(data);
-  window.parent.postMessage({ type: 'themeChanged', theme: data.settings.theme, mode }, '*');
-  window.parent.postMessage({ type: 'reload' }, '*');
+  const uid = page.getUser()?.id || page.getUser()?.uid;
+  const currentTheme = document.documentElement.dataset.theme || data.settings._currentTheme || data.settings.theme || 'ocean';
+  if(uid){
+    core.saveUserThemePref(uid, currentTheme, mode);
+  }
+  window.parent.postMessage({ type: 'themeChanged', theme: currentTheme, mode }, '*');
   page.toast(
-    mode === 'auto' ? '🌓 Modo automático' : mode === 'dark' ? '🌙 Modo escuro' : '☀️ Modo claro',
+    mode === 'auto' ? '🌓 Modo automático (segue sistema) só para você' : mode === 'dark' ? '🌙 Modo escuro só para você' : '☀️ Modo claro só para você',
     'success'
   );
 }
