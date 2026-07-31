@@ -21,7 +21,6 @@ const Seed = {
       user: 'admin',
       email: 'admin@checklist.local',
       passHash: adminHash,
-      pass: 'Admin@1234', // fallback para compatibilidade
       name: 'Administrador',
       lastName: '',
       phone: '',
