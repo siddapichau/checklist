@@ -1393,7 +1393,9 @@ const App = {
 
     // Notas (recadinhos) com lembrete no horário: mesmo mecanismo das
     // atividades — dispara na data/hora marcada, uma única vez por nota.
+    // Notas já marcadas como feitas não disparam mais lembrete.
     (data.notes || []).forEach(note => {
+      if (note.done) return;
       if (!note.remind || !note.time || note.date !== today) return;
       if (note.time > hhmm) return;
       if (note.owner && uid && String(note.owner) !== String(uid)) return;

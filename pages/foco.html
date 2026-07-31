@@ -467,5 +467,36 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'foco',
+  title: 'Modo Foco',
+  intro: 'Técnica Pomodoro: ciclos de trabalho focado com pausas curtas e longas. Ajuda a manter a concentração em uma atividade por vez.',
+  sections: [
+    { icon: '⏱️', title: 'Ciclos', body: 'Padrão: 25 min de trabalho, 5 min de pausa curta e 15 min de pausa longa a cada 4 ciclos. Dá para trocar o modo manualmente.' },
+    { icon: '🎯', title: 'Atividade selecionada', body: 'Escolha no seletor a atividade em que quer focar — o timer fica ligado a ela.' },
+    { icon: '▶️', title: 'Controles', body: 'Iniciar, pausar, retomar, parar e pular. O progresso aparece no anel ao redor do timer.' },
+    { icon: '📊', title: 'Estatísticas', body: 'A lateral mostra sessões concluídas e tempo de foco acumulado.' },
+  ],
+  tips: [
+    'Escolha uma única atividade antes de iniciar — foco é uma tarefa por vez.',
+    'Respeite as pausas: elas recuperam a atenção para os próximos ciclos.',
+    'Use o Modo Foco nas tarefas de alta prioridade ou atrasadas.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'O que é o Pomodoro?',
+    'Como escolho a atividade para focar?',
+  ],
+  context: () => {
+    const d = page.getDB();
+    const ts = d.tasks || [];
+    return `Atividades disponíveis: ${ts.filter(t => t.status === 'pending' || t.status === 'analyzing').length} pendentes/em análise para focar.`;
+  },
+});
+</script>
 </body>
 </html>

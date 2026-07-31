@@ -405,5 +405,38 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'home',
+  title: 'Dashboard',
+  intro: 'É o painel operacional que abre ao entrar. Mostra o resumo do seu turno: métricas (pendentes, atrasadas, concluídas, produtividade) e widgets com as atividades do período.',
+  sections: [
+    { icon: '📆', title: 'Filtro Dia / Semana / Mês', body: 'Escolha o período no topo. O filtro sempre vai do dia atual para trás — nunca mostra datas futuras. A faixa de datas visível acompanha a escolha.' },
+    { icon: '📊', title: 'Métricas e widgets', body: 'Cards com totais do período (pendentes, atrasadas, feitas, progresso) e listas das atividades do período, da mais recente para a mais antiga.' },
+    { icon: '➕', title: 'Nova atividade', body: 'O botão "＋ Nova atividade" leva direto para a página Atividades, já pronta para cadastrar.' },
+    { icon: '🎯', title: 'Pomodoro', body: 'O atalho "Iniciar Pomodoro" abre o Modo Foco para você concentrar em uma tarefa.' },
+  ],
+  tips: [
+    'Use o filtro de período para ver o que realmente importa hoje, esta semana ou no mês.',
+    'Atividades atrasadas aparecem destacadas — resolva primeiro as que estão vermelhas.',
+    'O dashboard reflete o mesmo banco das páginas Atividades, Kanban e Calendário: tudo sincroniza.',
+    'Combine o dashboard com a página Relatórios para análises de tendência em 7/30/90 dias.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Por que não aparecem atividades de amanhã?',
+    'Quais métricas devo acompanhar no turno?',
+    'Como otimizar minha rotina de trabalho?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ts = d.tasks || [];
+    return `Hoje: ${today} · Total de atividades: ${ts.length} · Pendentes: ${ts.filter(t => t.status === 'pending').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · De hoje: ${ts.filter(t => t.date === today).length}`;
+  },
+});
+</script>
 </body>
 </html>

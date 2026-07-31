@@ -839,5 +839,37 @@ try {
   });
 } catch(e) {}
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'relatorios',
+  title: 'Relatórios e análises',
+  intro: 'Análise de desempenho da operação com KPIs, gráficos e tabelas — sempre do dia atual para trás, sem considerar futuro.',
+  sections: [
+    { icon: '📆', title: 'Filtro de período', body: 'Escolha 7, 30, 90 dias ou "Tudo". O fim do período é sempre hoje — datas futuras nunca entram nos cálculos.' },
+    { icon: '🎯', title: 'KPIs', body: 'Cards com totais e taxas: concluídas, pendentes, atrasadas, tempo médio de conclusão e produtividade no período.' },
+    { icon: '📊', title: 'Gráficos', body: 'Distribuição por status, volume por categoria, tendência semanal e mensal, tempo médio, prioridades e taxa de conclusão por categoria.' },
+    { icon: '📥🖨️', title: 'Exportar', body: 'Exporte o relatório em CSV ou imprima para compartilhar com a equipe.' },
+  ],
+  tips: [
+    'Compare períodos: 30 vs 7 dias mostra se a operação está melhorando.',
+    'Use a taxa de conclusão por categoria para achar gargalos (ex.: Manutenção parada).',
+    'Os gráficos seguem o tema claro/escuro do app automaticamente.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como leio os gráficos?',
+    'Quais métricas indicam gargalos na operação?',
+    'Como exporto o relatório?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ts = d.tasks || [];
+    return `Hoje: ${today} · Total: ${ts.length} · Finalizadas: ${ts.filter(t => t.status === 'finished').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · Pendentes: ${ts.filter(t => t.status === 'pending').length}`;
+  },
+});
+</script>
 </body>
 </html>

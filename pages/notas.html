@@ -26,7 +26,18 @@
     .nt-chip.remind{background:#FEF3C7;color:#B45309;border-color:#FDE68A}
     .nt-chip.past{background:#FEE2E2;color:#DC2626;border-color:#FECACA}
     .nt-chip.today{background:#D1FAE5;color:#059669;border-color:#A7F3D0}
+    .nt-chip.done{background:#D1FAE5;color:#059669;border-color:#A7F3D0}
+    .nt-chip.pending{background:#FEE2E2;color:#DC2626;border-color:#FECACA}
+    .nt-chip.upcoming{background:#DBEAFE;color:#2563EB;border-color:#BFDBFE}
     .nt-chip.cat{background:color-mix(in srgb,var(--accent,#2563EB) 12%, transparent);color:var(--accent,#2563EB);border-color:transparent}
+
+    /* Lembretes: status da nota (a vir / hoje / pendente / feita) */
+    .note-card.done{opacity:.68}
+    .note-card.done .note-title{text-decoration:line-through;text-decoration-color:var(--muted,#94A3B8)}
+    .note-card.done::before{background:#94A3B8}
+    .note-card.pending{border-color:#FECACA}
+    .note-card.pending::before{background:#EF4444}
+    .nt-chip.pending{background:#FEE2E2;color:#DC2626;border-color:#FECACA}
     .note-desc{font-size:13px;color:var(--text-secondary,#64748B);line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;flex:1}
     .note-actions{display:flex;gap:4px;justify-content:flex-end;border-top:1px solid var(--line,#E2E8F0);padding:8px 10px;background:var(--bg-secondary,#F8FAFC)}
     .note-section-title{display:flex;align-items:center;gap:8px;margin:18px 0 12px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary,#64748B)}
@@ -71,6 +82,10 @@
   </div>
   <div class="actions notes-toolbar">
     <div class="view-toggle">
+      <button id="btnTabUpcoming" class="active" onclick="setPeriodTab('upcoming')" title="Notas de hoje e que ainda vão acontecer">⏳ Vão vir / Atuais</button>
+      <button id="btnTabPast" onclick="setPeriodTab('past')" title="Notas cuja data já passou">✅ Já passadas</button>
+    </div>
+    <div class="view-toggle">
       <button id="btnViewCards" class="active" onclick="setView('cards')">🗂️ Cards</button>
       <button id="btnViewCal" onclick="setView('calendar')">📅 Calendário</button>
     </div>
@@ -89,7 +104,6 @@
     <option value="today">Hoje</option>
     <option value="upcoming">Próximos 7 dias</option>
     <option value="month">Este mês</option>
-    <option value="past">Já passaram</option>
     <option value="reminders">⏰ Só com lembrete</option>
   </select>
 </div>
@@ -141,10 +155,10 @@
         </label>
       </div>
 
-      <label style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
-        <input type="checkbox" id="noteRemind" style="width:auto">
-        <span style="margin:0;text-transform:none;font-size:13px;font-weight:600">🔔 Lembrar-me na data e hora marcadas</span>
-      </label>
+      <div style="background:var(--bg-secondary,#F1F5F9);border:1px dashed var(--line,#E2E8F0);border-radius:10px;padding:9px 12px;margin:2px 0 12px;font-size:12.5px;color:var(--text-secondary,#64748B)">
+        ⏰ A <b>data e a hora</b> acima são o <b>horário do aviso</b>: quando chegar, o app dispara o lembrete.
+        <b>Horário preenchido = lembrete ativo.</b> A nota só é excluída manualmente.
+      </div>
 
       <label><span>Categorias</span>
         <div class="cat-check-grid" id="noteCategoryBoxes"></div>
@@ -197,6 +211,7 @@
   <div class="modal">
     <div id="viewContent"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="toggleDoneFromView()" id="viewDoneBtn">✅ Marcar como feita</button>
       <button class="btn btn-secondary" onclick="closeViewModal()">Fechar</button>
       <button class="btn btn-primary" onclick="editFromView()">✏️ Editar</button>
     </div>
@@ -213,6 +228,7 @@
    ========================================================= */
 const user = page.getUser();
 let view = 'cards';
+let periodTab = 'upcoming'; // 'upcoming' = vão vir/atuais | 'past' = já passadas
 let calCursor = new Date();
 let currentImage = '';
 let currentViewNoteId = null;
@@ -274,6 +290,22 @@ function isPastNote(n, today) {
   return n.date && n.date < today;
 }
 
+/* Status do lembrete: feita > pendente (passou e não feita) > hoje > a vir */
+function noteStatus(n, today) {
+  if (n.done) return { icon: '✅', label: 'Feita', cls: 'done', title: 'Esta nota foi marcada como feita' };
+  if (n.date && n.date < today) return { icon: '🔴', label: 'Pendente', cls: 'pending', title: 'Passou da data e não foi feita — pendente' };
+  if (n.date === today) return { icon: '🟢', label: 'Hoje', cls: 'today', title: 'É para acontecer hoje' };
+  return { icon: '⏳', label: 'A vir', cls: 'upcoming', title: 'Ainda vai acontecer' };
+}
+
+/* Aba: vão vir/atuais (padrão ao entrar) ou já passadas */
+function setPeriodTab(tab) {
+  periodTab = tab;
+  document.getElementById('btnTabUpcoming').classList.toggle('active', tab === 'upcoming');
+  document.getElementById('btnTabPast').classList.toggle('active', tab === 'past');
+  render();
+}
+
 function fmtDesc(text) {
   // Mini-markdown (mesmo estilo do blog das notícias): **negrito**, *itálico*,
   // - listas, ## H2, ### H3. Escapa HTML antes de formatar (sem XSS).
@@ -332,10 +364,15 @@ function getFilteredNotes() {
   const now = new Date();
 
   const filtered = notes.filter(n => {
+    // Aba do topo: vão vir/atuais (data de hoje ou futura) vs já passadas.
+    if (periodTab === 'upcoming') {
+      if (n.date && n.date < today) return false;
+    } else {
+      if (!n.date || n.date >= today) return false;
+    }
     if (search && !n.title.toLowerCase().includes(search) && !stripMarkdown(n.desc).toLowerCase().includes(search)) return false;
     if (cat !== 'all' && !noteCats(n).includes(cat)) return false;
     if (period === 'today' && n.date !== today) return false;
-    if (period === 'past' && !isPastNote(n, today)) return false;
     if (period === 'reminders' && !n.remind) return false;
     if (period === 'upcoming') {
       const end = new Date(); end.setDate(now.getDate() + 7);
@@ -370,26 +407,42 @@ function renderCards() {
   const wrap = document.getElementById('cardsView');
 
   if (!list.length) {
+    const emptyMsg = periodTab === 'past'
+      ? '<p><b>Nenhuma nota passada por aqui</b></p><p style="font-size:13px;color:var(--muted)">Quando uma nota passar da data sem ser feita, ela aparece aqui como <b>pendente</b>.</p>'
+      : '<p><b>Nenhum recadinho por aqui</b></p><p style="font-size:13px;color:var(--muted)">Crie o primeiro com título, data, hora e uma imagem legal.</p>';
     wrap.innerHTML = `<div class="card"><div class="empty">
       <div class="icon">📝</div>
-      <p><b>Nenhum recadinho por aqui</b></p>
-      <p style="font-size:13px;color:var(--muted)">Crie o primeiro com título, data, hora e uma imagem legal.</p>
+      ${emptyMsg}
       <button class="btn btn-primary" onclick="openNoteForm()" style="margin-top:12px">＋ Novo recadinho</button>
     </div></div>`;
     return;
   }
 
-  const pinned = list.filter(n => n.pinned);
-  const regular = list.filter(n => !n.pinned);
-
   let html = '';
-  if (pinned.length) {
-    html += `<div class="note-section-title">📌 Fixados <span class="count">${pinned.length}</span></div>`;
-    html += `<div class="note-grid">${pinned.map(n => renderNoteCard(n, today)).join('')}</div>`;
-  }
-  if (regular.length) {
-    html += `<div class="note-section-title">${pinned.length ? '🗂️ Demais recadinhos' : '🗂️ Recadinhos'} <span class="count">${regular.length}</span></div>`;
-    html += `<div class="note-grid">${regular.map(n => renderNoteCard(n, today)).join('')}</div>`;
+  if (periodTab === 'past') {
+    // Já passadas: primeiro as pendentes (venceram sem serem feitas), depois as feitas.
+    const pendentes = list.filter(n => !n.done);
+    const feitas = list.filter(n => n.done);
+    if (pendentes.length) {
+      html += `<div class="note-section-title">🔴 Pendentes <span class="count">${pendentes.length}</span></div>`;
+      html += `<div class="note-grid">${pendentes.map(n => renderNoteCard(n, today)).join('')}</div>`;
+    }
+    if (feitas.length) {
+      html += `<div class="note-section-title">✅ Feitas <span class="count">${feitas.length}</span></div>`;
+      html += `<div class="note-grid">${feitas.map(n => renderNoteCard(n, today)).join('')}</div>`;
+    }
+  } else {
+    // Vão vir / atuais: fixadas no topo e depois as demais.
+    const pinned = list.filter(n => n.pinned);
+    const regular = list.filter(n => !n.pinned);
+    if (pinned.length) {
+      html += `<div class="note-section-title">📌 Fixados <span class="count">${pinned.length}</span></div>`;
+      html += `<div class="note-grid">${pinned.map(n => renderNoteCard(n, today)).join('')}</div>`;
+    }
+    if (regular.length) {
+      html += `<div class="note-section-title">${pinned.length ? '🗂️ Demais recadinhos' : '🗂️ Recadinhos'} <span class="count">${regular.length}</span></div>`;
+      html += `<div class="note-grid">${regular.map(n => renderNoteCard(n, today)).join('')}</div>`;
+    }
   }
   wrap.innerHTML = html;
 }
@@ -397,21 +450,25 @@ function renderCards() {
 function renderNoteCard(n, today) {
   const past = isPastNote(n, today);
   const isToday = n.date === today;
+  const st = noteStatus(n, today);
   const dateChip = `<span class="nt-chip ${past ? 'past' : isToday ? 'today' : ''}" title="Data do recadinho">📅 ${n.date ? n.date.slice(8, 10) + '/' + n.date.slice(5, 7) : '—'}${n.time ? ' ' + n.time : ''}</span>`;
+  const statusChip = `<span class="nt-chip ${st.cls}" title="${st.title}">${st.icon} ${st.label}</span>`;
   const remindChip = n.remind && n.time ? `<span class="nt-chip remind" title="Lembrete agendado">⏰ ${n.time}</span>` : '';
   const catChips = noteCats(n).map(c =>
     `<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('');
   const accent = noteCats(n).length ? catColor(noteCats(n)[0]) : '#94A3B8';
+  const cardCls = ['note-card', n.pinned ? 'pinned' : '', n.done ? 'done' : '', (!n.done && past) ? 'pending' : ''].filter(Boolean).join(' ');
 
   return `
-  <div class="note-card ${n.pinned ? 'pinned' : ''}" style="--accent:${accent}">
+  <div class="${cardCls}" style="--accent:${accent}">
     ${n.image ? `<img class="note-cover" src="${n.image}" alt="" loading="lazy" onclick="viewNote('${n.id}')">` : ''}
     <div class="note-body">
       <div class="note-title" onclick="viewNote('${n.id}')" title="Abrir recadinho">${page.esc(n.title)}</div>
-      <div class="note-meta">${dateChip}${remindChip}${catChips}</div>
+      <div class="note-meta">${dateChip}${statusChip}${remindChip}${catChips}</div>
       ${n.desc ? `<div class="note-desc">${page.esc(stripMarkdown(n.desc))}</div>` : ''}
     </div>
     <div class="note-actions">
+      <button class="btn-icon" onclick="toggleDone('${n.id}')" title="${n.done ? 'Desmarcar como feita' : 'Marcar como feita'}">${n.done ? '↩️' : '✅'}</button>
       <button class="btn-icon" onclick="togglePin('${n.id}')" title="${n.pinned ? 'Desafixar' : 'Fixar no topo'}">📌</button>
       <button class="btn-icon" onclick="viewNote('${n.id}')" title="Abrir">👁️</button>
       <button class="btn-icon" onclick="shareNote('${n.id}')" title="Copiar p/ compartilhar">🔗</button>
@@ -419,6 +476,21 @@ function renderNoteCard(n, today) {
       <button class="btn-icon" onclick="deleteNote('${n.id}')" title="Excluir">🗑️</button>
     </div>
   </div>`;
+}
+
+/* Marcar como feita / reabrir (direto do card) */
+function toggleDone(id) {
+  const data = page.getDB();
+  const note = findNote(data, id);
+  if (!note) return;
+  note.done = !note.done;
+  note.updatedAt = core.now();
+  preserveCoreSideEffects(data);
+  page.saveDB(data);
+  page.syncDocument('notes', note.id, note);
+  core.log(note.done ? 'note_done' : 'note_undone', user?.id, note.title);
+  page.toast(note.done ? 'Nota marcada como feita! ✅' : 'Nota reaberta ↩️', 'success');
+  render();
 }
 
 /* ========== CALENDÁRIO ========== */
@@ -469,8 +541,9 @@ function renderCalendar() {
       const cats = noteCats(n);
       const accent = cats.length ? catColor(cats[0]) : '#2563EB';
       const pastCls = dateStr < today ? 'past' : '';
-      return `<div class="cal-event cal-note-event ${pastCls}" style="--accent:${accent};background:${accent}"
-        onclick="event.stopPropagation();viewNote('${n.id}')" title="${page.esc(n.title)}${n.time ? ' · ' + n.time : ''}">${n.remind ? '⏰ ' : ''}${page.esc(n.title)}</div>`;
+      const icon = n.done ? '✅ ' : (n.remind ? '⏰ ' : '');
+      return `<div class="cal-event cal-note-event ${pastCls}" style="--accent:${accent};background:${accent}${n.done ? ';opacity:.65' : ''}"
+        onclick="event.stopPropagation();viewNote('${n.id}')" title="${page.esc(n.title)}${n.time ? ' · ' + n.time : ''}${n.done ? ' · feita' : ''}">${icon}${page.esc(n.title)}</div>`;
     }).join('');
     const more = dayNotes.length > 2 ? `<div class="cal-more">+${dayNotes.length - 2} mais</div>` : '';
     html += `<div class="cal-day ${isToday ? 'today' : ''}" onclick="openDayModal('${dateStr}')">
@@ -498,10 +571,10 @@ function openDayModal(dateStr) {
     ? '<div class="empty"><p>Nenhum recadinho nesta data</p></div>'
     : notes.map(n => `
       <div class="item">
-        <span>${n.remind ? '⏰' : '📝'}</span>
+        <span>${n.done ? '✅' : (n.remind ? '⏰' : '📝')}</span>
         <div class="item-info">
           <b>${page.esc(n.title)}</b>
-          <small>${n.time ? n.time + ' · ' : ''}${noteCats(n).join(', ') || 'Sem categoria'}</small>
+          <small>${n.time ? n.time + ' · ' : ''}${noteCats(n).join(', ') || 'Sem categoria'}${n.done ? ' · feita' : ''}</small>
         </div>
         <button class="btn-icon" onclick="closeDayModal();viewNote('${n.id}')" title="Abrir">👁️</button>
       </div>`).join('');
@@ -588,7 +661,6 @@ function openNoteForm(id, date) {
       document.getElementById('noteTitle').value = n.title;
       document.getElementById('noteDate').value = n.date || core.today();
       document.getElementById('noteTime').value = n.time || '';
-      document.getElementById('noteRemind').checked = !!n.remind;
       document.getElementById('noteDesc').value = n.desc || '';
       document.getElementById('notePinned').checked = !!n.pinned;
       buildNoteCategoryBoxes(noteCats(n));
@@ -608,7 +680,6 @@ function openNoteForm(id, date) {
   } else {
     document.getElementById('noteTitle').value = '';
     document.getElementById('noteTime').value = '';
-    document.getElementById('noteRemind').checked = false;
     document.getElementById('noteDesc').value = '';
     document.getElementById('notePinned').checked = false;
   }
@@ -635,12 +706,10 @@ function saveNote(e) {
   e.preventDefault();
   const data = page.getDB();
   const id = document.getElementById('noteId').value;
-  const remind = document.getElementById('noteRemind').checked;
   const time = document.getElementById('noteTime').value;
-
-  if (remind && !time) {
-    return page.toast('Para ativar o lembrete, escolha um horário. ⏰', 'warning');
-  }
+  // A data/hora da nota É o horário do aviso: com hora preenchida o
+  // lembrete fica ativo automaticamente (remind = true).
+  const remind = !!time;
   // Texto digitado na guia URL tem prioridade sobre a imagem atual
   const urlImage = document.getElementById('noteImageUrl').value.trim();
   const image = urlImage || currentImage || '';
@@ -666,6 +735,7 @@ function saveNote(e) {
     noteData.owner = user?.id || user?.uid || 'unknown';
     noteData.ownerName = user?.name || user?.username || '';
     noteData.createdAt = core.now();
+    noteData.done = false; // só vira feita quando o usuário marcar
     if (!data.notes) data.notes = [];
     data.notes.unshift(noteData);
     core.log('note_create', user?.id, noteData.title);
@@ -717,20 +787,31 @@ function viewNote(id) {
   if (!n) return;
   currentViewNoteId = id;
   const cats = noteCats(n);
+  const st = noteStatus(n, core.today());
   document.getElementById('viewContent').innerHTML = `
     ${n.image ? `<img class="blog-cover" src="${n.image}" alt="">` : ''}
     <h2 style="margin-bottom:8px">${page.esc(n.title)}</h2>
     <div class="note-meta" style="margin-bottom:14px">
       <span class="nt-chip">📅 ${core.formatDate(n.date)}</span>
       ${n.time ? `<span class="nt-chip">⏰ ${n.time}</span>` : ''}
-      ${n.remind ? '<span class="nt-chip remind">🔔 Lembrete ativo</span>' : ''}
+      <span class="nt-chip ${st.cls}" title="${st.title}">${st.icon} ${st.label}</span>
+      ${n.remind && n.time ? '<span class="nt-chip remind">🔔 Lembrete ativo</span>' : ''}
       ${n.pinned ? '<span class="nt-chip">📌 Fixado</span>' : ''}
       ${cats.map(c => `<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('')}
     </div>
     <div class="blog-body">${n.desc ? fmtDesc(n.desc) : '<p class="text-muted">Sem descrição.</p>'}</div>
     <small style="display:block;margin-top:14px;color:var(--muted)">por ${page.esc(n.ownerName || 'você')} · criado em ${core.formatDateTime(n.createdAt)}</small>
   `;
+  const doneBtn = document.getElementById('viewDoneBtn');
+  if (doneBtn) doneBtn.innerHTML = n.done ? '↩️ Desmarcar como feita' : '✅ Marcar como feita';
   document.getElementById('viewModal').classList.remove('hidden');
+}
+
+function toggleDoneFromView() {
+  const id = currentViewNoteId;
+  if (!id) return;
+  toggleDone(id);
+  viewNote(id);
 }
 
 function closeViewModal() { document.getElementById('viewModal').classList.add('hidden'); currentViewNoteId = null; }
@@ -742,9 +823,10 @@ function shareNote(id) {
   const n = findNote(data, id);
   if (!n) return;
   const cats = noteCats(n);
+  const st = noteStatus(n, core.today());
   const text =
     `📝 *${n.title}*\n` +
-    `📅 ${core.formatDate(n.date)}${n.time ? ` ⏰ ${n.time}` : ''}${n.remind ? ' 🔔' : ''}\n` +
+    `📅 ${core.formatDate(n.date)}${n.time ? ` ⏰ ${n.time}` : ''}${n.remind ? ' 🔔' : ''} · ${st.icon} ${st.label}\n` +
     (cats.length ? `🏷️ ${cats.join(', ')}\n` : '') +
     (n.desc ? `\n${stripMarkdown(n.desc)}\n` : '') +
     `\n— via ${page.getDB().settings.brand || 'Checklist ML'}`;
@@ -772,10 +854,29 @@ function fallbackCopy(text, done) {
    Inicialização por último (todas as funções/const já existem aqui) e
    protegida por try/catch: se algo falhar, a página mostra o erro em
    vez de ficar em branco — mesmo padrão adotado em atividades.html. */
+/* Migração: notas antigas com hora (mas sem remind) passam a lembrar;
+   e todo recadinho ganha o campo done (feita/pendente). */
+function migrateNotes() {
+  try {
+    const data = page.getDB();
+    let changed = false;
+    (data.notes || []).forEach(n => {
+      if (n.time && !n.remind) { n.remind = true; changed = true; }
+      if (n.done === undefined) n.done = false;
+    });
+    if (changed) {
+      preserveCoreSideEffects(data);
+      page.saveDB(data);
+    }
+  } catch (e) { console.warn('migrateNotes:', e); }
+}
+
 function boot() {
   try {
+    migrateNotes();
     initCategories();
     buildGallery();
+    setPeriodTab('upcoming'); // ao entrar: notas que vão vir/atuais
     setView('cards');
   } catch (err) {
     console.error('Falha ao iniciar a página de notas:', err);
@@ -796,6 +897,40 @@ if (document.readyState === 'loading') {
 } else {
   boot();
 }
+</script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'notas',
+  title: 'Notas & Recados',
+  intro: 'Recadinhos e lembretes pessoais, fora das atividades do checklist. A data e a hora da nota são o horário do aviso: quando chega, o app dispara o lembrete.',
+  sections: [
+    { icon: '⏳', title: 'Abas "Vão vir / Atuais" e "Já passadas"', body: 'Ao entrar, você vê as notas que ainda vão acontecer ou são de hoje. Na aba "Já passadas" ficam as vencidas — pendentes (não feitas) e feitas.' },
+    { icon: '⏰', title: 'Data e hora = hora do aviso', body: 'A nota é um lembrete: no dia e horário marcados o app avisa (alerta do navegador e central de notificações).' },
+    { icon: '✅', title: 'Marcar como feita', body: 'Cada nota tem o botão de marcar como feita. Se a data passar e a nota não for feita, ela fica como "pendente" (vermelha).' },
+    { icon: '🗑️', title: 'Exclusão só manual', body: 'As notas nunca são apagadas automaticamente — só se você (ou um admin) excluir manualmente.' },
+    { icon: '🖼️', title: 'Imagem e categoria', body: 'Dá para colocar imagem (galeria, upload .webp ou URL) e categorias próprias dos recadinhos.' },
+  ],
+  tips: [
+    'Deixe um horário preenchido para a nota virar lembrete e tocar na hora certa.',
+    'Use a aba "Já passadas" para revisar o que ficou pendente e concluir as pendências.',
+    'Use a visão de calendário para ver seus lembretes ao longo do mês.',
+    'Marque como feita assim que concluir — a nota fica verde e sai da lista de pendentes.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como funciona o lembrete da nota?',
+    'O que significa uma nota "pendente"?',
+    'Como organizo minhas notas?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ns = d.notes || [];
+    return `Hoje: ${today} · Total de notas: ${ns.length} · A vir/hoje: ${ns.filter(n => !n.date || n.date >= today).length} · Já passadas: ${ns.filter(n => n.date && n.date < today).length} · Pendentes: ${ns.filter(n => n.date && n.date < today && !n.done).length} · Feitas: ${ns.filter(n => n.done).length}`;
+  },
+});
 </script>
 </body>
 </html>

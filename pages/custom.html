@@ -499,5 +499,32 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'custom',
+  title: 'Personalizar',
+  intro: 'Personalização da sua experiência: temas de cor (prontos ou criados por você), idioma do app, modo claro/escuro e configuração do dashboard e automações.',
+  sections: [
+    { icon: '🎨', title: 'Temas', body: 'Aplique um tema pronto ou crie o seu com cores primária, secundária, de destaque e fundo. Seu tema é pessoal e sincroniza entre dispositivos.' },
+    { icon: '🌐', title: 'Idioma', body: 'Escolha o idioma do app (português, inglês ou espanhol) na aba Idioma.' },
+    { icon: '🌓', title: 'Modo claro/escuro', body: 'Na aba Modo, escolha claro, escuro ou automático (segue o sistema). Na primeira vez, o app usa a preferência do seu sistema.' },
+    { icon: '📊', title: 'Dashboard e automações', body: 'Configure quais widgets aparecem no painel e as automações (ex.: notificar admin de atrasos, criar recorrência ao finalizar).' },
+  ],
+  tips: [
+    'Crie um tema com as cores da sua área para identificar rapidamente a tela.',
+    'O modo "automático" acompanha o celular: escuro à noite, claro de dia.',
+    'Suas escolhas aqui são suas — o tema do admin só vale como padrão para quem nunca escolheu.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como crio meu próprio tema?',
+    'Como ativo o modo escuro automático?',
+    'Como mudo o idioma?',
+  ],
+});
+</script>
 </body>
 </html>
