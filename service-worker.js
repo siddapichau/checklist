@@ -18,7 +18,10 @@
 //       categorias próprias), correção dos botões Compartilhar/Comentários
 //       (modais locais que executam os handlers da página) e diagnóstico das
 //       regras do Firestore no teste de conexão da IA.
-const CACHE_NAME = 'checklist-ml-v14-notas-recados';
+// v15 = Parte 2: 🤖 Ajuda desta página (js/help-ai.js + descrição por página),
+//       Notas como lembretes (abas a vir/passadas, feito/pendente, sem
+//       exclusão automática) e Macros com e-mail + campos c1–c10.
+const CACHE_NAME = 'checklist-ml-v15-ajuda-lembretes-macros';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -31,6 +34,7 @@ const ASSETS = [
   '/js/page.js',
   '/js/seed.js',
   '/js/ai.js',
+  '/js/help-ai.js',
   '/assets/favicon.svg',
   '/assets/logo.svg',
   '/assets/logo-modern.png',

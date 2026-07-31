@@ -1,42 +1,64 @@
-# v14 — IA com diagnóstico de regras • botões 🔗💬 funcionais • nova página 📝 Notas & Recados
+# v15 — Parte 2/2: 🤖 Ajuda por página • Notas como lembretes • Macros com e-mail e c1–c10
+
+> Parte 2 da v15. A **Parte 1** (tema por usuário, dashboard com filtro
+> Dia/Semana/Mês, relatórios modernos) já está no PR #24 (merged).
 
 ## O que muda
 
-### 🤖 IA — mostra a causa real de "não funcionar"
-- O **Teste de conexão** (página IA e Admin → API / IA) agora verifica as **regras do Firestore**: se `settings/admin` não puder ser lido, diz exatamente como publicar `firestore.rules` no Console — porque é isso que impede a chave salva de chegar a outros dispositivos (ex.: o APK do celular), mesmo estando correta.
-- Status da página IA ficou honesto: sem chave, distingue "falta configuração" de "regras bloqueando a leitura".
+### 4) 🤖 IA de ajuda em cada página — botão contextual "Ajuda desta página"
+- Novo `js/help-ai.js`: **botão flutuante "🤖 Ajuda desta página"** em **todas
+  as 14 páginas**, que já entra sabendo qual página é e o que ela faz.
+- Painel com **"Como esta página funciona"** (guia local por página, sempre
+  disponível), **💡 Dicas rápidas**, **perguntas rápidas** e campo para
+  **perguntar à IA** com contexto ao vivo da página (totais, pendentes,
+  atrasadas vão no prompt).
+- Usa a **mesma IA do app** (`js/ai.js`: DeepSeek/Groq via proxy próprio →
+  direto → proxies públicos). Sem chave/offline responde com o guia local;
+  botão "📋 Copiar guia".
 
-> ⚠️ **Manual**: publicar `firestore.rules` (tem as regras novas de `notes`) no Console do Firebase e manter o proxy Cloudflare configurado — instruções na aba API / IA.
+### 5) 📝 Notas viram lembretes
+- **A data/hora da nota é a hora do aviso**: com hora preenchida o lembrete
+  fica ativo automaticamente (caixa "lembrar-me" removida; migração de notas
+  antigas).
+- **A nota só é excluída manualmente**: removida a limpeza automática de
+  "notas antigas 30+ dias" do Admin.
+- **Ao entrar, o usuário vê as notas que vão vir/atuais** (aba padrão) e tem a
+  aba **"✅ Já passadas"**.
+- **Cada nota pode ser marcada como feita** (✅/↩️ no card e no modal); **se
+  vencer sem ser feita, fica pendente** — aba passada separa em 🔴 Pendentes e
+  ✅ Feitas; chips de status em cards, modal, calendário e compartilhar.
+- Monitor de lembretes não dispara para notas já feitas.
 
-### 🔗💬 Botões mortos dos cards (atividades / kanban / calendário)
-**Causa-raiz**: `page.openModal()` renderiza o modal no documento pai (`index.html`), mas os handlers (`copyShareLink`, `submitComment`, `page.closeModal`...) só existem dentro do iframe — todo botão do modal era clique morto; o QR Code nunca renderizava (procurado no documento errado).
-**Fix**: modais de Compartilhar e Comentários viraram locais nas 3 páginas. Copiar (Clipboard API + fallback legado), Web Share, WhatsApp, E-mail, QR com fallback offline, comentar/listar/excluir — tudo testado e funcionando. Títulos com aspas não quebram mais os handlers (lookup por id).
+### 6) 📧 Macro com e-mail
+- Novo tipo de modelo **📄 Mensagem / 📧 E-mail** no editor.
+- No tipo e-mail: campos **"E-mails de destino"** e **"Assunto do e-mail"**.
+- Botão **"📧 Mandar e-mail"** no modal de uso: abre o **Gmail já
+  pré-preenchido** (destinatários + assunto) e **copia o corpo** — é só colar
+  com **Ctrl+V**.
 
-### 📝 Nova página: Notas & Recados
-Recadinhos/lembretes diários fora das atividades (`pages/notas.html`), no menu (Operação) com tradução PT/EN/ES:
-- **Título, data, hora** + 🔔 lembrete disparado pelo monitor do shell (alerta Chrome + central, com dedupe);
-- **Descrição estilo blog** (`**negrito**`, `*itálico*`, listas, H2) com leitura renderizada;
-- **Imagem**: galeria SVG (6 capas), **upload convertido a .webp** (máx. 1280px), ou URL;
-- **Categorias próprias** por checkbox (`notesCategories`), sem misturar com atividades;
-- 📌 fixar, visões 🗂️ Cards e 📅 Calendário (com dots por dia + modal do dia), filtros, copiar texto p/ compartilhar;
-- **Tudo controlado do Admin**: nova aba 📝 Notas — gerir categorias, estatísticas, excluir qualquer nota, limpeza 30+ dias (preserva fixadas);
-- Sync Firestore (coleção `notes`, por usuário) + regras novas em `firestore.rules` + backup/importação incluindo notas.
-
-### ⚡ Robustez
-- `applyI18n` não entra mais em **loop infinito de microtasks quando offline** (reagendava indiferente de o fetch falhar) — congelamento de aba eliminado.
-- `relatorios.html`: gráficos com guarda de CDN — "Chart is not defined" não derruba mais a página; números seguem visíveis.
+### 7) ⚙️ Macro com campos c1–c10
+- **Cada macro tem os 10 campos (c1 a c10)**: chips `{c1}`…`{c10}` no editor +
+  10 campos com valores padrão opcionais.
+- Ao usar, os 10 campos aparecem preenchidos com os padrões; **`{c10}` no
+  texto recebe o valor do campo c10** no texto final (prévia destaca campo
+  vazio; cópia mantém o marcador, como nas variáveis `{{...}}`).
+- Lista de macros mostra tipo (📧) e campos c usados.
 
 ## Arquivos
 | Tipo | Arquivos |
 |---|---|
-| Novos | `pages/notas.html`, `CORRECAO_V14.md`, `PROMPTS_VERIFICACAO_APK.md` |
-| Alterados | `js/core.js`, `js/app.js`, `js/firebase.js`, `js/ai.js`, `pages/atividades.html`, `pages/kanban.html`, `pages/calendario.html`, `pages/admin.html`, `pages/IA.html`, `pages/relatorios.html`, `service-worker.js` (cache `v14`), `firestore.rules`, `locales/*` (3) |
+| Novo | `js/help-ai.js`, `CORRECAO_V15_PARTE2.md` |
+| Alterados | `pages/*.html` (14 páginas — widget de ajuda), `pages/notas.html`, `pages/admin.html`, `pages/macros.html`, `js/app.js`, `service-worker.js` (cache `v15` + precache do `js/help-ai.js`) |
 
-## ✅ Testes (68/68 + 14 páginas)
-- Migração `core.js` — 7/7
-- Notas (CRUD, lembrete, imagem webp/galeria, calendário, XSS, fixar, filtros) — 29/29
-- Atividades (share/comments funcionais + CRUD) — 13/13
-- `ai.js` (fallback de canais, erro fatal 401, regras Firestore) — 7/7
-- Alerta de nota no monitor do shell — 3/3
-- Aba Admin → Notas — 9/9
-- Carregamento das **14 páginas** em DOM real — **0 erros**.
+## ✅ Validação
+- `node --check` em `js/help-ai.js`, `js/app.js` e scripts inline das **14
+  páginas** — 0 erros.
+- Testes funcionais com DOM simulado: widget de ajuda (abrir, perguntas,
+  fallback local, copiar guia); Notas (migração, status Feita/Pendente/Hoje/A
+  vir, abas, agrupamento, `toggleDone` + sync); Macros (substituição
+  `{cN}`/`{{var}}`, `extractCFields`, modal de uso, `sendEmailMacro` com URL
+  Gmail to/su + corpo copiado, `saveMacro` persistindo os campos novos) — OK.
+
+Sem navegador/Playwright na sandbox: cliques reais e screenshots não foram
+executados (mesmo padrão da Parte 1); validação por sintaxe, execução mockada
+e análise de fluxo.
