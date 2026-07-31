@@ -24,6 +24,7 @@
   <button class="tab" onclick="switchTab('posts',this)">📰 Notícias</button>
   <button class="tab" onclick="switchTab('files',this)">📁 Arquivos</button>
   <button class="tab" onclick="switchTab('categories',this)">🏷️ Categorias</button>
+  <button class="tab" onclick="switchTab('notes',this)">📝 Notas</button>
   <button class="tab" onclick="switchTab('api',this)">🔑 API / IA</button>
   <button class="tab" onclick="switchTab('backup',this)">💾 Backup</button>
   <button class="tab" onclick="switchTab('logs',this)">📜 Logs</button>
@@ -204,6 +205,34 @@
   </div>
 </div>
 
+<!-- TAB: NOTAS / RECADINHOS -->
+<div class="tab-content" id="tab-notes">
+  <div class="card">
+    <h2>📝 Categorias das notas</h2>
+    <p class="text-muted mb-2">Categorias exclusivas dos recadinhos (não mistura com as das atividades). Aparecem nos checkboxes do formulário da página Notas.</p>
+    <div style="display:flex;gap:8px;margin-bottom:16px">
+      <input type="text" id="newNoteCategory" placeholder="Nome da nova categoria de nota">
+      <button class="btn btn-primary" onclick="addNoteCategory()">＋ Adicionar</button>
+    </div>
+    <div id="noteCategoriesList"></div>
+  </div>
+
+  <div class="card">
+    <h2>📊 Resumo das notas</h2>
+    <div id="notesStats" class="text-muted" style="margin-bottom:12px"></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="page.navigate('notas')">📝 Abrir página de notas</button>
+      <button class="btn btn-danger btn-sm" onclick="cleanOldNotes()">🧹 Apagar notas antigas (30+ dias)</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>🗂️ Todas as notas deste dispositivo</h2>
+    <p class="text-muted mb-2">Cada usuário sincroniza as próprias notas. O admin pode remover qualquer nota aqui listada — a exclusão também vai para o banco.</p>
+    <div id="notesAdminList"></div>
+  </div>
+</div>
+
 <!-- TAB: API / IA -->
 <div class="tab-content" id="tab-api">
   <div class="card">
@@ -330,6 +359,8 @@ renderMenu();
 renderPosts();
 renderFiles();
 renderCategories();
+renderNoteCategories();
+renderNotesAdmin();
 renderLogs();
 renderCustomThemes();
 loadAPIStatus();
@@ -774,6 +805,108 @@ function deleteCategory(name) {
   page.toast('Categoria excluída', 'info');
 }
 
+/* ========== NOTAS / RECADINHOS ========== */
+function addNoteCategory() {
+  const input = document.getElementById('newNoteCategory');
+  const name = input.value.trim().replace(/[<>"'&`]/g, '');
+  if (!name) return page.toast('Digite um nome válido para a categoria.', 'warning');
+  data = page.getDB();
+  if (!Array.isArray(data.settings.notesCategories)) data.settings.notesCategories = [];
+  if (data.settings.notesCategories.includes(name)) return page.toast('Categoria já existe', 'warning');
+  data.settings.notesCategories.push(name);
+  page.saveDB(data);
+  page.syncSettings(data.settings);
+  core.log('note_category_add', user.id, name);
+  input.value = '';
+  renderNoteCategories();
+  page.toast('Categoria de nota adicionada! 🏷️', 'success');
+}
+
+function renderNoteCategories() {
+  data = page.getDB();
+  const cats = data.settings.notesCategories || [];
+  document.getElementById('noteCategoriesList').innerHTML = cats.length
+    ? cats.map(c => `
+      <div class="item">
+        <span style="font-size:18px">📝</span>
+        <div class="item-info"><b>${page.esc(c)}</b></div>
+        <button class="btn-icon" onclick="deleteNoteCategory('${page.esc(c)}')" title="Excluir">🗑️</button>
+      </div>
+    `).join('')
+    : '<div class="empty"><p>Nenhuma categoria de nota</p></div>';
+}
+
+function deleteNoteCategory(name) {
+  if (!confirm(`Excluir a categoria de nota "${name}"? As notas existentes mantêm suas categorias.`)) return;
+  data = page.getDB();
+  data.settings.notesCategories = (data.settings.notesCategories || []).filter(c => c !== name);
+  page.saveDB(data);
+  page.syncSettings(data.settings);
+  core.log('note_category_delete', user.id, name);
+  renderNoteCategories();
+  page.toast('Categoria de nota excluída', 'info');
+}
+
+function renderNotesAdmin() {
+  data = page.getDB();
+  const notes = data.notes || [];
+  const today = core.today();
+  const stats = {
+    total: notes.length,
+    today: notes.filter(n => n.date === today).length,
+    reminders: notes.filter(n => n.remind).length,
+    pinned: notes.filter(n => n.pinned).length,
+  };
+  document.getElementById('notesStats').innerHTML =
+    `📝 <b>${stats.total}</b> nota(s) neste navegador · 📅 <b>${stats.today}</b> hoje · ⏰ <b>${stats.reminders}</b> com lembrete · 📌 <b>${stats.pinned}</b> fixada(s)`;
+
+  const sorted = [...notes].sort((a, b) => String(b.updatedAt || b.createdAt || '').localeCompare(String(a.updatedAt || a.createdAt || '')));
+  document.getElementById('notesAdminList').innerHTML = sorted.length
+    ? sorted.map(n => `
+      <div class="item">
+        ${n.image
+          ? `<img src="${n.image}" style="width:48px;height:48px;border-radius:8px;object-fit:cover" alt="">`
+          : '<div style="width:48px;height:48px;border-radius:8px;background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:22px">📝</div>'}
+        <div class="item-info">
+          <b>${n.pinned ? '📌 ' : ''}${page.esc(n.title)}</b>
+          <small>${n.remind ? '⏰ ' : ''}📅 ${page.esc(n.date || 'sem data')}${n.time ? ' ' + page.esc(n.time) : ''} · 🏷️ ${page.esc((n.categories || []).join(', ') || 'Geral')} · 👤 ${page.esc(n.ownerName || n.owner || 'desconhecido')}</small>
+        </div>
+        <button class="btn-icon" onclick="adminDeleteNote('${n.id}')" title="Excluir nota">🗑️</button>
+      </div>
+    `).join('')
+    : '<div class="empty"><p>Nenhuma nota criada neste dispositivo</p></div>';
+}
+
+function adminDeleteNote(id) {
+  data = page.getDB();
+  const note = (data.notes || []).find(n => String(n.id) === String(id));
+  if (!note) return;
+  if (!confirm(`Excluir a nota "${note.title}"? A remoção é enviada ao banco.`)) return;
+  data.notes = (data.notes || []).filter(n => String(n.id) !== String(id));
+  page.saveDB(data);
+  page.deleteDocument('notes', id);
+  core.log('note_delete_admin', user.id, note.title || '');
+  renderNotesAdmin();
+  page.toast('Nota excluída e removida do banco.', 'info');
+}
+
+function cleanOldNotes() {
+  data = page.getDB();
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() - 30);
+  const cutoffStr = cutoff.toISOString().slice(0, 10);
+  const old = (data.notes || []).filter(n => n.date && n.date < cutoffStr && !n.pinned);
+  if (!old.length) return page.toast('Nenhuma nota com mais de 30 dias para limpar.', 'info');
+  if (!confirm(`Apagar ${old.length} nota(s) com mais de 30 dias (fixadas são preservadas)?`)) return;
+  const ids = old.map(n => String(n.id));
+  data.notes = (data.notes || []).filter(n => !ids.includes(String(n.id)));
+  page.saveDB(data);
+  old.forEach(n => page.deleteDocument('notes', n.id));
+  core.log('notes_cleanup', user.id, `${old.length} notas antigas removidas`);
+  renderNotesAdmin();
+  page.toast(`${old.length} nota(s) antigas removidas! 🧹`, 'success');
+}
+
 /* ========== API / INTEGRAÇÕES PRIVADAS ========== */
 async function loadAPIStatus() {
   const status = document.getElementById('apiKeyStatus');
@@ -921,6 +1054,7 @@ function exportFull() {
     customThemes: data.customThemes || [],
     users: data.users,
     tasks: data.tasks,
+    notes: data.notes || [],
     files: data.files,
     posts: data.posts,
     logs: data.logs,
@@ -983,11 +1117,12 @@ async function handleImport(e) {
       return;
     }
 
-    let count = { tasks: 0, posts: 0, files: 0, users: 0, settings: false, themes: 0, gamification: 0 };
+    let count = { tasks: 0, notes: 0, posts: 0, files: 0, users: 0, settings: false, themes: 0, gamification: 0 };
 
     if (!confirm(
       `Dados encontrados no backup:\n` +
       `- Atividades: ${(imported.tasks || []).length}\n` +
+      `- Notas: ${(imported.notes || []).length}\n` +
       `- Posts: ${(imported.posts || []).length}\n` +
       `- Arquivos: ${(imported.files || []).length}\n` +
       `- Usuários: ${(imported.users || []).length}\n` +
@@ -1008,6 +1143,20 @@ async function handleImport(e) {
           data.tasks.push(t);
         }
         count.tasks++;
+      });
+    }
+
+    // Importar notas
+    if (imported.notes && imported.notes.length > 0) {
+      if (!Array.isArray(data.notes)) data.notes = [];
+      imported.notes.forEach(n => {
+        const idx = data.notes.findIndex(ln => String(ln.id) === String(n.id));
+        if (idx >= 0) {
+          data.notes[idx] = { ...n };
+        } else {
+          data.notes.push(n);
+        }
+        count.notes++;
       });
     }
 
@@ -1089,15 +1238,17 @@ async function handleImport(e) {
     }
 
     page.saveDB(data);
-    core.log('import_data', user.id, `tasks:${count.tasks} posts:${count.posts} files:${count.files} users:${count.users}`);
+    core.log('import_data', user.id, `tasks:${count.tasks} notes:${count.notes} posts:${count.posts} files:${count.files} users:${count.users}`);
 
-    statusEl.innerHTML = `<span style="color:var(--success)">✅ Importação concluída! ${count.tasks} atividades, ${count.posts} posts, ${count.files} arquivos, ${count.users} usuários${count.settings ? ', configurações' : ''}, ${count.themes} temas.</span>`;
+    statusEl.innerHTML = `<span style="color:var(--success)">✅ Importação concluída! ${count.tasks} atividades, ${count.notes} notas, ${count.posts} posts, ${count.files} arquivos, ${count.users} usuários${count.settings ? ', configurações' : ''}, ${count.themes} temas.</span>`;
 
     // Recarregar todas as views
     renderUsers();
     renderPosts();
     renderFiles();
     renderCategories();
+    renderNoteCategories();
+    renderNotesAdmin();
     renderCustomThemes();
     populateCategorySelects();
 
@@ -1142,6 +1293,13 @@ async function syncToFirebase() {
       await firebaseSync.pushDocument('posts', String(p.id), p);
     }
     status.textContent = `Settings ✓ Tasks ✓ Posts (${data.posts.length}) ✓`;
+
+    // Push notas (somente as do usuário logado — cada dono sobe as suas)
+    const notes = (data.notes || []).filter(n => String(n.owner) === String(user.id || user.uid));
+    for (const n of notes) {
+      await firebaseSync.pushDocument('notes', String(n.id), n);
+    }
+    status.textContent = `Settings ✓ Tasks ✓ Posts ✓ Notas (${notes.length}) ✓`;
 
     // Push files
     for (const f of (data.files || [])) {

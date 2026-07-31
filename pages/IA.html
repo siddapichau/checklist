@@ -136,7 +136,15 @@ async function updateAIStatus() {
 
     if (!apiKey) {
       box.classList.add('warn');
-      text.textContent = 'Modo demonstração — nenhuma chave do DeepSeek encontrada. Um administrador configura em Administração → API / IA.';
+      // Se as regras antigas do Firestore ainda estão no ar, a chave salva no
+      // banco nunca chega a este dispositivo — avisar isso em vez de só dizer
+      // que "falta chave".
+      const rules = await AIClient.checkAdminDocAccess();
+      if (rules.ok === false) {
+        text.textContent = 'A chave do DeepSeek não chegou a este dispositivo porque as regras do Firestore bloqueiam a leitura de settings/admin. Peça ao administrador para publicar o arquivo firestore.rules no Console do Firebase (Firestore Database → Regras). Detalhes no botão "Testar conexão".';
+      } else {
+        text.textContent = 'Modo demonstração — nenhuma chave do DeepSeek encontrada. Um administrador configura em Administração → API / IA.';
+      }
       return;
     }
     if (proxyUrl) {

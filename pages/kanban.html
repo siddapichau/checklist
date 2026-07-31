@@ -85,6 +85,23 @@
   </div>
 </div>
 
+<!-- MODAL: COMENTÁRIOS (local — handlers desta página; o modal do shell
+     roda no documento pai e por isso nunca encontrava submitComment/page) -->
+<div class="modal-overlay hidden" id="commentsModal" onclick="if(event.target===this)closeCommentsModal()">
+  <div class="modal">
+    <h2 id="commentsTitle">💬 Comentários</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
+    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <form class="comment-form" onsubmit="submitComment(event)">
+      <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
+      <button type="submit" class="btn btn-primary">Enviar</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-secondary" onclick="closeCommentsModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
@@ -179,7 +196,7 @@ function renderCard(t, today) {
       <div class="kanban-actions">
         <button class="btn-icon" onclick="editCard(${t.id})" title="Editar" style="width:24px;height:24px;font-size:12px">✏️</button>
         <button class="btn-icon" onclick="deleteCard(${t.id})" title="Excluir" style="width:24px;height:24px;font-size:12px">🗑️</button>
-        <button class="btn-icon" onclick="openComments(${t.id},'${page.esc(t.title).replace(/'/g, "\\'")}')" title="Comentários" style="width:24px;height:24px;font-size:12px">💬</button>
+        <button class="btn-icon" onclick="openComments(${t.id})" title="Comentários" style="width:24px;height:24px;font-size:12px">💬</button>
       </div>
     </div>
   `;
@@ -360,30 +377,31 @@ function closeCardModal() {
   document.getElementById('cardModal').classList.add('hidden');
 }
 
-/* ========== COMENTÁRIOS (integrado) ========== */
-function openComments(taskId, title) {
-  const user = page.getUser();
-  const comments = core.getComments(taskId);
+/* ========== COMENTÁRIOS (modal local) ========== */
+let currentCommentsTaskId = null;
 
-  const modalHtml = `
-    <h2>💬 ${page.esc(title)}</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">${page.t('comments.title', 'Comentários')}</p>
-    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px">
-      ${comments.length === 0
-        ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
-        : comments.map(c => renderComment(c, user)).join('')
-      }
-    </div>
-    <form class="comment-form" onsubmit="submitComment(event,${taskId})">
-      <input type="text" id="commentInput" placeholder="${page.t('comments.placeholder', 'Escreva um comentário...')}" required>
-      <button type="submit" class="btn btn-primary">${page.t('comments.send', 'Enviar')}</button>
-    </form>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px">
-      <button class="btn btn-secondary" onclick="page.closeModal()">${page.t('common.close', 'Fechar')}</button>
-    </div>
-  `;
-  page.openModal(modalHtml);
-  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+function openComments(taskId) {
+  const data = page.getDB();
+  const task = (data.tasks || []).find(t => String(t.id) === String(taskId));
+  currentCommentsTaskId = taskId;
+  document.getElementById('commentsTitle').textContent = '💬 ' + ((task && task.title) || 'Comentários');
+  renderCommentsList();
+  document.getElementById('commentsModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 150);
+}
+
+function closeCommentsModal() {
+  document.getElementById('commentsModal').classList.add('hidden');
+  currentCommentsTaskId = null;
+}
+
+function renderCommentsList() {
+  const comments = core.getComments(currentCommentsTaskId);
+  const user = page.getUser();
+  const list = document.getElementById('commentsList');
+  list.innerHTML = comments.length === 0
+    ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
+    : comments.map(c => renderComment(c, user)).join('');
 }
 
 function renderComment(c, user) {
@@ -398,7 +416,7 @@ function renderComment(c, user) {
             ${isMine ? '<span style="font-size:10px;background:var(--primary-light);color:var(--primary);padding:1px 6px;border-radius:6px;margin-left:6px">você</span>' : ''}
             <span class="comment-date" style="margin-left:8px">${core.formatDateTime(c.createdAt)}</span>
           </div>
-          ${isMine ? `<button class="comment-delete" onclick="deleteComment(${user.id === c.userId ? user.id : `'${c.userId}'`}, '${c.id}')">🗑️</button>` : ''}
+          ${isMine ? `<button class="comment-delete" onclick="deleteComment('${c.id}')">🗑️</button>` : ''}
         </div>
         <div class="comment-text">${page.esc(c.text)}</div>
       </div>
@@ -406,41 +424,28 @@ function renderComment(c, user) {
   `;
 }
 
-function submitComment(e, taskId) {
+function submitComment(e) {
   e.preventDefault();
+  if (!currentCommentsTaskId) return;
   const input = document.getElementById('commentInput');
   const text = input.value.trim();
   if (!text) return;
   const user = page.getUser();
-  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  const c = core.addComment(currentCommentsTaskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
   if (c) {
     input.value = '';
-    // Re-render a lista no modal
+    renderCommentsList();
     const list = document.getElementById('commentsList');
-    const empty = list.querySelector('.empty');
-    if (empty) empty.remove();
-    list.insertAdjacentHTML('beforeend', renderComment(c, user));
     list.scrollTop = list.scrollHeight;
   }
 }
 
-function deleteComment(userId, commentId) {
+function deleteComment(commentId) {
+  if (!currentCommentsTaskId || !commentId) return;
   if (!confirm(page.t('comments.deleteConfirm', 'Excluir este comentário?'))) return;
-  // Pegar taskId do contexto
-  const list = document.getElementById('commentsList');
-  if (!list) return;
-  // Encontrar o taskId via data attribute - mas não temos. Buscar em todas as tasks:
-  const data = page.getDB();
-  for (const t of data.tasks) {
-    const comments = core.getComments(t.id);
-    if (comments.find(c => c.id === commentId)) {
-      core.deleteComment(t.id, commentId);
-      break;
-    }
-  }
-  // Reabrir o modal
-  page.closeModal();
-  page.toast('Comentário excluído', 'info');
+  core.deleteComment(currentCommentsTaskId, commentId);
+  renderCommentsList();
+  page.toast(page.t('comments.deleted', 'Comentário excluído'), 'info');
 }
 
 // Receber mensagens do parent (re-render ao mudar idioma)

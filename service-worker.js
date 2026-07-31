@@ -14,7 +14,11 @@
 //       a lista vazia e "Nova atividade" sem efeito), IA com proxy próprio
 //       (Cloudflare Worker) + cadeia de canais em js/ai.js, e menu superior
 //       inteligente com abertura/fechamento por hover com atraso.
-const CACHE_NAME = 'checklist-ml-v13-atividades-ia-menu';
+// v14 = página Notas & Recados (recadinhos com lembrete, imagem .webp e
+//       categorias próprias), correção dos botões Compartilhar/Comentários
+//       (modais locais que executam os handlers da página) e diagnóstico das
+//       regras do Firestore no teste de conexão da IA.
+const CACHE_NAME = 'checklist-ml-v14-notas-recados';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -43,6 +47,7 @@ const ASSETS = [
   '/pages/relatorios.html',
   '/pages/kanban.html',
   '/pages/calendario.html',
+  '/pages/notas.html',
   '/pages/gamificacao.html',
   '/pages/foco.html',
   '/pages/custom.html',

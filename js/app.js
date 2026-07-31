@@ -18,7 +18,7 @@ const App = {
   /* Agrupamento do menu superior (desktop). Cada grupo vira um dropdown;
      a ordem interna segue settings.menuOrder e respeita visibilidade/adminOnly. */
   MENU_GROUPS: [
-    { id: 'operacao',    icon: '📋', label: 'Operação',      items: ['home', 'atividades', 'kanban', 'calendario'] },
+    { id: 'operacao',    icon: '📋', label: 'Operação',      items: ['home', 'atividades', 'kanban', 'calendario', 'notas'] },
     { id: 'produtividade', icon: '🎯', label: 'Produtividade', items: ['gamificacao', 'foco'] },
     { id: 'recursos',    icon: '🗂️', label: 'Recursos',      items: ['arquivos', 'macros', 'relatorios'] },
     { id: 'ferramentas', icon: '🧰', label: 'Ferramentas',   items: ['custom', 'IA'] },
@@ -1366,6 +1366,29 @@ const App = {
         showBrowser: false,
       });
       core.chromeNotification(title, body, 'warning');
+      try { this.renderNotifications(); } catch (e) {}
+    });
+
+    // Notas (recadinhos) com lembrete no horário: mesmo mecanismo das
+    // atividades — dispara na data/hora marcada, uma única vez por nota.
+    (data.notes || []).forEach(note => {
+      if (!note.remind || !note.time || note.date !== today) return;
+      if (note.time > hhmm) return;
+      if (note.owner && uid && String(note.owner) !== String(uid)) return;
+
+      const marker = `cl-alert-note-${note.id}-${note.date}-${note.time}`;
+      try { if (localStorage.getItem(marker)) return; } catch (e) {}
+      try { localStorage.setItem(marker, '1'); } catch (e) {}
+
+      const title = '📝 Lembrete de nota';
+      const body = `${note.time} — ${note.title}`;
+      core._createNotification(uid, title, body, 'info', {
+        dedupeKey: `alert:note:${note.id}:${note.date}:${note.time}`,
+        data: { page: 'notas', noteId: note.id },
+        showToast: false,
+        showBrowser: false,
+      });
+      core.chromeNotification(title, body, 'info');
       try { this.renderNotifications(); } catch (e) {}
     });
 

@@ -178,6 +178,19 @@ const FireSync = {
         });
       this._unsubscribers.push(macrosUnsub);
 
+      // 3c. Sincronizar notas/recadinhos do próprio usuário
+      const notesUnsub = db.collection('notes')
+        .where('owner', '==', userId)
+        .limit(300)
+        .onSnapshot(snapshot => {
+          if (!this._syncing) return;
+          this._handleCollectionSync('notes', snapshot, userId);
+        }, err => {
+          console.warn('Notes sync error:', err.code, err.message);
+          this._handleSyncError(err, 'notes', false);
+        });
+      this._unsubscribers.push(notesUnsub);
+
       // 4. Sincronizar settings (só leitura - escrita só admin)
       const settingsUnsub = db.collection('settings')
         .doc('global')
@@ -191,7 +204,7 @@ const FireSync = {
             // Apenas configurações públicas do site ficam neste documento.
             // Credenciais de integrações são gravadas separadamente em settings/admin.
             const publicKeys = ['brand', 'theme', 'mode', 'language', 'categories',
-              'menuItems', 'menuOrder', 'logo', 'favicon'];
+              'notesCategories', 'menuItems', 'menuOrder', 'logo', 'favicon'];
             publicKeys.forEach(key => {
               if (!Object.prototype.hasOwnProperty.call(remoteSettings, key)) return;
               const localValue = JSON.stringify(data.settings[key]);
@@ -314,6 +327,7 @@ const FireSync = {
       if (removedIds.length) {
         const removeById = list => list.filter(item => !removedIds.includes(String(item.id)));
         if (collectionName === 'tasks') data.tasks = removeById(data.tasks);
+        if (collectionName === 'notes') data.notes = removeById(data.notes);
         if (collectionName === 'posts') data.posts = removeById(data.posts);
         if (collectionName === 'files') data.files = removeById(data.files);
         if (collectionName === 'macros') data.macros = removeById(data.macros);
@@ -434,6 +448,35 @@ const FireSync = {
             this._pushLocalToFirestore('macros', localMacrosToPush, userId);
           }
         }
+
+      } else if (collectionName === 'notes' && userId) {
+        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
+
+        // Atualizar/inserir notas remotas no cache local
+        remoteDocs.forEach(remote => {
+          const localIdx = data.notes.findIndex(n => String(n.id) === String(remote.id));
+          if (localIdx >= 0) {
+            const lTime = timestampMillis(data.notes[localIdx].updatedAt || data.notes[localIdx].createdAt);
+            const rTime = timestampMillis(remote.updatedAt || remote.createdAt);
+            if (rTime > lTime) {
+              data.notes[localIdx] = { ...data.notes[localIdx], ...remote, id: data.notes[localIdx].id };
+              hasChanges = true;
+            }
+          } else {
+            data.notes.push(remote);
+            hasChanges = true;
+          }
+        });
+
+        // Subir notas locais do usuário que ainda não estão no remoto
+        if (this._errorCount < 2) {
+          const localNotesToPush = data.notes.filter(n =>
+            String(n.owner) === String(userId) && !remoteIds.has(String(n.id))
+          ).slice(0, 20);
+          if (localNotesToPush.length > 0) {
+            this._pushLocalToFirestore('notes', localNotesToPush, userId);
+          }
+        }
       }
 
       if (hasChanges) {
@@ -551,6 +594,7 @@ const FireSync = {
         mode: settings.mode || 'light',
         language: settings.language || 'pt-BR',
         categories: settings.categories || [],
+        notesCategories: settings.notesCategories || [],
         menuItems: settings.menuItems || [],
         menuOrder: settings.menuOrder || [],
         logo: settings.logo || '',

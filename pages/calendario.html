@@ -63,6 +63,26 @@
   </div>
 </div>
 
+<!-- MODAL: DETALHE DA ATIVIDADE (local — page.openModal renderizaria no
+     documento pai e os botões submitComment/page.closeModal nunca existiam
+     lá; por isso comentários e "Fechar" não faziam nada) -->
+<div class="modal-overlay hidden" id="taskViewModal" onclick="if(event.target===this)closeTaskModal()">
+  <div class="modal">
+    <div id="taskViewBody"></div>
+    <div class="comments-section" style="margin-top:14px">
+      <h3>💬 Comentários (<span id="taskViewCommentCount">0</span>)</h3>
+      <div class="comments-list" id="commentsList" style="max-height:240px;overflow-y:auto;margin-bottom:10px"></div>
+      <form class="comment-form" onsubmit="submitComment(event)">
+        <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
+        <button type="submit" class="btn btn-primary">Enviar</button>
+      </form>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeTaskModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
@@ -310,15 +330,16 @@ function quickAdd() {
   }, 500);
 }
 
-/* ========== Ver detalhes da atividade ========== */
+/* ========== Ver detalhes da atividade (modal LOCAL) ========== */
+let currentTaskViewId = null;
+
 function openTask(id) {
   const data = page.getDB();
-  const t = data.tasks.find(t => t.id === id);
+  const t = data.tasks.find(t => String(t.id) === String(id));
   if (!t) return;
-  const user = page.getUser();
-  const comments = core.getComments(id);
+  currentTaskViewId = t.id;
 
-  const modalHtml = `
+  document.getElementById('taskViewBody').innerHTML = `
     <h2>${page.esc(t.title)}</h2>
     <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap">
       <span class="badge ${t.status}">${page.t('status.'+t.status, t.status)}</span>
@@ -326,55 +347,28 @@ function openTask(id) {
       <span class="badge">${page.esc(t.category || 'Geral')}</span>
     </div>
     ${t.description ? `<p style="margin-bottom:12px;color:var(--text-secondary)">${page.esc(t.description)}</p>` : ''}
-    <div style="font-size:13px;color:var(--muted);margin-bottom:12px">
+    <div style="font-size:13px;color:var(--muted)">
       📅 ${core.formatDate(t.date)}
       ${t.recurrence && t.recurrence !== 'none' ? ` · 🔁 ${page.t('kanban.'+t.recurrence, t.recurrence)}` : ''}
     </div>
-    <div class="comments-section">
-      <h3>💬 ${page.t('comments.title', 'Comentários')} (${comments.length})</h3>
-      <div class="comments-list" id="commentsList" style="max-height:240px;overflow-y:auto;margin-bottom:10px">
-        ${comments.length === 0
-          ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
-          : comments.map(c => `
-            <div class="comment-item" data-cid="${c.id}">
-              <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
-              <div class="comment-body">
-                <div class="comment-header">
-                  <span class="comment-author">${page.esc(c.userName || 'Anônimo')}</span>
-                  <span class="comment-date">${core.formatDateTime(c.createdAt)}</span>
-                </div>
-                <div class="comment-text">${page.esc(c.text)}</div>
-              </div>
-            </div>
-          `).join('')
-        }
-      </div>
-      <form class="comment-form" onsubmit="submitComment(event,${t.id})">
-        <input type="text" id="commentInput" placeholder="${page.t('comments.placeholder', 'Escreva um comentário...')}" required>
-        <button type="submit" class="btn btn-primary">${page.t('comments.send', 'Enviar')}</button>
-      </form>
-    </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
-      <button class="btn btn-secondary" onclick="page.closeModal()">${page.t('common.close', 'Fechar')}</button>
-    </div>
   `;
-  page.openModal(modalHtml);
-  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+  renderTaskComments();
+  document.getElementById('taskViewModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 150);
 }
 
-function submitComment(e, taskId) {
-  e.preventDefault();
-  const input = document.getElementById('commentInput');
-  const text = input.value.trim();
-  if (!text) return;
-  const user = page.getUser();
-  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
-  if (c) {
-    input.value = '';
-    const list = document.getElementById('commentsList');
-    const empty = list.querySelector('.empty');
-    if (empty) empty.remove();
-    list.insertAdjacentHTML('beforeend', `
+function closeTaskModal() {
+  document.getElementById('taskViewModal').classList.add('hidden');
+  currentTaskViewId = null;
+}
+
+function renderTaskComments() {
+  const comments = core.getComments(currentTaskViewId);
+  document.getElementById('taskViewCommentCount').textContent = comments.length;
+  const list = document.getElementById('commentsList');
+  list.innerHTML = comments.length === 0
+    ? `<div class="empty"><p>${page.t('comments.empty', 'Nenhum comentário ainda')}</p></div>`
+    : comments.map(c => `
       <div class="comment-item" data-cid="${c.id}">
         <div class="comment-avatar">${(c.userName || '?')[0].toUpperCase()}</div>
         <div class="comment-body">
@@ -385,7 +379,21 @@ function submitComment(e, taskId) {
           <div class="comment-text">${page.esc(c.text)}</div>
         </div>
       </div>
-    `);
+    `).join('');
+}
+
+function submitComment(e) {
+  e.preventDefault();
+  if (!currentTaskViewId) return;
+  const input = document.getElementById('commentInput');
+  const text = input.value.trim();
+  if (!text) return;
+  const user = page.getUser();
+  const c = core.addComment(currentTaskViewId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  if (c) {
+    input.value = '';
+    renderTaskComments();
+    const list = document.getElementById('commentsList');
     list.scrollTop = list.scrollHeight;
   }
 }

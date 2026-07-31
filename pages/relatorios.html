@@ -95,6 +95,27 @@
 <script src="../js/page.js"></script>
 <script>
 (function() {
+  /* Chart.js vem de CDN; no APK ou offline a lib pode falhar. Envelopar cada
+     gráfico evita que um 'Chart is not defined' derrube TODA a página — com
+     a guarda, os números se calculam e só os gráficos ficam indisponíveis. */
+  const chartsAvailable = typeof Chart !== 'undefined';
+  function makeChart(canvas, config) {
+    if (!chartsAvailable) {
+      const host = canvas?.closest?.('.card') || canvas?.parentElement;
+      if (host && !host.querySelector('.chart-offline-note')) {
+        const note = document.createElement('p');
+        note.className = 'chart-offline-note';
+        note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:6px';
+        note.textContent = '📉 Gráfico indisponível offline (Chart.js não carregou). Os números acima seguem atualizados.';
+        host.appendChild(note);
+      }
+      if (canvas) canvas.style.display = 'none';
+      return null;
+    }
+    try { return new Chart(canvas, config); }
+    catch (err) { console.warn('chart:', err); return null; }
+  }
+
   const data = page.getDB();
   const tasks = data.tasks || [];
   const today = core.today();
@@ -186,7 +207,7 @@
   `;
 
   // ---------- CHART: PIZZA STATUS ----------
-  new Chart(document.getElementById('chartStatus'), {
+  makeChart(document.getElementById('chartStatus'), {
     type: 'doughnut',
     data: {
       labels: ['Pendentes', 'Analisando', 'Finalizadas', 'Não realizadas'],
@@ -244,7 +265,7 @@
   const catLabels = cats.filter(c => catData[c] > 0);
   const catValues = catLabels.map(c => catData[c]);
 
-  new Chart(document.getElementById('chartCategory'), {
+  makeChart(document.getElementById('chartCategory'), {
     type: 'bar',
     data: {
       labels: catLabels,
@@ -294,7 +315,7 @@
     weekPendingData.push(dayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length);
   }
 
-  new Chart(document.getElementById('chartWeekly'), {
+  makeChart(document.getElementById('chartWeekly'), {
     type: 'line',
     data: {
       labels: weekDays,
@@ -385,7 +406,7 @@
   document.getElementById('avgTime').innerHTML = timeHtml || '<div class="empty"><p>Sem dados de conclusão</p></div>';
 
   if (timeLabels.length > 0) {
-    new Chart(document.getElementById('chartTime'), {
+    makeChart(document.getElementById('chartTime'), {
       type: 'bar',
       data: {
         labels: timeLabels,
@@ -429,7 +450,7 @@
     if (prioCount[t.priority] !== undefined) prioCount[t.priority]++;
   });
 
-  new Chart(document.getElementById('chartPriorityDonut'), {
+  makeChart(document.getElementById('chartPriorityDonut'), {
     type: 'doughnut',
     data: {
       labels: ['Urgente 🚨', 'Alta 🔴', 'Média 🟡', 'Baixa 🟢'],
@@ -472,7 +493,7 @@
   });
 
   if (compRateLabels.length > 0) {
-    new Chart(document.getElementById('chartCompletionRate'), {
+    makeChart(document.getElementById('chartCompletionRate'), {
       type: 'bar',
       data: {
         labels: compRateLabels,
@@ -516,7 +537,7 @@
     monthFinished.push(mTasks.filter(t => t.status === 'finished').length);
   }
 
-  new Chart(document.getElementById('chartMonthly'), {
+  makeChart(document.getElementById('chartMonthly'), {
     type: 'bar',
     data: {
       labels: monthLabels,
