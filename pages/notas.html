@@ -797,5 +797,39 @@ if (document.readyState === 'loading') {
   boot();
 }
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'notas',
+  title: 'Notas & Recados',
+  intro: 'Recadinhos e lembretes pessoais, fora das atividades do checklist. A data e a hora da nota são o horário do aviso: quando chega, o app dispara o lembrete.',
+  sections: [
+    { icon: '⏳', title: 'Abas "Vão vir / Atuais" e "Já passadas"', body: 'Ao entrar, você vê as notas que ainda vão acontecer ou são de hoje. Na aba "Já passadas" ficam as vencidas — pendentes (não feitas) e feitas.' },
+    { icon: '⏰', title: 'Data e hora = hora do aviso', body: 'A nota é um lembrete: no dia e horário marcados o app avisa (alerta do navegador e central de notificações).' },
+    { icon: '✅', title: 'Marcar como feita', body: 'Cada nota tem o botão de marcar como feita. Se a data passar e a nota não for feita, ela fica como "pendente" (vermelha).' },
+    { icon: '🗑️', title: 'Exclusão só manual', body: 'As notas nunca são apagadas automaticamente — só se você (ou um admin) excluir manualmente.' },
+    { icon: '🖼️', title: 'Imagem e categoria', body: 'Dá para colocar imagem (galeria, upload .webp ou URL) e categorias próprias dos recadinhos.' },
+  ],
+  tips: [
+    'Deixe um horário preenchido para a nota virar lembrete e tocar na hora certa.',
+    'Use a aba "Já passadas" para revisar o que ficou pendente e concluir as pendências.',
+    'Use a visão de calendário para ver seus lembretes ao longo do mês.',
+    'Marque como feita assim que concluir — a nota fica verde e sai da lista de pendentes.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como funciona o lembrete da nota?',
+    'O que significa uma nota "pendente"?',
+    'Como organizo minhas notas?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ns = d.notes || [];
+    return `Hoje: ${today} · Total de notas: ${ns.length} · A vir/hoje: ${ns.filter(n => !n.date || n.date >= today).length} · Já passadas: ${ns.filter(n => n.date && n.date < today).length} · Pendentes: ${ns.filter(n => n.date && n.date < today && !n.done).length} · Feitas: ${ns.filter(n => n.done).length}`;
+  },
+});
+</script>
 </body>
 </html>

@@ -462,5 +462,38 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'kanban',
+  title: 'Kanban',
+  intro: 'O quadro Kanban organiza as mesmas atividades do checklist em colunas por status. Você vê o fluxo de trabalho e move os cartões com arrastar e soltar.',
+  sections: [
+    { icon: '📋', title: 'Colunas por status', body: 'Cada coluna é um status (pendente, em análise, finalizada etc.). Os cartões mostram as atividades daquele status.' },
+    { icon: '🖱️', title: 'Arrastar e soltar', body: 'Segure um cartão e solte em outra coluna para mudar o status da atividade. O movimento é salvo e sincronizado.' },
+    { icon: '➕', title: 'Criar cartão', body: 'O botão "＋" no rodapé de cada coluna abre o formulário de nova atividade já com aquele status.' },
+    { icon: '💬🔗', title: 'Comentários e compartilhar', body: 'Cada cartão tem botões de comentários e de compartilhamento, como na página Atividades.' },
+  ],
+  tips: [
+    'Arraste cartões em vez de abrir e editar: muito mais rápido para movimentar várias tarefas.',
+    'Use o quadro para o planejamento visual do turno e a página Atividades para ver listas e filtros.',
+    'Cartões atrasados ficam destacados — mova-os para frente do fluxo.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como movo um cartão de coluna?',
+    'Qual a diferença para a página Atividades?',
+    'Como organizar melhor meu quadro?',
+  ],
+  context: () => {
+    const d = page.getDB();
+    const ts = d.tasks || [];
+    const by = (s) => ts.filter(t => t.status === s).length;
+    return `Total: ${ts.length} · Pendentes: ${by('pending')} · Em análise: ${by('analyzing')} · Finalizadas: ${by('finished')} · Não realizadas: ${by('notdone')}`;
+  },
+});
+</script>
 </body>
 </html>

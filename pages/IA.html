@@ -368,5 +368,36 @@ function renderHistory() {
   `).join('');
 }
 </script>
+
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'IA',
+  title: 'IA Assistente',
+  intro: 'A página central da IA do app: você pergunta, a IA responde com base nas suas atividades, testa a conexão e mostra o histórico de consultas.',
+  sections: [
+    { icon: '💬', title: 'Perguntar', body: 'Escreva a pergunta e clique em "✨ Consultar IA". A IA analisa suas atividades (pendentes, atrasadas, de hoje) e responde com prioridades e sugestões.' },
+    { icon: '🚀', title: 'Perguntas rápidas', body: 'Botões prontos: urgentes, resumo do dia, sugerir ordem e atrasadas.' },
+    { icon: '🔌', title: 'Testar conexão', body: 'Diagnostica a chave, o provedor (DeepSeek/Groq), as regras do Firestore e cada canal (proxy próprio, direto, proxies públicos).' },
+    { icon: '📜', title: 'Histórico', body: 'As últimas consultas ficam salvas no seu navegador para consultar depois.' },
+  ],
+  tips: [
+    'Se a IA não responder, clique em "Testar conexão" — ele mostra exatamente onde está travando.',
+    'A solução definitiva para CORS é o proxy próprio (proxy/cloudflare-worker.js) configurado em Administração → API / IA.',
+    'Pergunte de forma específica: "quais atividades atrasadas têm prioridade alta?" rende mais que "me ajude".',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como configuro a IA?',
+    'O que significa cada status do teste de conexão?',
+    'Como faço a IA funcionar no celular?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ts = d.tasks || [];
+    return `Hoje: ${today} · Pendentes: ${ts.filter(t => t.status === 'pending').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · De hoje: ${ts.filter(t => t.date === today).length}`;
+  },
+});
+</script>
 </body>
 </html>

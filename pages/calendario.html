@@ -404,5 +404,36 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'calendario',
+  title: 'Calendário',
+  intro: 'Visão mensal e semanal das suas atividades, direto no calendário. Clique em um dia para ver o que tem nele e criar atividades rapidamente.',
+  sections: [
+    { icon: '📅', title: 'Visão Mês / Semana', body: 'Use os botões no topo para alternar entre mês e semana, e ◀ ▶ para navegar. "Hoje" volta para a data atual.' },
+    { icon: '🖱️', title: 'Clicar no dia', body: 'Clique em um dia para abrir o painel com as atividades daquela data e criar uma nova atividade para aquele dia.' },
+    { icon: '🟢', title: 'Cores por status', body: 'As atividades aparecem coloridas conforme o status (pendente, em análise, finalizada, atrasada) para leitura rápida.' },
+    { icon: '➕', title: 'Nova atividade', body: 'O botão "＋ Nova atividade" abre o formulário já com a data selecionada.' },
+  ],
+  tips: [
+    'Use o calendário para planejar a semana e evitar acúmulo de tarefas no mesmo dia.',
+    'Dias com muitas atividades ficam visualmente cheios — distribua a carga.',
+    'Tudo que você cria aqui aparece nas páginas Atividades, Kanban e Dashboard (mesmo banco).',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como criar uma atividade em um dia específico?',
+    'Como ver minha semana de trabalho?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ts = d.tasks || [];
+    return `Hoje: ${today} · Atividades de hoje: ${ts.filter(t => t.date === today).length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length}`;
+  },
+});
+</script>
 </body>
 </html>

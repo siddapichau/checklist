@@ -701,5 +701,39 @@ if (document.readyState === 'loading') {
 }
 </script>
 <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'atividades',
+  title: 'Atividades',
+  intro: 'É o coração do checklist: aqui você cria, acompanha e finaliza as atividades do dia a dia (tarefas, auditorias, rondas, pendências).',
+  sections: [
+    { icon: '➕', title: 'Criar atividade', body: 'Clique em "＋ Nova atividade", preencha título, categoria, prioridade, data, horário de alerta e recorrência se quiser que se repita.' },
+    { icon: '🔄', title: 'Status (avançar) ', body: 'O botão circular na linha avança o status: pendente → em análise → finalizada. O mesmo botão pode marcar como não realizada.' },
+    { icon: '⏰', title: 'Alertas no horário', body: 'Se você definir horário de alerta, o app dispara um lembrete no navegador na data/hora marcada.' },
+    { icon: '🔗💬', title: 'Compartilhar e comentar', body: 'Cada atividade tem botões de compartilhar (link, WhatsApp, e-mail, QR Code) e de comentários, para a equipe colaborar.' },
+    { icon: '🔎', title: 'Busca e filtros', body: 'Use a busca por título, o filtro de status e o filtro de categoria para enxergar só o que importa.' },
+  ],
+  tips: [
+    'Priorize vermelhas/atrasadas primeiro: o filtro de status "atrasadas" mostra exatamente elas.',
+    'Atividades recorrentes economizam tempo: configure recorrência ao criar.',
+    'Use comentários para deixar histórico do que já foi feito em cada atividade.',
+    'Defina horário de alerta nas tarefas críticas para não esquecer.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como criar uma atividade recorrente?',
+    'O que significa cada status?',
+    'Como priorizar as atividades atrasadas?',
+  ],
+  context: () => {
+    const d = page.getDB(); const today = core.today();
+    const ts = d.tasks || [];
+    return `Hoje: ${today} · Total: ${ts.length} · Pendentes: ${ts.filter(t => t.status === 'pending').length} · Em análise: ${ts.filter(t => t.status === 'analyzing').length} · Finalizadas: ${ts.filter(t => t.status === 'finished').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length}`;
+  },
+});
+</script>
 </body>
 </html>

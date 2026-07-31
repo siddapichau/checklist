@@ -1368,5 +1368,37 @@ async function syncToFirebase() {
   btn.textContent = '🔄 Sincronizar agora';
 }
 </script>
+
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'admin',
+  title: 'Painel Admin',
+  intro: 'Controle total do sistema para administradores: usuários, menu, notícias, arquivos, categorias, notas, chave da IA, backup e logs.',
+  sections: [
+    { icon: '🎨', title: 'Aparência', body: 'Logo, nome do app, tema padrão e modo padrão (vale para quem nunca escolheu o próprio tema).' },
+    { icon: '👥', title: 'Usuários', body: 'Ver usuários, promover a admin/editor, banir e gerenciar acesso.' },
+    { icon: '📋📰📁🏷️', title: 'Menu, Notícias, Arquivos e Categorias', body: 'Editar o menu lateral, publicar notícias, gerenciar arquivos e as categorias usadas nas atividades.' },
+    { icon: '📝', title: 'Notas', body: 'Categorias dos recadinhos, estatísticas e remoção manual de qualquer nota. As notas nunca são apagadas automaticamente.' },
+    { icon: '🔑', title: 'API / IA', body: 'Chave da IA (DeepSeek/Groq), modo de conexão e URL do proxy. Também tem teste de conexão com diagnóstico completo.' },
+    { icon: '💾📜', title: 'Backup e Logs', body: 'Exportar/importar o banco completo e acompanhar o histórico de ações do sistema.' },
+  ],
+  tips: [
+    'Depois de publicar o firestore.rules no Console do Firebase, use "Sincronizar agora" para propagar.',
+    'A chave da IA configurada aqui vale para todos — por isso a leitura de settings/admin foi liberada para logados.',
+    'Use o backup antes de mudanças grandes: exporte o JSON e guarde em local seguro.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como configuro a IA para todos?',
+    'Como promovo um usuário a admin?',
+    'Como faço backup dos dados?',
+  ],
+  context: () => {
+    const d = page.getDB();
+    return `Usuários: ${(d.users || []).length} · Atividades: ${(d.tasks || []).length} · Notas: ${(d.notes || []).length} · Macros: ${(d.macros || []).length} · Arquivos: ${(d.files || []).length} · Provedor IA: ${(d.settings || {}).aiProvider || 'deepseek'}`;
+  },
+});
+</script>
 </body>
 </html>

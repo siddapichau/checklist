@@ -274,5 +274,35 @@ function render() {
   }).join('');
 }
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'arquivos',
+  title: 'Arquivos e recursos',
+  intro: 'Biblioteca de arquivos e links da operação: documentos, planilhas, vídeos, manuais e links úteis, organizados por categoria com busca.',
+  sections: [
+    { icon: '📁', title: 'Lista de arquivos', body: 'Cards com o nome, categoria e tipo. Clique no card para abrir o arquivo ou link em nova aba.' },
+    { icon: '➕', title: 'Adicionar arquivo', body: 'O botão "＋ Adicionar arquivo" abre o formulário com nome, categoria, tipo e URL/upload. Disponibilidade depende do perfil (admin/editor).' },
+    { icon: '🔎', title: 'Busca e filtros', body: 'Busque pelo nome e filtre por categoria para achar o material rápido.' },
+  ],
+  tips: [
+    'Mantenha os manuais e procedimentos atualizados aqui — é a fonte oficial da operação.',
+    'Use categorias consistentes para o time encontrar os arquivos sem procurar.',
+    'Links para vídeos e planilhas entram como "arquivos" também.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como adiciono um arquivo?',
+    'Quem pode adicionar arquivos?',
+  ],
+  context: () => {
+    const d = page.getDB();
+    const fs = d.files || [];
+    return `Total de arquivos: ${fs.length} · Por categoria: ${Object.entries(fs.reduce((a, f) => (a[f.category || 'Geral'] = (a[f.category || 'Geral'] || 0) + 1, a), {})).map(([k, v]) => `${k}: ${v}`).join(', ')}`;
+  },
+});
+</script>
 </body>
 </html>

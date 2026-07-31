@@ -530,5 +530,38 @@ function stripHtml(html) {
   return tmp.textContent || '';
 }
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'macros',
+  title: 'Macros',
+  intro: 'Modelos de mensagem prontos para copiar com 1 clique. Você cria o texto, usa variáveis ({{nome}}, {{data}}…), campos c1 a c10 e até modelos de e-mail que abrem o Gmail preenchido.',
+  sections: [
+    { icon: '📄', title: 'Tipos: Mensagem ou E-mail', body: 'Ao criar, escolha o tipo. No tipo E-mail aparecem os campos de destinatários e assunto, e o botão "Mandar e-mail" abre o Gmail já preenchido.' },
+    { icon: '⚙️', title: 'Campos c1–c10', body: 'Cada macro tem 10 campos (c1 a c10). Escreva {c1}, {c2} … {c10} no texto; ao usar a macro, preencha os campos e a informação entra no texto final.' },
+    { icon: '{{}}', title: 'Variáveis dinâmicas', body: 'Use {{nome}}, {{cliente}}, {{data}}, {{hora}}, {{usuario}} e {{saudação}} — preenchidas automaticamente na hora de usar.' },
+    { icon: '📋', title: 'Copiar', body: 'Ao usar a macro, copie como texto puro ou com formatação. Para e-mail, o corpo é copiado automaticamente para colar com Ctrl+V no Gmail.' },
+  ],
+  tips: [
+    'Campos c1–c10 evitam reescrever: troque nomes, números e pedidos por {c1}, {c2}…',
+    'No tipo E-mail, defina os destinatários uma vez na macro — na hora de enviar é só conferir.',
+    'Gatilhos (/boasvindas) ajudam a achar a macro rápido pela busca.',
+    'Use {{saudação}} para cumprimentar conforme o horário automaticamente.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como usar os campos c1 a c10?',
+    'Como mando uma macro por e-mail?',
+    'Como criar uma macro rápida?',
+  ],
+  context: () => {
+    const d = page.getDB();
+    const ms = d.macros || [];
+    return `Total de macros: ${ms.length} · De e-mail: ${ms.filter(m => m.type === 'email').length} · Mais usadas: ${[...ms].sort((a, b) => (b.uses || 0) - (a.uses || 0)).slice(0, 3).map(m => m.title).join(', ') || 'nenhuma'}`;
+  },
+});
+</script>
 </body>
 </html>

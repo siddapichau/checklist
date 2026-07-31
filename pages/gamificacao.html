@@ -520,5 +520,37 @@ window.addEventListener('message', (e) => {
   }
 });
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'gamificacao',
+  title: 'Conquistas & Ranking',
+  intro: 'A gamificação premia o bom desempenho: você ganha pontos ao concluir atividades, desbloqueia conquistas (badges) e sobe no ranking da equipe.',
+  sections: [
+    { icon: '🏅', title: 'Conquistas (badges)', body: 'Abas de conquistas mostram as medalhas desbloqueadas e as que faltam, com o progresso de cada uma.' },
+    { icon: '📊', title: 'Ranking', body: 'Ranking semanal e ranking geral da equipe, com pódio e tabela de pontos.' },
+    { icon: '🔥', title: 'Sequência (streak)', body: 'Completar atividades todos os dias aumenta sua sequência e o multiplicador de pontos.' },
+    { icon: '📋', title: 'Regras', body: 'A aba Regras explica exatamente quantos pontos cada ação vale (concluir, prioridade alta/urgente, recorrente etc.).' },
+  ],
+  tips: [
+    'Priorize atividades de alta prioridade: valem pontos extras.',
+    'Mantenha a sequência diária: complete pelo menos uma atividade por dia.',
+    'Concluir antes do prazo desbloqueia conquistas especiais.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como ganho mais pontos?',
+    'O que é a sequência diária?',
+    'Como subo no ranking?',
+  ],
+  context: () => {
+    const d = page.getDB(); const u = page.getUser() || {};
+    const g = (d.gamification || {})[u.id || u.uid];
+    return g ? `Pontos: ${g.points || 0} · Sequência: ${g.streak || 0} dias · Conquistas: ${(g.badges || []).length}` : 'Sem dados de gamificação ainda.';
+  },
+});
+</script>
 </body>
 </html>

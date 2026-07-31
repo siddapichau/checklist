@@ -419,5 +419,30 @@ async function changePassword(e) {
   document.getElementById('confirmPass').value = '';
 }
 </script>
+
+<script src="../js/ai.js"></script>
+<script src="../js/help-ai.js"></script>
+<script>
+PageHelpAI.mount({
+  pageId: 'perfil',
+  title: 'Meu Perfil',
+  intro: 'Seus dados pessoais e da conta: nome, avatar, e-mail e senha. As preferências de tema ficam na página Personalizar.',
+  sections: [
+    { icon: '👤', title: 'Dados pessoais', body: 'Edite seu nome de exibição e informações básicas — aparecem no ranking, comentários e notificações.' },
+    { icon: '🖼️', title: 'Avatar', body: 'Escolha um avatar entre as opções, envie uma foto ou use a foto do Google.' },
+    { icon: '🔒', title: 'Senha e segurança', body: 'Troque a senha ou solicite o link de redefinição por e-mail.' },
+  ],
+  tips: [
+    'Use um nome claro para o time reconhecê-lo no ranking e nos comentários.',
+    'Mantenha o e-mail correto — é para ele que vão os links de recuperação de senha.',
+    'Tema, idioma e modo claro/escuro ficam em Personalizar, não aqui.',
+  ],
+  quickQuestions: [
+    'Como funciona esta página?',
+    'Como troco minha senha?',
+    'Como mudo meu avatar?',
+  ],
+});
+</script>
 </body>
 </html>
