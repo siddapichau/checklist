@@ -44,14 +44,18 @@
         <option value="es">🇪🇸 Español</option>
       </select>
     </label>
-    <label><span>Tema</span>
+    <label><span>Tema padrão (novos usuários)</span>
       <select id="setTheme">
         <option value="ocean">🌊 Ocean Blue (profissional)</option>
         <option value="mercado">💛 Mercado Livre (amarelo/azul)</option>
         <option value="forest">🌲 Forest (verde/esmeralda)</option>
       </select>
+      <small style="display:block;color:var(--muted);font-weight:500;margin-top:4px">
+        Cada usuário escolhe o próprio tema em <b>Personalizar</b>. Aqui você define
+        apenas o padrão de quem ainda não escolheu — não força o tema de ninguém.
+      </small>
     </label>
-    <label><span>Modo</span>
+    <label><span>Modo padrão (novos usuários)</span>
       <select id="setMode">
         <option value="light">☀️ Claro</option>
         <option value="dark">🌙 Escuro</option>
@@ -344,8 +348,9 @@ let data = page.getDB();
 
 // Inicializar campos
 document.getElementById('setBrand').value = data.settings.brand;
-document.getElementById('setTheme').value = data.settings.theme;
-document.getElementById('setMode').value = data.settings.mode;
+// Mostra o PADRÃO configurado (não o tema pessoal do admin).
+document.getElementById('setTheme').value = data.settings.defaultTheme || data.settings.theme || 'ocean';
+document.getElementById('setMode').value = data.settings.defaultMode || data.settings.mode || 'light';
 document.getElementById('setLanguage').value = data.settings.language || 'pt-BR';
 document.getElementById('setLogo').value = data.settings.logo || '';
 document.getElementById('setFavicon').value = data.settings.favicon || '';
@@ -386,8 +391,13 @@ function switchTab(id, btn) {
 /* ========== APARÊNCIA ========== */
 function saveAppearance() {
   data.settings.brand = document.getElementById('setBrand').value.trim();
-  data.settings.theme = document.getElementById('setTheme').value;
-  data.settings.mode = document.getElementById('setMode').value;
+  const chosenTheme = document.getElementById('setTheme').value;
+  const chosenMode = document.getElementById('setMode').value;
+  // Estes campos definem o PADRÃO para novos usuários (não forçam ninguém).
+  data.settings.theme = chosenTheme;   // enviado ao doc global (vira defaultTheme)
+  data.settings.mode = chosenMode;
+  data.settings.defaultTheme = chosenTheme;
+  data.settings.defaultMode = chosenMode;
   data.settings.language = document.getElementById('setLanguage').value;
   data.settings.logo = document.getElementById('setLogo').value.trim();
   data.settings.favicon = document.getElementById('setFavicon').value.trim();

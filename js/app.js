@@ -40,7 +40,6 @@ const App = {
 
     core.initAutoTheme();
     await core.tReady(this.settings.language);
-    this.applyTheme(this.settings.theme, this.settings.mode);
 
     // Verificar se há usuário logado (session + remember)
     this.currentUser = core.getCurrentUser();
@@ -48,6 +47,10 @@ const App = {
       this.currentUser = core.getRememberedUser();
       if (this.currentUser) core.setCurrentUser(this.currentUser);
     }
+
+    // Tema é preferência POR USUÁRIO: cada um vê o tema que escolheu.
+    // Na primeira vez, segue o sistema (claro/escuro) e o padrão do admin.
+    this.applyUserTheme();
     if (this.currentUser) {
       try { core.updateStreak(this.currentUser.id || this.currentUser.uid); } catch(e) {}
     }
@@ -115,7 +118,9 @@ const App = {
       if (type === 'tasks') this.renderSidebar();
       if (type === 'settings') {
         this.settings = core.getLocalDB().settings;
-        this.applyTheme(this.settings.theme, this.settings.mode);
+        // NÃO trocar o tema do usuário quando o admin altera as configurações
+        // globais: o tema é preferência pessoal (resolvido por usuário).
+        this.applyUserTheme();
         this.renderSidebar();
         this.updateLangMenuActive();
       }
@@ -886,6 +891,13 @@ const App = {
     core.setCurrentUser(this.currentUser);
     if (remember) core.setRememberedUser(this.currentUser);
 
+    // Preferência de tema por usuário: se o perfil traz tema/modo salvos,
+    // adota como a escolha local desta conta; senão resolve (padrão/sistema).
+    if (profile && profile.theme) {
+      core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
+    }
+    this.applyUserTheme();
+
     try { core.getUserStats(this.currentUser.id); } catch(e) {}
     try { core.log('login', this.currentUser.id, 'Login Firebase'); } catch(e) {}
 
@@ -1019,6 +1031,11 @@ const App = {
             provider: profile.provider || 'google.com'
           };
           core.setCurrentUser(this.currentUser);
+          // Tema por usuário: adota tema/modo do perfil, se existir.
+          if (profile && profile.theme) {
+            core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
+          }
+          this.applyUserTheme();
           try { core.getUserStats(this.currentUser.id); } catch(e) {}
           this.showApp();
           // Sync já será iniciado pelo onAuthStateChanged ou init
@@ -1458,7 +1475,13 @@ const App = {
     if (btnTheme) btnTheme.textContent = this.getThemeIcon();
   },
 
-  /* ========== TEMA ========== */
+  /* ========== TEMA (preferência por usuário) ========== */
+  // Resolve e aplica o tema do usuário atual (ou o padrão na primeira vez).
+  applyUserTheme() {
+    const resolved = core.resolveTheme(this.currentUser);
+    this.applyTheme(resolved.theme, resolved.mode);
+  },
+
   applyTheme(theme, mode, sync = false) {
     if (!theme) return;
     document.documentElement.dataset.theme = theme || 'ocean';
@@ -1492,8 +1515,12 @@ const App = {
     data2.settings.mode = mode;
     core.saveLocalDB(data2);
 
-    if (sync && this.currentUser && !this.currentUser.id.includes('local-')) {
-      fireSync.pushDocument('users', this.currentUser.id, { theme, mode });
+    // Guarda a escolha POR USUÁRIO (para manter na próxima vez, por conta).
+    const uid = this.currentUser && (this.currentUser.id || this.currentUser.uid);
+    if (uid) core.setUserThemePref(uid, theme, mode);
+
+    if (sync && uid && !String(uid).includes('local-')) {
+      fireSync.pushDocument('users', uid, { theme, mode });
     }
 
     const btn = document.getElementById('btnTheme');
@@ -1945,7 +1972,8 @@ const App = {
         this.renderNotifications();
         break;
       case 'themeChanged':
-        this.applyTheme(msg.theme, msg.mode);
+        // Escolha feita pelo usuário (Personalizar/Admin): salva e sincroniza.
+        this.applyTheme(msg.theme, msg.mode, true);
         break;
       case 'languageChanged':
         this.settings.language = msg.lang;

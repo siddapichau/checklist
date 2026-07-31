@@ -452,6 +452,57 @@ const Core = {
     });
   },
 
+  /* ---------- PREFERÊNCIA DE TEMA POR USUÁRIO ----------
+     Cada usuário escolhe o seu tema/modo. A escolha fica salva por conta
+     (localStorage por uid + campo no perfil do Firestore para sincronizar
+     entre dispositivos). Na primeira vez, sem nenhuma escolha, o modo segue
+     o sistema operacional (claro/escuro) e o tema usa o padrão do admin. */
+  _themePrefKey(uid) { return 'cl-theme-pref:' + (uid || 'guest'); },
+
+  getUserThemePref(uid) {
+    try {
+      const raw = localStorage.getItem(this._themePrefKey(uid));
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && parsed.theme ? parsed : null;
+    } catch { return null; }
+  },
+
+  setUserThemePref(uid, theme, mode) {
+    try {
+      localStorage.setItem(this._themePrefKey(uid), JSON.stringify({ theme, mode }));
+    } catch (e) {}
+  },
+
+  systemPrefersDark() {
+    try {
+      return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    } catch { return false; }
+  },
+
+  /* Resolve o tema efetivo para um usuário, na ordem:
+     1) preferência salva localmente (por uid)
+     2) tema/modo gravado no perfil do usuário (sincronizado)
+     3) primeira vez: modo 'auto' (segue o sistema) + tema padrão do admin */
+  resolveTheme(user) {
+    const uid = user && (user.id || user.uid) || null;
+    const data = this.getLocalDB();
+    const s = data.settings || {};
+
+    const pref = uid ? this.getUserThemePref(uid) : null;
+    if (pref) return { theme: pref.theme, mode: pref.mode || 'auto', firstTime: false };
+
+    const profile = uid
+      ? (data.users || []).find(u => (u.id || u.uid) === uid)
+      : null;
+    if (profile && profile.theme) {
+      return { theme: profile.theme, mode: profile.mode || 'auto', firstTime: false };
+    }
+
+    // Primeira vez: segue o sistema (auto) e usa o tema padrão do admin.
+    const theme = s.defaultTheme || s.theme || 'ocean';
+    return { theme, mode: 'auto', firstTime: true };
+  },
+
   /* ---------- DARK MODE AUTOMÁTICO (prefers-color-scheme) ---------- */
   _mediaQuery: null,
   _mediaListener: null,

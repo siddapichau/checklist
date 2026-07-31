@@ -90,7 +90,7 @@ service cloud.firestore {
       return request.resource.data.diff(resource.data).affectedKeys()
              .hasOnly(['username','name','lastName','phone','address',
                        'avatar','avatarType','googlePhoto','language',
-                       'theme','provider'])
+                       'theme','mode','provider','updatedAt'])
              // não pode mudar role ou banned
              && request.resource.data.role == resource.data.role
              && request.resource.data.banned == resource.data.banned;
