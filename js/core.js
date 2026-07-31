@@ -328,11 +328,21 @@ const Core = {
   log(action, userId, details = '') {
     try {
       const data = this.getLocalDB();
-      data.logs.unshift({
+      const newLog = {
         id: this.genId(), action, userId, details, timestamp: this.now()
-      });
+      };
+      data.logs.unshift(newLog);
       if (data.logs.length > 500) data.logs = data.logs.slice(0, 500);
       this.saveLocalDB(data);
+      
+      // Sincronizar log com Firestore (opcional, mas solicitado pelo usuário "tudo no DB")
+      if (!userId?.includes('local-')) {
+        if (typeof page !== 'undefined' && page.syncDocument) {
+          page.syncDocument('logs', newLog.id, newLog);
+        } else if (window.fireSync && window.fireSync.pushDocument) {
+          window.fireSync.pushDocument('logs', newLog.id, newLog);
+        }
+      }
     } catch (e) { console.warn('log error:', e); }
   },
 
@@ -504,9 +514,18 @@ const Core = {
       // Criar
       theme.id = 'ct-' + this.genId();
       theme.createdAt = this.now();
+      theme.createdBy = this.getCurrentUser()?.id || this.getCurrentUser()?.uid || 'unknown';
       data.customThemes.push(theme);
     }
     this.saveLocalDB(data);
+    
+    // Sync Custom Theme
+    if (typeof page !== 'undefined' && page.syncDocument) {
+      page.syncDocument('customThemes', theme.id, theme);
+    } else if (window.fireSync && window.fireSync.pushDocument) {
+      window.fireSync.pushDocument('customThemes', theme.id, theme);
+    }
+
     return theme;
   },
 
@@ -514,6 +533,13 @@ const Core = {
     const data = this.getLocalDB();
     data.customThemes = (data.customThemes || []).filter(t => t.id !== id);
     this.saveLocalDB(data);
+
+    // Sync Remoção
+    if (typeof page !== 'undefined' && page.deleteDocument) {
+      page.deleteDocument('customThemes', id);
+    } else if (window.fireSync && window.fireSync.deleteDocument) {
+      window.fireSync.deleteDocument('customThemes', id);
+    }
   },
 
   applyCustomTheme(themeId) {
@@ -676,6 +702,16 @@ const Core = {
 
     data.gamification[userId] = stats;
     this.saveLocalDB(data);
+
+    // Sync Gamificação
+    if (!userId.includes('local-')) {
+      if (typeof page !== 'undefined' && page.syncGamification) {
+        page.syncGamification(userId, stats);
+      } else if (window.fireSync && window.fireSync.pushGamification) {
+        window.fireSync.pushGamification(userId, stats);
+      }
+    }
+
     return { points, total: stats.points, newBadges: stats.badges.slice(-3) };
   },
 
@@ -771,6 +807,15 @@ const Core = {
     };
     data.comments[taskId].push(c);
     this.saveLocalDB(data);
+
+    // Sync Comentário (flat collection em Firestore)
+    const cForSync = { ...c, taskId };
+    if (typeof page !== 'undefined' && page.syncDocument) {
+      page.syncDocument('comments', c.id, cForSync);
+    } else if (window.fireSync && window.fireSync.pushDocument) {
+      window.fireSync.pushDocument('comments', c.id, cForSync);
+    }
+
     return c;
   },
 
@@ -779,6 +824,13 @@ const Core = {
     if (data.comments && data.comments[taskId]) {
       data.comments[taskId] = data.comments[taskId].filter(c => c.id !== commentId);
       this.saveLocalDB(data);
+      
+      // Sync Remoção
+      if (typeof page !== 'undefined' && page.deleteDocument) {
+        page.deleteDocument('comments', commentId);
+      } else if (window.fireSync && window.fireSync.deleteDocument) {
+        window.fireSync.deleteDocument('comments', commentId);
+      }
     }
   },
 
@@ -792,6 +844,13 @@ const Core = {
     const data = this.getLocalDB();
     data.automations = autos;
     this.saveLocalDB(data);
+    
+    // Sync Automations (global/admin settings no Firestore)
+    if (typeof page !== 'undefined' && page.syncDocument) {
+      autos.forEach(a => page.syncDocument('automations', a.id, a));
+    } else if (window.fireSync && window.fireSync.pushDocument) {
+      autos.forEach(a => window.fireSync.pushDocument('automations', a.id, a));
+    }
   },
 
   /**
@@ -973,6 +1032,16 @@ const Core = {
     const data = this.getLocalDB();
     data.dashboardWidgets = widgets;
     this.saveLocalDB(data);
+
+    // Sync Widgets (por usuário)
+    const userId = this.getCurrentUser()?.id || this.getCurrentUser()?.uid;
+    if (userId && !userId.includes('local-')) {
+      if (typeof page !== 'undefined' && page.syncWidgets) {
+        page.syncWidgets(userId, widgets);
+      } else if (window.fireSync && window.fireSync.pushDashboardWidgets) {
+        window.fireSync.pushDashboardWidgets(userId, widgets);
+      }
+    }
   },
 
   /* ---------- MODE FOCO / POMODORO STATE ---------- */

@@ -946,12 +946,11 @@ async function saveAPI() {
   const provider = document.getElementById('setAIProvider');
   const proxyInput = document.getElementById('setAIProxy');
   const key = input.value.trim();
+  const groqKey = groqInput.value.trim();
   const proxyUrl = (proxyInput?.value || '').trim().replace(/\/+$/, '');
 
-  // A URL do proxy pode ser salva sozinha (a chave já pode estar no banco).
   const current = await page.getAdminConfig().catch(() => ({}));
-  const groqKey = groqInput.value.trim();
-  if (!key && !groqKey && !current.hasDeepseekKey && !current.hasGroqKey) {
+  if (!key && !groqKey && !current.hasDeepseekKey && !current.hasGroqKey && !proxyUrl) {
     return page.toast('Digite uma API Key do DeepSeek ou Groq antes de salvar.', 'warning');
   }
   if (proxyUrl && !/^https:\/\/[^\s]+$/i.test(proxyUrl)) {
@@ -962,11 +961,23 @@ async function saveAPI() {
   button.disabled = true;
   button.textContent = '⏳ Salvando…';
   try {
-    const payload = { aiMode: document.getElementById('setAIMode')?.value || 'auto', aiProxyUrl: proxyUrl, aiProvider: provider?.value || 'deepseek' };
+    const payload = { 
+      aiMode: document.getElementById('setAIMode')?.value || 'auto', 
+      aiProxyUrl: proxyUrl, 
+      aiProvider: provider?.value || 'deepseek' 
+    };
     if (key) payload.deepseekKey = key;
     if (groqKey) payload.groqKey = groqKey;
+    
     await page.saveAdminConfig(payload);
-    input.value = ''; groqInput.value = ''; // não manter os segredos no DOM depois de salvo
+    
+    // Atualizar settings locais também para refletir o provedor
+    const data = page.getDB();
+    data.settings.aiProvider = payload.aiProvider;
+    page.saveDB(data);
+    page.syncSettings(data.settings);
+
+    input.value = ''; groqInput.value = ''; 
     core.log('api_update', user.id, 'Config da IA salva no Firestore');
     page.toast('Configuração da IA salva com segurança! 🔐', 'success');
     await loadAPIStatus();
@@ -1000,14 +1011,22 @@ async function testAIConnection() {
   const draw = rows => { out.innerHTML = rows.map(r => row(r.icon, r.title, r.detail)).join(''); };
 
   try {
+    const provider = document.getElementById('setAIProvider')?.value || 'deepseek';
     let apiKey = '';
-    try { apiKey = await page.getDeepseekKey(); } catch (e) {}
-    // Testa a URL digitada no campo, mesmo que ainda não tenha sido salva.
+    try { 
+      if (provider === 'groq') apiKey = await page.getGroqKey();
+      else apiKey = await page.getDeepseekKey(); 
+    } catch (e) {}
+    
+    // Pega a chave que está no input se estiver preenchida (ainda não salva)
+    const typedKey = provider === 'groq' ? document.getElementById('setGroqKey')?.value.trim() : document.getElementById('setDeepseekKey')?.value.trim();
+    
     const typedProxy = (document.getElementById('setAIProxy')?.value || '').trim().replace(/\/+$/, '');
     const rows = await AIClient.diagnose({
-      apiKey,
+      apiKey: typedKey || apiKey,
       mode: document.getElementById('setAIMode')?.value || 'auto',
       proxyUrl: typedProxy || page.getAIProxyUrl(),
+      provider: provider,
       onStep: draw,
     });
     draw(rows);
@@ -1020,11 +1039,18 @@ async function testAIConnection() {
 }
 
 async function clearAPI() {
-  if (!confirm('Remover a API Key do DeepSeek do banco? A IA voltará ao modo preview.')) return;
+  const provider = document.getElementById('setAIProvider')?.value || 'deepseek';
+  if (!confirm(`Remover a API Key do ${provider === 'groq' ? 'Groq' : 'DeepSeek'} do banco? A IA voltará ao modo preview.`)) return;
   try {
-    await page.saveAdminConfig({ deepseekKey: '' });
-    document.getElementById('setDeepseekKey').value = '';
-    core.log('api_delete', user.id, 'DeepSeek key removida do Firestore');
+    const payload = {};
+    if (provider === 'groq') payload.groqKey = '';
+    else payload.deepseekKey = '';
+    
+    await page.saveAdminConfig(payload);
+    if (provider === 'groq') document.getElementById('setGroqKey').value = '';
+    else document.getElementById('setDeepseekKey').value = '';
+    
+    core.log('api_delete', user.id, `${provider} key removida do Firestore`);
     page.toast('API Key removida do banco.', 'info');
     await loadAPIStatus();
   } catch (err) {
