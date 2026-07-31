@@ -106,12 +106,19 @@ function quickQ(q) {
 
 async function aiConfig() {
   let apiKey = '';
-  let provider = localStorage.getItem('cl-admin-ai-provider') || 'deepseek';
-  try { const cfg = await window.parent?.fireSync?.getAdminConfig?.(); provider = cfg?.aiProvider || provider; localStorage.setItem('cl-admin-ai-provider', provider); } catch (_) {}
+  const data = page.getDB();
+  let provider = data.settings.aiProvider || 'deepseek';
+  
+  try {
+    const adminCfg = await page.getAdminConfig();
+    provider = adminCfg.aiProvider || provider;
+  } catch(e) {}
+
   try {
     if (provider === 'groq') apiKey = await page.getGroqKey();
     else apiKey = await page.getDeepseekKey();
   } catch (e) {}
+  
   return { apiKey, provider, mode: page.getAIMode(), proxyUrl: page.getAIProxyUrl() };
 }
 
@@ -134,36 +141,32 @@ async function updateAIStatus() {
   const text = document.getElementById('aiStatusText');
   box.className = 'ai-status';
   try {
-    const { apiKey, mode, proxyUrl } = await aiConfig();
+    const { apiKey, mode, proxyUrl, provider } = await aiConfig();
     const modeLabel = {
       auto: 'Automático', custom: 'Proxy próprio', direct: 'Direto', proxy: 'Proxy',
     }[mode] || 'Automático';
+    const providerLabel = provider === 'groq' ? 'Groq' : 'DeepSeek';
 
     if (!apiKey) {
       box.classList.add('warn');
-      // Se as regras antigas do Firestore ainda estão no ar, a chave salva no
-      // banco nunca chega a este dispositivo — avisar isso em vez de só dizer
-      // que "falta chave".
       const rules = await AIClient.checkAdminDocAccess();
       if (rules.ok === false) {
-        text.textContent = 'A chave do DeepSeek não chegou a este dispositivo porque as regras do Firestore bloqueiam a leitura de settings/admin. Peça ao administrador para publicar o arquivo firestore.rules no Console do Firebase (Firestore Database → Regras). Detalhes no botão "Testar conexão".';
+        text.textContent = `A chave do ${providerLabel} não chegou a este dispositivo por causa das regras do Firestore.`;
       } else {
-        text.textContent = 'Modo demonstração — nenhuma chave do DeepSeek encontrada. Um administrador configura em Administração → API / IA.';
+        text.textContent = `Modo demonstração — nenhuma chave do ${providerLabel} encontrada.`;
       }
       return;
     }
     if (proxyUrl) {
       box.classList.add('ok');
-      text.textContent = `IA pronta — chave salva e proxy próprio configurado. Modo: ${modeLabel}.`;
+      text.textContent = `IA (${providerLabel}) pronta — chave e proxy configurados. Modo: ${modeLabel}.`;
     } else {
-      // Sem proxy próprio a chamada depende de CORS liberado ou de proxies
-      // públicos instáveis. É a causa nº 1 de "a chave está certa e não funciona".
       box.classList.add('warn');
-      text.textContent = `Chave encontrada, mas sem proxy próprio (modo ${modeLabel}). O navegador costuma bloquear a chamada direta ao DeepSeek — peça ao administrador para configurar a “URL do proxy da IA” em Administração → API / IA.`;
+      text.textContent = `IA (${providerLabel}) configurada, mas sem proxy próprio. Recomendamos configurar para evitar erros de CORS.`;
     }
   } catch (e) {
     box.classList.add('err');
-    text.textContent = 'Não foi possível verificar a chave (sincronização offline?). A IA tentará usar o cache local.';
+    text.textContent = 'Erro ao verificar status da IA.';
   }
 }
 
@@ -269,8 +272,13 @@ async function testAI() {
 
   try {
     const cfg = await aiConfig();
-    // Diagnóstico incremental: cada canal aparece assim que termina o teste.
-    const rows = await AIClient.diagnose({ ...cfg, onStep: draw });
+    const rows = await AIClient.diagnose({ 
+      apiKey: cfg.apiKey,
+      mode: cfg.mode,
+      proxyUrl: cfg.proxyUrl,
+      provider: cfg.provider,
+      onStep: draw 
+    });
     draw(rows);
   } catch (err) {
     list.innerHTML = diagRow('❌', 'Erro no diagnóstico', err.message || 'Erro desconhecido');

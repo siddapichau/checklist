@@ -52,21 +52,21 @@
     .replace(/\/+$/, '');
 
   /* Monta a lista ordenada de tentativas para um caminho da API. */
-  function buildAttempts(path, { mode = 'auto', proxyUrl = '' } = {}) {
+  function buildAttempts(path, { mode = 'auto', proxyUrl = '', host = DEEPSEEK_HOST } = {}) {
     const custom = normalizeProxy(proxyUrl);
     const attempts = [];
 
     const addCustom = () => {
       if (!custom) return;
-      attempts.push({ kind: 'custom', label: 'proxy próprio', url: custom + path });
+      // Se for Groq e tiver proxy, o proxy precisa suportar o host do Groq
+      attempts.push({ kind: 'custom', label: 'proxy próprio', url: custom + path + '?host=' + encodeURIComponent(host) });
     };
     const addDirect = () => {
-      attempts.push({ kind: 'direct', label: 'conexão direta', url: DEEPSEEK_HOST + path });
-      attempts.push({ kind: 'direct', label: 'conexão direta (v1)', url: DEEPSEEK_HOST + '/v1' + path });
+      attempts.push({ kind: 'direct', label: 'conexão direta', url: host + path });
     };
     const addPublic = () => {
       PUBLIC_PROXIES.forEach(p =>
-        attempts.push({ kind: 'proxy', label: 'proxy ' + p.name, url: p.wrap(DEEPSEEK_HOST + path) }));
+        attempts.push({ kind: 'proxy', label: 'proxy ' + p.name, url: p.wrap(host + path) }));
     };
 
     if (mode === 'custom') { addCustom(); }
@@ -114,11 +114,20 @@
   async function chat({ apiKey, systemPrompt, question, mode, proxyUrl, provider = 'deepseek', onProgress, timeoutMs = 45000 }) {
     if (!apiKey) throw new Error(`Nenhuma API Key do ${provider === 'groq' ? 'Groq' : 'DeepSeek'} configurada.`);
 
-    // Groq usa o mesmo formato OpenAI e aceita CORS; não precisa do proxy DeepSeek.
     const isGroq = provider === 'groq';
-    const attempts = isGroq
-      ? [{ kind: 'groq', label: 'Groq direto', url: GROQ_HOST + '/chat/completions' }]
-      : buildAttempts(CHAT_PATH, { mode, proxyUrl });
+    
+    // Configurações específicas por provedor
+    const providerConfig = isGroq ? {
+      host: GROQ_HOST,
+      model: 'llama-3.3-70b-versatile', // Modelo Groq potente
+      authHeader: 'Bearer ' + apiKey
+    } : {
+      host: DEEPSEEK_HOST,
+      model: 'deepseek-chat',
+      authHeader: 'Bearer ' + apiKey
+    };
+
+    const attempts = buildAttempts(CHAT_PATH, { mode, proxyUrl, host: providerConfig.host });
     const tried = [];
     let lastError = null;
 
@@ -129,10 +138,10 @@
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer ' + apiKey,
+            'Authorization': providerConfig.authHeader,
           },
           body: JSON.stringify({
-            model: isGroq ? 'llama-3.3-70b-versatile' : 'deepseek-chat',
+            model: providerConfig.model,
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: question },
@@ -144,11 +153,13 @@
 
         if (!response.ok) {
           let detail = '';
-          try { detail = (await response.clone().json())?.error?.message || ''; } catch (e) {}
+          try { 
+            const errorJson = await response.clone().json();
+            detail = errorJson?.error?.message || errorJson?.message || ''; 
+          } catch (e) {}
           throw httpError(response.status, detail);
         }
 
-        // Alguns proxies devolvem o JSON embrulhado em texto — parse tolerante.
         let result;
         const raw = await response.text();
         try { result = JSON.parse(raw); }
@@ -233,9 +244,12 @@
   }
 
   /* Diagnóstico completo: chave + cada canal disponível. */
-  async function diagnose({ apiKey, mode, proxyUrl, onStep }) {
+  async function diagnose({ apiKey, mode, proxyUrl, provider = 'deepseek', onStep }) {
     const rows = [];
     const push = (row) => { rows.push(row); if (onStep) onStep(rows); return row; };
+
+    const isGroq = provider === 'groq';
+    const host = isGroq ? GROQ_HOST : DEEPSEEK_HOST;
 
     const modeLabel = {
       auto: 'Automático (proxy próprio → direto → proxies públicos)',
@@ -243,6 +257,7 @@
       direct: 'Somente conexão direta',
       proxy: 'Somente proxies',
     }[mode] || 'Automático';
+    push({ icon: 'ℹ️', title: 'Provedor selecionado', detail: provider === 'groq' ? 'Groq (Llama 3.3)' : 'DeepSeek (Chat)' });
     push({ icon: 'ℹ️', title: 'Modo de conexão', detail: modeLabel });
 
     // Regras do Firestore: sem leitura de settings/admin, a IA morre silenciosa
@@ -255,19 +270,19 @@
     });
 
     if (!apiKey) {
-      push({ icon: '❌', title: 'API Key do DeepSeek', detail: 'Nenhuma chave encontrada. Salve em Administração → API / IA (ou confira as regras acima se você já salvou em outro dispositivo).' });
+      push({ icon: '❌', title: 'API Key', detail: 'Nenhuma chave encontrada para o provedor ' + provider });
       return rows;
     }
-    push({ icon: '✅', title: 'API Key do DeepSeek', detail: 'Chave encontrada (banco ou cache do navegador).' });
+    push({ icon: '✅', title: 'API Key', detail: 'Chave encontrada (banco ou cache do navegador).' });
 
     if (!normalizeProxy(proxyUrl)) {
       push({
         icon: '⚠️', title: 'Proxy próprio não configurado',
-        detail: 'O DeepSeek bloqueia chamadas diretas do navegador (CORS). Publique o Cloudflare Worker de proxy/cloudflare-worker.js (grátis) e cole a URL em Administração → API / IA. É o único caminho 100% confiável.',
+        detail: 'O DeepSeek/Groq podem bloquear chamadas diretas (CORS). Recomenda-se o uso do proxy próprio.',
       });
     }
 
-    for (const attempt of buildAttempts(MODELS_PATH, { mode, proxyUrl })) {
+    for (const attempt of buildAttempts(MODELS_PATH, { mode, proxyUrl, host })) {
       const result = await probe(attempt, apiKey);
       push({ icon: result.icon, title: 'Canal: ' + attempt.label, detail: result.detail });
     }

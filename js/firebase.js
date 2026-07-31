@@ -191,6 +191,75 @@ const FireSync = {
         });
       this._unsubscribers.push(notesUnsub);
 
+      // 3d. Sincronizar gamificação do próprio usuário
+      const gamUnsub = db.collection('gamification')
+        .doc(userId)
+        .onSnapshot(doc => {
+          if (!this._syncing || !doc.exists) return;
+          const remoteGam = doc.data();
+          const data = core.getLocalDB();
+          if (JSON.stringify(data.gamification[userId]) !== JSON.stringify(remoteGam)) {
+            data.gamification[userId] = remoteGam;
+            core.saveLocalDB(data);
+            window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'gamification' } }));
+            console.log('🏆 Gamificação sincronizada do Firestore');
+          }
+        }, err => {
+          console.warn('Gamification sync error:', err.code, err.message);
+        });
+      this._unsubscribers.push(gamUnsub);
+
+      // 3e. Sincronizar comentários (flat collection)
+      const commentsUnsub = db.collection('comments')
+        .orderBy('createdAt', 'desc')
+        .limit(500)
+        .onSnapshot(snapshot => {
+          if (!this._syncing) return;
+          this._handleCollectionSync('comments', snapshot, userId);
+        }, err => {
+          console.warn('Comments sync error:', err.code, err.message);
+        });
+      this._unsubscribers.push(commentsUnsub);
+
+      // 3f. Sincronizar automações
+      const autoUnsub = db.collection('automations')
+        .onSnapshot(snapshot => {
+          if (!this._syncing) return;
+          this._handleCollectionSync('automations', snapshot, null);
+        }, err => {
+          console.warn('Automations sync error:', err.code, err.message);
+        });
+      this._unsubscribers.push(autoUnsub);
+
+      // 3g. Sincronizar dashboardWidgets do usuário
+      const widgetsUnsub = db.collection('dashboardWidgets')
+        .doc(userId)
+        .onSnapshot(doc => {
+          if (!this._syncing || !doc.exists) return;
+          const remoteWidgets = doc.data()?.widgets;
+          if (!remoteWidgets) return;
+          const data = core.getLocalDB();
+          if (JSON.stringify(data.dashboardWidgets) !== JSON.stringify(remoteWidgets)) {
+            data.dashboardWidgets = remoteWidgets;
+            core.saveLocalDB(data);
+            window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'dashboardWidgets' } }));
+            console.log('📊 DashboardWidgets sincronizados do Firestore');
+          }
+        }, err => {
+          console.warn('DashboardWidgets sync error:', err.code, err.message);
+        });
+      this._unsubscribers.push(widgetsUnsub);
+
+      // 3h. Sincronizar temas customizados
+      const themesUnsub = db.collection('customThemes')
+        .onSnapshot(snapshot => {
+          if (!this._syncing) return;
+          this._handleCollectionSync('customThemes', snapshot, null);
+        }, err => {
+          console.warn('CustomThemes sync error:', err.code, err.message);
+        });
+      this._unsubscribers.push(themesUnsub);
+
       // 4. Sincronizar settings (só leitura - escrita só admin)
       const settingsUnsub = db.collection('settings')
         .doc('global')
@@ -477,6 +546,53 @@ const FireSync = {
             this._pushLocalToFirestore('notes', localNotesToPush, userId);
           }
         }
+      } else if (collectionName === 'comments') {
+        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
+        if (!data.comments) data.comments = {};
+        let changed = false;
+
+        remoteDocs.forEach(remote => {
+          const tid = remote.taskId;
+          if (!tid) return;
+          if (!data.comments[tid]) data.comments[tid] = [];
+          const idx = data.comments[tid].findIndex(c => String(c.id) === String(remote.id));
+          if (idx >= 0) {
+            if (JSON.stringify(data.comments[tid][idx]) !== JSON.stringify(remote)) {
+              data.comments[tid][idx] = remote;
+              changed = true;
+            }
+          } else {
+            data.comments[tid].push(remote);
+            changed = true;
+          }
+        });
+
+        // Removidos
+        removedIds.forEach(rid => {
+          Object.keys(data.comments).forEach(tid => {
+            const initialLen = data.comments[tid].length;
+            data.comments[tid] = data.comments[tid].filter(c => String(c.id) !== rid);
+            if (data.comments[tid].length !== initialLen) changed = true;
+          });
+        });
+        
+        if (changed) {
+          hasChanges = true;
+          // Ordenar comentários por data
+          Object.keys(data.comments).forEach(tid => {
+            data.comments[tid].sort((a,b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt));
+          });
+        }
+      } else if (collectionName === 'automations') {
+        if (JSON.stringify(data.automations) !== JSON.stringify(remoteDocs)) {
+          data.automations = remoteDocs;
+          hasChanges = true;
+        }
+      } else if (collectionName === 'customThemes') {
+        if (JSON.stringify(data.customThemes) !== JSON.stringify(remoteDocs)) {
+          data.customThemes = remoteDocs;
+          hasChanges = true;
+        }
       }
 
       if (hasChanges) {
@@ -619,6 +735,24 @@ const FireSync = {
       if (err.code === 'permission-denied') this._errorCount++;
       return false;
     }
+  },
+
+  async pushGamification(userId, stats) {
+    if (!userId || userId.includes('local-')) return;
+    try {
+      await db.collection('gamification').doc(userId).set(stats, { merge: true });
+      return true;
+    } catch (err) { console.warn('pushGamification error:', err); return false; }
+  },
+
+  async pushDashboardWidgets(userId, widgets) {
+    if (!userId || userId.includes('local-')) return;
+    try {
+      await db.collection('dashboardWidgets').doc(userId).set({
+        widgets, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+      return true;
+    } catch (err) { console.warn('pushDashboardWidgets error:', err); return false; }
   },
 
   /* Modos válidos de conexão da IA. 'custom' = usar somente o proxy próprio. */

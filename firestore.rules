@@ -211,13 +211,14 @@ service cloud.firestore {
 
     // Integrações privadas: nunca são lidas por membros e não devem ser
     // misturadas ao documento global (que é distribuído a todos os logados).
+    // O campo deepseekKey e groqKey devem ser protegidos.
+    // Para que a IA funcione para todos, o proxy deve ser usado ou o administrador deve 
+    // prover acesso à chave de forma controlada.
     // ATENÇÃO: a leitura foi liberada para qualquer usuário autenticado para
     // que a IA funcione para todos os membros do app. Em produção, prefira
     // guardar a chave como variável secreta DEEPSEEK_API_KEY no proxy
     // (proxy/cloudflare-worker.js): assim o navegador nunca precisa da chave
     // e esta regra pode voltar a "allow read: if isAdmin()".
-    // Campos deste documento: deepseekKey, aiMode, aiProxyUrl.
-    // (veja CORRECAO_APIKEY.md e CORRECAO_V13.md)
     match /settings/admin {
       allow read: if isSignedIn();
       allow write: if isAdmin();
@@ -247,13 +248,31 @@ service cloud.firestore {
     // ---------- GAMIFICAÇÃO ----------
     match /gamification/{userId} {
       allow read: if isOwner(userId) || isAdmin();
-      allow write: if false;
+      allow write: if isOwner(userId) || isAdmin();
     }
 
     // ---------- LOGS ----------
     match /logs/{logId} {
       allow read: if isAdmin();
-      allow write: if false;
+      allow create: if isSignedIn();
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- COMMENTS (FLAT) ----------
+    match /comments/{commentId} {
+      allow read: if isSignedIn();
+      allow create: if isNotBanned()
+                    && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if isSignedIn() && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // ---------- CUSTOM THEMES ----------
+    match /customThemes/{themeId} {
+      allow read: if isSignedIn();
+      allow create: if isNotBanned();
+      allow update, delete: if isAdmin() || (isSignedIn() && resource.data.createdBy == request.auth.uid);
     }
 
     // ---------- AUTOMAÇÕES ----------

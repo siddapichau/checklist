@@ -34,6 +34,12 @@
   }
   window.addEventListener('message', event => {
     if (event.data?.type === 'themeChanged') apply(event.data.theme, event.data.mode);
+    if (event.data?.type === 'firebaseSync') {
+      // Re-renderizar a página se a função render() existir
+      if (typeof render === 'function') render();
+      // Em notas e atividades, também recarregar categorias pois podem vir de settings
+      if (event.data.collection === 'settings' && typeof initCategories === 'function') initCategories();
+    }
   });
 })();
 
@@ -45,6 +51,8 @@ const Page = {
   openModal(html) { this._post({ type: 'modal', html }); }, closeModal() { this._post({ type: 'closeModal' }); },
   syncDocument(collection, id, data) { this._post({ type: 'firebaseSync', collection, id, data }); },
   deleteDocument(collection, id) { this._post({ type: 'firebaseDelete', collection, id }); }, syncSettings(settings) { this._post({ type: 'firebaseSettings', settings }); },
+  syncGamification(userId, stats) { this._post({ type: 'firebaseGamification', userId, stats }); },
+  syncWidgets(userId, widgets) { this._post({ type: 'firebaseWidgets', userId, widgets }); },
   async getAdminConfig() { if (!window.parent?.fireSync) throw new Error('Sincronização Firebase indisponível'); return window.parent.fireSync.getAdminConfig(); },
   async saveAdminConfig(config) { if (!window.parent?.fireSync) throw new Error('Sincronização Firebase indisponível'); return window.parent.fireSync.saveAdminConfig(config); },
   async getDeepseekKey() { return window.parent?.fireSync ? window.parent.fireSync.getDeepseekKey() : ''; },

@@ -119,6 +119,11 @@ const App = {
         this.renderSidebar();
         this.updateLangMenuActive();
       }
+      // Notificar o iframe que algo mudou no banco local via Firebase
+      const frame = document.getElementById('pageFrame');
+      if (frame?.contentWindow) {
+        frame.contentWindow.postMessage({ type: 'firebaseSync', collection: type }, '*');
+      }
     });
 
     // Esconder loading SEMPRE, mesmo com erro
@@ -1454,7 +1459,7 @@ const App = {
   },
 
   /* ========== TEMA ========== */
-  applyTheme(theme, mode) {
+  applyTheme(theme, mode, sync = false) {
     if (!theme) return;
     document.documentElement.dataset.theme = theme || 'ocean';
     if (mode === 'auto') {
@@ -1486,6 +1491,10 @@ const App = {
     data2.settings.theme = theme;
     data2.settings.mode = mode;
     core.saveLocalDB(data2);
+
+    if (sync && this.currentUser && !this.currentUser.id.includes('local-')) {
+      fireSync.pushDocument('users', this.currentUser.id, { theme, mode });
+    }
 
     const btn = document.getElementById('btnTheme');
     if (btn) btn.textContent = this.getThemeIcon();
@@ -1527,7 +1536,7 @@ const App = {
     const cycle = ['light', 'dark', 'auto'];
     const idx = cycle.indexOf(this.settings.mode);
     const newMode = cycle[(idx + 1) % cycle.length];
-    this.applyTheme(this.settings.theme, newMode);
+    this.applyTheme(this.settings.theme, newMode, true);
     core.toast(
       newMode === 'auto' ? 'Modo automático (segue o sistema)' :
       newMode === 'dark' ? 'Modo escuro' : 'Modo claro',
@@ -1586,6 +1595,10 @@ const App = {
     core.setLanguage(lang);
     await core.tReady(lang);
     this.settings.language = lang;
+
+    if (this.currentUser && !this.currentUser.id.includes('local-')) {
+      fireSync.pushDocument('users', this.currentUser.id, { language: lang });
+    }
 
     this.updateLangMenuActive();
     this.renderSidebar();
@@ -1964,6 +1977,12 @@ const App = {
         break;
       case 'firebaseSettings':
         if (msg.settings) fireSync.pushSettings(msg.settings);
+        break;
+      case 'firebaseGamification':
+        if (msg.userId && msg.stats) fireSync.pushGamification(msg.userId, msg.stats);
+        break;
+      case 'firebaseWidgets':
+        if (msg.userId && msg.widgets) fireSync.pushDashboardWidgets(msg.userId, msg.widgets);
         break;
     }
   },
