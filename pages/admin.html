@@ -241,6 +241,16 @@
     <label><span>DeepSeek API Key</span>
       <input type="password" id="setDeepseekKey" placeholder="sk-..." autocomplete="new-password">
     </label>
+    <label><span>Groq API Key (opcional)</span>
+      <input type="password" id="setGroqKey" placeholder="gsk_..." autocomplete="new-password">
+      <small class="text-muted">Obtenha em console.groq.com/keys. A chave é salva no documento privado do Firestore.</small>
+    </label>
+    <label><span>IA usada nas consultas</span>
+      <select id="setAIProvider">
+        <option value="deepseek">DeepSeek</option>
+        <option value="groq">Groq (Llama)</option>
+      </select>
+    </label>
     <p class="text-muted" id="apiKeyStatus">Verificando configuração salva…</p>
 
     <label><span>🛡️ URL do proxy da IA <b>(recomendado)</b></span>
@@ -912,9 +922,7 @@ async function loadAPIStatus() {
   const status = document.getElementById('apiKeyStatus');
   try {
     const config = await page.getAdminConfig();
-    const parts = [config.hasDeepseekKey
-      ? '✅ Uma chave DeepSeek está salva com segurança no banco.'
-      : '❌ Nenhuma chave DeepSeek foi configurada ainda.'];
+    const parts = [config.hasDeepseekKey ? '✅ DeepSeek configurado.' : '⚠️ DeepSeek sem chave.', config.hasGroqKey ? '✅ Groq configurado.' : '⚠️ Groq sem chave.'];
     parts.push(config.aiProxyUrl
       ? '✅ Proxy próprio configurado.'
       : '⚠️ Sem proxy próprio — a IA depende de CORS liberado ou de proxies públicos instáveis.');
@@ -924,6 +932,8 @@ async function loadAPIStatus() {
     if (modeSel && config.aiMode) modeSel.value = config.aiMode;
     const proxyInput = document.getElementById('setAIProxy');
     if (proxyInput) proxyInput.value = config.aiProxyUrl || '';
+    const provider = document.getElementById('setAIProvider');
+    if (provider) provider.value = config.aiProvider || 'deepseek';
   } catch (err) {
     status.textContent = '⚠️ Não foi possível verificar a chave no Firestore. Entre com uma conta Firebase administradora.';
     console.warn('admin config load:', err);
@@ -932,14 +942,17 @@ async function loadAPIStatus() {
 
 async function saveAPI() {
   const input = document.getElementById('setDeepseekKey');
+  const groqInput = document.getElementById('setGroqKey');
+  const provider = document.getElementById('setAIProvider');
   const proxyInput = document.getElementById('setAIProxy');
   const key = input.value.trim();
   const proxyUrl = (proxyInput?.value || '').trim().replace(/\/+$/, '');
 
   // A URL do proxy pode ser salva sozinha (a chave já pode estar no banco).
   const current = await page.getAdminConfig().catch(() => ({}));
-  if (!key && !current.hasDeepseekKey) {
-    return page.toast('Digite a API Key do DeepSeek antes de salvar.', 'warning');
+  const groqKey = groqInput.value.trim();
+  if (!key && !groqKey && !current.hasDeepseekKey && !current.hasGroqKey) {
+    return page.toast('Digite uma API Key do DeepSeek ou Groq antes de salvar.', 'warning');
   }
   if (proxyUrl && !/^https:\/\/[^\s]+$/i.test(proxyUrl)) {
     return page.toast('A URL do proxy precisa começar com https://', 'warning');
@@ -949,10 +962,11 @@ async function saveAPI() {
   button.disabled = true;
   button.textContent = '⏳ Salvando…';
   try {
-    const payload = { aiMode: document.getElementById('setAIMode')?.value || 'auto', aiProxyUrl: proxyUrl };
+    const payload = { aiMode: document.getElementById('setAIMode')?.value || 'auto', aiProxyUrl: proxyUrl, aiProvider: provider?.value || 'deepseek' };
     if (key) payload.deepseekKey = key;
+    if (groqKey) payload.groqKey = groqKey;
     await page.saveAdminConfig(payload);
-    input.value = ''; // não manter o segredo no DOM depois de salvo
+    input.value = ''; groqInput.value = ''; // não manter os segredos no DOM depois de salvo
     core.log('api_update', user.id, 'Config da IA salva no Firestore');
     page.toast('Configuração da IA salva com segurança! 🔐', 'success');
     await loadAPIStatus();

@@ -28,6 +28,7 @@
 
 (function () {
   const DEEPSEEK_HOST = 'https://api.deepseek.com';
+  const GROQ_HOST = 'https://api.groq.com/openai/v1';
   const CHAT_PATH = '/chat/completions';
   const MODELS_PATH = '/models';
 
@@ -107,13 +108,17 @@
     return err;
   }
 
-  const channelIcon = { custom: '🛡️', direct: '🔗', proxy: '🛰️' };
+  const channelIcon = { custom: '🛡️', direct: '🔗', proxy: '🛰️', groq: '⚡' };
 
   /* Envia o chat completion percorrendo a cadeia de canais. */
-  async function chat({ apiKey, systemPrompt, question, mode, proxyUrl, onProgress, timeoutMs = 45000 }) {
-    if (!apiKey) throw new Error('Nenhuma API Key do DeepSeek configurada.');
+  async function chat({ apiKey, systemPrompt, question, mode, proxyUrl, provider = 'deepseek', onProgress, timeoutMs = 45000 }) {
+    if (!apiKey) throw new Error(`Nenhuma API Key do ${provider === 'groq' ? 'Groq' : 'DeepSeek'} configurada.`);
 
-    const attempts = buildAttempts(CHAT_PATH, { mode, proxyUrl });
+    // Groq usa o mesmo formato OpenAI e aceita CORS; não precisa do proxy DeepSeek.
+    const isGroq = provider === 'groq';
+    const attempts = isGroq
+      ? [{ kind: 'groq', label: 'Groq direto', url: GROQ_HOST + '/chat/completions' }]
+      : buildAttempts(CHAT_PATH, { mode, proxyUrl });
     const tried = [];
     let lastError = null;
 
@@ -127,7 +132,7 @@
             'Authorization': 'Bearer ' + apiKey,
           },
           body: JSON.stringify({
-            model: 'deepseek-chat',
+            model: isGroq ? 'llama-3.3-70b-versatile' : 'deepseek-chat',
             messages: [
               { role: 'system', content: systemPrompt },
               { role: 'user', content: question },
@@ -271,6 +276,6 @@
 
   window.AIClient = {
     chat, probe, diagnose, checkAdminDocAccess, buildAttempts, fetchWithTimeout, normalizeBase,
-    PUBLIC_PROXIES, DEEPSEEK_HOST, CHAT_PATH, MODELS_PATH,
+    PUBLIC_PROXIES, DEEPSEEK_HOST, GROQ_HOST, CHAT_PATH, MODELS_PATH,
   };
 })();
