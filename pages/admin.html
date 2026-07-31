@@ -385,21 +385,35 @@ function switchTab(id, btn) {
 
 /* ========== APARÊNCIA ========== */
 function saveAppearance() {
-  data.settings.brand = document.getElementById('setBrand').value.trim();
-  data.settings.theme = document.getElementById('setTheme').value;
-  data.settings.mode = document.getElementById('setMode').value;
-  data.settings.language = document.getElementById('setLanguage').value;
-  data.settings.logo = document.getElementById('setLogo').value.trim();
-  data.settings.favicon = document.getElementById('setFavicon').value.trim();
+  const newTheme = document.getElementById('setTheme').value;
+  const newMode = document.getElementById('setMode').value;
+  const newBrand = document.getElementById('setBrand').value.trim();
+  const newLang = document.getElementById('setLanguage').value;
+  const newLogo = document.getElementById('setLogo').value.trim();
+  const newFavicon = document.getElementById('setFavicon').value.trim();
+
+  data.settings.brand = newBrand;
+  data.settings.language = newLang;
+  data.settings.logo = newLogo;
+  data.settings.favicon = newFavicon;
+  // Tema/modo aqui são o padrão para novos usuários, não forçam quem já escolheu
+  data.settings.theme = newTheme;
+  data.settings.mode = newMode;
   page.saveDB(data);
   page.syncSettings(data.settings);
-  core.log('settings_update', user.id, 'Aparência');
+  core.log('settings_update', user.id, `Aparência brand=${newBrand} themeDefault=${newTheme} modeDefault=${newMode}`);
 
-  // Aplicar tema no parent
-  window.parent.postMessage({ type: 'themeChanged', theme: data.settings.theme, mode: data.settings.mode }, '*');
-  window.parent.postMessage({ type: 'languageChanged', lang: data.settings.language }, '*');
+  // Salvar também como preferência pessoal do admin (tema por usuário)
+  try{
+    const uid = user.id || user.uid;
+    if(uid) core.saveUserThemePref(uid, newTheme, newMode);
+  }catch{}
+
+  // Aplicar tema no parent (só para o admin, outros respeitam sua própria escolha)
+  window.parent.postMessage({ type: 'themeChanged', theme: newTheme, mode: newMode }, '*');
+  window.parent.postMessage({ type: 'languageChanged', lang: newLang }, '*');
   window.parent.postMessage({ type: 'reload' }, '*');
-  page.toast('Aparência salva! 🎨', 'success');
+  page.toast('Aparência salva! Marca atualizada para todos, tema padrão para novos usuários e tema pessoal para você 🎨', 'success');
 }
 
 function renderCustomThemes() {

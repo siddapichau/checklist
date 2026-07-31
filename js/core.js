@@ -1044,6 +1044,84 @@ const Core = {
     }
   },
 
+  /* ---------- TEMA POR USUÁRIO ---------- */
+  detectSystemMode() {
+    try {
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    } catch { return 'light'; }
+  },
+
+  getUserThemePref(userId) {
+    if (!userId) return null;
+    try {
+      const raw = localStorage.getItem('cl-user-theme-' + userId);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.theme || parsed.mode)) return parsed;
+      }
+    } catch {}
+    try {
+      const data = this.getLocalDB();
+      const u = (data.users || []).find(x => (x.id === userId || x.uid === userId));
+      if (u && (u.theme || u.mode)) {
+        return { theme: u.theme || null, mode: u.mode || null, fromUserDoc: true };
+      }
+    } catch {}
+    return null;
+  },
+
+  saveUserThemePref(userId, theme, mode) {
+    if (!userId) return null;
+    const pref = { theme: theme || null, mode: mode || null, updatedAt: this.now() };
+    try {
+      localStorage.setItem('cl-user-theme-' + userId, JSON.stringify(pref));
+    } catch {}
+    try {
+      const data = this.getLocalDB();
+      const u = (data.users || []).find(x => (x.id === userId || x.uid === userId));
+      if (u) {
+        if (theme) u.theme = theme;
+        if (mode) u.mode = mode;
+        this.saveLocalDB(data);
+      }
+    } catch {}
+    try {
+      if (!String(userId).includes('local-')) {
+        if (typeof page !== 'undefined' && page.syncDocument) {
+          const payload = {};
+          if (theme) payload.theme = theme;
+          if (mode) payload.mode = mode;
+          payload.updatedAt = this.now();
+          page.syncDocument('users', userId, payload);
+        } else if (window.fireSync && window.fireSync.pushDocument) {
+          const payload = {};
+          if (theme) payload.theme = theme;
+          if (mode) payload.mode = mode;
+          payload.updatedAt = this.now();
+          window.fireSync.pushDocument('users', userId, payload);
+        }
+      }
+    } catch {}
+    return pref;
+  },
+
+  /* Primeiro acesso: pega modo do sistema se o usuário ainda não tem preferência */
+  ensureUserTheme(userId, defaultTheme) {
+    if (!userId) return { theme: defaultTheme || 'ocean', mode: this.detectSystemMode() };
+    const existing = this.getUserThemePref(userId);
+    if (existing && (existing.theme || existing.mode)) {
+      return {
+        theme: existing.theme || defaultTheme || 'ocean',
+        mode: existing.mode || this.detectSystemMode(),
+        existing: true
+      };
+    }
+    const mode = this.detectSystemMode();
+    const theme = defaultTheme || this.getLocalDB().settings.theme || 'ocean';
+    this.saveUserThemePref(userId, theme, mode);
+    return { theme, mode, existing: false, fromSystem: true };
+  },
+
   /* ---------- MODE FOCO / POMODORO STATE ---------- */
   _pomodoroState: null,
   getPomodoroState() {

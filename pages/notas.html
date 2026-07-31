@@ -5,18 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
   <style>
-    /* ---------- NOTAS & RECADOS (recadinhos) ---------- */
     .notes-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
     .view-toggle{display:flex;background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:3px;gap:2px}
     .view-toggle button{border:0;background:transparent;padding:7px 14px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary,#64748B);transition:.15s;white-space:nowrap}
     .view-toggle button.active{background:var(--primary,#2563EB);color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.15)}
-
-    .note-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px}
-    .note-card{background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:14px;overflow:hidden;
-      box-shadow:0 10px 24px -18px rgba(15,23,42,.35);display:flex;flex-direction:column;position:relative;transition:.18s}
+    .note-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:14px}
+    .note-card{background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:14px;overflow:hidden;box-shadow:0 10px 24px -18px rgba(15,23,42,.35);display:flex;flex-direction:column;position:relative;transition:.18s}
     .note-card:hover{transform:translateY(-3px);box-shadow:0 16px 30px -14px rgba(15,23,42,.3)}
     .note-card::before{content:'';position:absolute;top:0;left:0;right:0;height:6px;background:var(--accent,#2563EB)}
     .note-card.pinned::after{content:'📌';position:absolute;top:10px;right:10px;font-size:15px;filter:drop-shadow(0 2px 2px rgba(0,0,0,.3));z-index:2}
+    .note-card.done{opacity:.75;border-color:var(--success-light,#D1FAE5)}
+    .note-card.done::before{background:var(--success,#10B981)}
+    .note-card.pending{border-color:#FECACA;background:linear-gradient(0deg,rgba(239,68,68,.04),rgba(239,68,68,.04)),var(--card,#fff)}
+    .note-card.pending::before{background:var(--danger,#EF4444)}
     .note-cover{width:100%;height:120px;object-fit:cover;display:block;margin-top:6px}
     .note-body{padding:12px 14px 10px;display:flex;flex-direction:column;gap:8px;flex:1}
     .note-title{font-size:15px;font-weight:800;color:var(--text,#1E293B);line-height:1.35;cursor:pointer;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
@@ -27,16 +28,14 @@
     .nt-chip.past{background:#FEE2E2;color:#DC2626;border-color:#FECACA}
     .nt-chip.today{background:#D1FAE5;color:#059669;border-color:#A7F3D0}
     .nt-chip.cat{background:color-mix(in srgb,var(--accent,#2563EB) 12%, transparent);color:var(--accent,#2563EB);border-color:transparent}
+    .nt-chip.done{background:#D1FAE5;color:#065F46;border-color:#A7F3D0}
+    .nt-chip.pending{background:#FEE2E2;color:#991B1B;border-color:#FECACA}
     .note-desc{font-size:13px;color:var(--text-secondary,#64748B);line-height:1.45;display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;flex:1}
-    .note-actions{display:flex;gap:4px;justify-content:flex-end;border-top:1px solid var(--line,#E2E8F0);padding:8px 10px;background:var(--bg-secondary,#F8FAFC)}
+    .note-actions{display:flex;gap:4px;justify-content:flex-end;border-top:1px solid var(--line,#E2E8F0);padding:8px 10px;background:var(--bg-secondary,#F8FAFC);flex-wrap:wrap}
     .note-section-title{display:flex;align-items:center;gap:8px;margin:18px 0 12px;font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--text-secondary,#64748B)}
     .note-section-title span.count{background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);color:var(--text,#1E293B);font-size:11px;padding:1px 8px;border-radius:999px}
-
-    /* Calendário */
     .cal-note-event{background:var(--accent,#2563EB);color:#fff}
     .cal-note-event.past{opacity:.55}
-
-    /* Editor de imagem */
     .img-tabs{display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap}
     .img-tabs button{border:1px solid var(--line,#E2E8F0);background:var(--bg-secondary,#F1F5F9);border-radius:8px;padding:6px 12px;font-size:12px;font-weight:600;cursor:pointer;color:var(--text-secondary,#64748B)}
     .img-tabs button.active{background:var(--primary,#2563EB);color:#fff;border-color:var(--primary,#2563EB)}
@@ -45,19 +44,13 @@
     .gallery-grid button.active{border-color:var(--primary,#2563EB);box-shadow:0 0 0 3px var(--primary-light,#DBEAFE)}
     .gallery-grid img{width:100%;height:64px;object-fit:cover;display:block}
     .img-preview{width:100%;max-height:160px;object-fit:cover;border-radius:10px;border:1px solid var(--line,#E2E8F0)}
-
-    /* Visualização blog */
     .blog-cover{width:100%;max-height:220px;object-fit:cover;border-radius:12px;margin-bottom:14px}
     .blog-body{font-size:14.5px;line-height:1.7;color:var(--text,#1E293B)}
     .blog-body h2,.blog-body h3{margin:14px 0 8px;color:var(--text,#1E293B)}
     .blog-body p{margin:0 0 10px}
-
-    @media (max-width:640px){
-      .note-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}
-      .note-cover{height:96px}
-      .img-tabs{width:100%}
-      .img-tabs button{flex:1}
-    }
+    .ai-tip-card{background:linear-gradient(135deg,#EEF2FF 0%,#F0FDF4 100%);border:1px solid var(--primary-light,#DBEAFE);border-radius:14px;padding:16px;display:flex;gap:12px;align-items:flex-start;margin-bottom:16px}
+    [data-mode="dark"] .ai-tip-card{background:linear-gradient(135deg,rgba(37,99,235,.12),rgba(16,185,129,.12));border-color:rgba(37,99,235,.3)}
+    @media (max-width:640px){.note-grid{grid-template-columns:repeat(auto-fill,minmax(160px,1fr))}.note-cover{height:96px}}
   </style>
   <title>Notas &amp; Recados</title>
 </head>
@@ -67,7 +60,7 @@
   <div class="info">
     <small>RECADINHOS &amp; LEMBRETES</small>
     <h1>📝 Notas &amp; Recados</h1>
-    <p>Anotações diárias fora das atividades — estilo recado, com lembrete no horário</p>
+    <p>Data e hora são quando o aviso deve acontecer. A nota só some se você excluir. Marque como feita quando concluir.</p>
   </div>
   <div class="actions notes-toolbar">
     <div class="view-toggle">
@@ -78,19 +71,37 @@
   </div>
 </div>
 
+<div class="ai-tip-card" id="aiTipNotas">
+  <div style="font-size:26px">🤖</div>
+  <div style="flex:1">
+    <b style="font-size:14px;color:var(--primary)">Como funcionam as Notas?</b>
+    <p style="font-size:13px;color:var(--text-secondary);margin:4px 0 8px;line-height:1.5">Cada nota tem <b>data e hora do aviso</b>. Ao entrar você vê primeiro as que <b>ainda vão acontecer ou são de hoje</b>. As já passadas ficam na aba <b>Já passaram</b>. Depois da data, fica como <b>Pendente</b> até você marcar como feita. A exclusão é sempre manual.</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-secondary btn-sm" onclick="askAI('Como organizar melhor minhas notas?')">💡 Dicas da IA</button>
+      <button class="btn btn-secondary btn-sm" onclick="askAI('Explique como funciona o sistema de notas e lembretes')">❓ Como funciona?</button>
+    </div>
+    <div id="aiAnswerNotas" style="margin-top:10px;display:none"></div>
+  </div>
+</div>
+
+<!-- FILTROS DE STATUS -->
+<div class="view-toggle" style="margin-bottom:12px;flex-wrap:wrap" id="statusFilter">
+  <button data-status="active" class="active" onclick="setStatusFilter('active')">🔜 Ativas (a vir / hoje)</button>
+  <button data-status="pending" onclick="setStatusFilter('pending')">⏰ Pendentes (passou da data)</button>
+  <button data-status="past" onclick="setStatusFilter('past')">📚 Já passaram</button>
+  <button data-status="done" onclick="setStatusFilter('done')">✅ Feitas</button>
+  <button data-status="all" onclick="setStatusFilter('all')">♾️ Todas</button>
+</div>
+
 <!-- FILTROS -->
 <div class="filters">
   <input type="text" id="search" placeholder="🔍 Buscar recadinho..." oninput="render()">
-  <select id="filterCategory" onchange="render()">
-    <option value="all">Todas categorias</option>
-  </select>
+  <select id="filterCategory" onchange="render()"><option value="all">Todas categorias</option></select>
   <select id="filterPeriod" onchange="render()">
     <option value="all">Todas as datas</option>
     <option value="today">Hoje</option>
     <option value="upcoming">Próximos 7 dias</option>
     <option value="month">Este mês</option>
-    <option value="past">Já passaram</option>
-    <option value="reminders">⏰ Só com lembrete</option>
   </select>
 </div>
 
@@ -101,16 +112,16 @@
 <div id="calendarView" style="display:none">
   <div class="card" style="padding:18px">
     <div class="cal-toolbar" style="margin-bottom:12px">
-      <button onclick="changeMonth(-1)" title="Mês anterior">◀</button>
+      <button onclick="changeMonth(-1)">◀</button>
       <h2 id="calTitle">Mês</h2>
-      <button onclick="changeMonth(1)" title="Próximo mês">▶</button>
+      <button onclick="changeMonth(1)">▶</button>
       <button onclick="goToday()" class="active">Hoje</button>
     </div>
     <div class="cal-grid" id="calGrid"></div>
   </div>
 </div>
 
-<!-- MODAL: NOTAS DO DIA (visão calendário) -->
+<!-- MODAL: NOTAS DO DIA -->
 <div class="modal-overlay hidden" id="dayModal" onclick="if(event.target===this)closeDayModal()">
   <div class="modal">
     <h2 id="dayModalTitle">Recadinhos do dia</h2>
@@ -122,77 +133,37 @@
   </div>
 </div>
 
-<!-- MODAL: CRIAR/EDITAR RECADINHO -->
+<!-- MODAL: CRIAR/EDITAR -->
 <div class="modal-overlay hidden" id="noteModal" onclick="if(event.target===this)closeNoteModal()">
   <div class="modal">
     <h2 id="noteModalTitle">📝 Novo recadinho</h2>
     <form onsubmit="saveNote(event)">
       <input type="hidden" id="noteId">
-      <label><span>Título *</span>
-        <input type="text" id="noteTitle" required placeholder="Ex: Buscar encomenda no balcão B" maxlength="90">
-      </label>
-
+      <label><span>Título *</span><input type="text" id="noteTitle" required placeholder="Ex: Buscar encomenda no balcão B" maxlength="90"></label>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
-        <label><span>📅 Data *</span>
-          <input type="date" id="noteDate" required>
-        </label>
-        <label><span>⏰ Hora</span>
-          <input type="time" id="noteTime">
-        </label>
+        <label><span>📅 Data do aviso *</span><input type="date" id="noteDate" required></label>
+        <label><span>⏰ Hora do aviso</span><input type="time" id="noteTime"></label>
       </div>
-
-      <label style="display:flex;align-items:center;gap:8px;margin:2px 0 10px">
-        <input type="checkbox" id="noteRemind" style="width:auto">
-        <span style="margin:0;text-transform:none;font-size:13px;font-weight:600">🔔 Lembrar-me na data e hora marcadas</span>
-      </label>
-
-      <label><span>Categorias</span>
-        <div class="cat-check-grid" id="noteCategoryBoxes"></div>
-      </label>
-
-      <label><span>🖼️ Imagem do recadinho</span>
-        <div class="img-tabs">
-          <button type="button" id="tabGallery" class="active" onclick="setImgTab('gallery')">🎨 Galeria</button>
-          <button type="button" id="tabUpload" onclick="setImgTab('upload')">⬆️ Upload (.webp)</button>
-          <button type="button" id="tabUrl" onclick="setImgTab('url')">🔗 URL</button>
-        </div>
+      <label style="display:flex;align-items:center;gap:8px;margin:2px 0 10px"><input type="checkbox" id="noteRemind" style="width:auto"><span style="margin:0;text-transform:none;font-size:13px;font-weight:600">🔔 Lembrar-me na data e hora marcadas</span></label>
+      <label><span>Categorias</span><div class="cat-check-grid" id="noteCategoryBoxes"></div></label>
+      <label><span>🖼️ Imagem</span>
+        <div class="img-tabs"><button type="button" id="tabGallery" class="active" onclick="setImgTab('gallery')">🎨 Galeria</button><button type="button" id="tabUpload" onclick="setImgTab('upload')">⬆️ Upload (.webp)</button><button type="button" id="tabUrl" onclick="setImgTab('url')">🔗 URL</button></div>
         <div id="imgGallery" class="gallery-grid"></div>
-        <div id="imgUpload" style="display:none">
-          <input type="file" id="noteImageFile" accept="image/*" onchange="handleImageUpload(event)">
-          <small class="text-muted">A imagem é comprimida e convertida automaticamente para <b>.webp</b> (máx. 1280px).</small>
-        </div>
-        <div id="imgUrlBox" style="display:none">
-          <input type="text" id="noteImageUrl" placeholder="https://... ou data:image/webp;base64,...">
-        </div>
-        <div id="imgPreviewWrap" style="display:none;margin-top:8px">
-          <img id="imgPreview" class="img-preview" alt="Prévia" onerror="page.toast('Não foi possível carregar esta imagem','warning');clearImage()">
-          <button type="button" class="btn btn-danger btn-sm" onclick="clearImage()" style="margin-top:6px">🗑️ Remover imagem</button>
-        </div>
+        <div id="imgUpload" style="display:none"><input type="file" id="noteImageFile" accept="image/*" onchange="handleImageUpload(event)"><small class="text-muted">Convertida automaticamente para <b>.webp</b> (máx. 1280px).</small></div>
+        <div id="imgUrlBox" style="display:none"><input type="text" id="noteImageUrl" placeholder="https://..."></div>
+        <div id="imgPreviewWrap" style="display:none;margin-top:8px"><img id="imgPreview" class="img-preview" alt="Prévia" onerror="page.toast('Não foi possível carregar esta imagem','warning');clearImage()"><button type="button" class="btn btn-danger btn-sm" onclick="clearImage()" style="margin-top:6px">🗑️ Remover</button></div>
       </label>
-
-      <label><span>📝 Descrição <small class="text-muted">(estilo blog — </small>negrito, itálico, listas)</span>
-        <div style="display:flex;gap:4px;margin-bottom:6px">
-          <button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('**','**')"><b>B</b></button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('*','*')"><i>I</i></button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('\n- ','')">• Lista</button>
-          <button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('\n## ','')">H2</button>
-        </div>
-        <textarea id="noteDesc" rows="6" placeholder="Escreva o recadinho como um mini-post...&#10;Dica: use **negrito**, *itálico* e listas com '-'"></textarea>
-      </label>
-
+      <label><span>📝 Descrição</span><div style="display:flex;gap:4px;margin-bottom:6px"><button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('**','**')"><b>B</b></button><button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('*','*')"><i>I</i></button><button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('\n- ','')">• Lista</button><button type="button" class="btn btn-secondary btn-sm" onclick="insertFormat('\n## ','')">H2</button></div><textarea id="noteDesc" rows="6" placeholder="Escreva o recadinho... **negrito**, *itálico*"></textarea></label>
       <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
         <button type="button" class="btn btn-secondary" onclick="closeNoteModal()">Cancelar</button>
-        <label style="display:flex;align-items:center;gap:6px;margin:0">
-          <input type="checkbox" id="notePinned" style="width:auto">
-          <span style="margin:0;font-size:13px">📌 Fixar no topo</span>
-        </label>
-        <button type="submit" class="btn btn-primary" id="saveNoteBtn">💾 Salvar recadinho</button>
+        <label style="display:flex;align-items:center;gap:6px;margin:0"><input type="checkbox" id="notePinned" style="width:auto"><span style="margin:0;font-size:13px">📌 Fixar</span></label>
+        <button type="submit" class="btn btn-primary">💾 Salvar</button>
       </div>
     </form>
   </div>
 </div>
 
-<!-- MODAL: VER RECADINHO (blog) -->
+<!-- MODAL: VER -->
 <div class="modal-overlay hidden" id="viewModal" onclick="if(event.target===this)closeViewModal()">
   <div class="modal">
     <div id="viewContent"></div>
@@ -205,597 +176,302 @@
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
+<script src="../js/ai.js"></script>
 <script>
-/* =========================================================
-   NOTAS & RECADOS — recadinhos com data/hora, lembrete,
-   imagem (.webp), categorias próprias e visão calendário.
-   Sincronizam com Firestore (coleção 'notes', por usuário).
-   ========================================================= */
 const user = page.getUser();
 let view = 'cards';
+let statusFilter = localStorage.getItem('cl-notes-status') || 'active';
 let calCursor = new Date();
 let currentImage = '';
 let currentViewNoteId = null;
 
 const CATEGORY_PALETTE = ['#2563EB','#F59E0B','#EF4444','#8B5CF6','#10B981','#EC4899','#14B8A6','#F97316'];
+function getNotesCategories(){ const cats=page.getDB().settings.notesCategories; return (Array.isArray(cats)&&cats.length)?cats:['Geral']; }
+function catColor(name){ const cats=getNotesCategories(); const idx=Math.max(cats.indexOf(name),0); return CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length]; }
+function svgCover(emoji,c1,c2){ const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs><rect width="640" height="360" fill="url(#g)"/><circle cx="90" cy="70" r="120" fill="rgba(255,255,255,.12)"/><circle cx="560" cy="320" r="150" fill="rgba(255,255,255,.10)"/><circle cx="520" cy="60" r="60" fill="rgba(255,255,255,.08)"/><text x="320" y="205" font-size="110" text-anchor="middle">${emoji}</text></svg>`; return 'data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg); }
+const GALLERY=[{name:'Lembrete',src:()=>svgCover('📝','#2563EB','#60A5FA')},{name:'Urgente',src:()=>svgCover('🚨','#DC2626','#F87171')},{name:'Ideia',src:()=>svgCover('💡','#D97706','#FBBF24')},{name:'Pessoal',src:()=>svgCover('💜','#7C3AED','#C4B5FD')},{name:'Trabalho',src:()=>svgCover('💼','#065F46','#34D399')},{name:'Aviso',src:()=>svgCover('📢','#BE185D','#F9A8D4')}];
 
-function getNotesCategories() {
-  const cats = page.getDB().settings.notesCategories;
-  return (Array.isArray(cats) && cats.length) ? cats : ['Geral'];
-}
+function preserveCoreSideEffects(data){ const latest=page.getDB(); data.gamification=latest.gamification; data.logs=latest.logs; }
+function findNote(data,id){ return (data.notes||[]).find(n=>String(n.id)===String(id)); }
+function noteCats(n){ return Array.isArray(n.categories)?n.categories.filter(Boolean):[]; }
+function isPastNote(n,today){ return n.date && n.date < today; }
+function isTodayNote(n,today){ return n.date === today; }
+function isUpcoming(n,today){ return n.date && n.date >= today; }
+function isDone(n){ return !!n.done; }
+function isPending(n,today){ return !isDone(n) && n.date && n.date < today; }
 
-function catColor(name) {
-  const cats = getNotesCategories();
-  const idx = Math.max(cats.indexOf(name), 0);
-  return CATEGORY_PALETTE[idx % CATEGORY_PALETTE.length];
-}
+function fmtDesc(text){ const esc=page.esc(text||''); const html=esc.replace(/^## (.*)$/gm,'<h3>$1</h3>').replace(/^### (.*)$/gm,'<h3>$1</h3>').replace(/\*\*(.+?)\*\*/g,'<b>$1</b>').replace(/\*(.+?)\*/g,'<i>$1</i>').replace(/\n- (.+)(?=\n|$)/g,'\n• $1'); return html.split(/\n+/).map(line=> /^<(h3|b|i)/.test(line)||!line.trim()?line:`<p>${line}</p>`).join(''); }
+function stripMarkdown(text){ return (text||'').replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1'); }
 
-/* Capas da galeria: SVG inline (nenhum arquivo extra necessário). */
-function svgCover(emoji, c1, c2) {
-  const svg =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="360" viewBox="0 0 640 360">` +
-    `<defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1">` +
-    `<stop offset="0" stop-color="${c1}"/><stop offset="1" stop-color="${c2}"/></linearGradient></defs>` +
-    `<rect width="640" height="360" fill="url(#g)"/>` +
-    `<circle cx="90" cy="70" r="120" fill="rgba(255,255,255,.12)"/>` +
-    `<circle cx="560" cy="320" r="150" fill="rgba(255,255,255,.10)"/>` +
-    `<circle cx="520" cy="60" r="60" fill="rgba(255,255,255,.08)"/>` +
-    `<text x="320" y="205" font-size="110" text-anchor="middle">${emoji}</text>` +
-    `</svg>`;
-  return 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
-}
-const GALLERY = [
-  { name: 'Lembrete',  src: () => svgCover('📝', '#2563EB', '#60A5FA') },
-  { name: 'Urgente',   src: () => svgCover('🚨', '#DC2626', '#F87171') },
-  { name: 'Ideia',     src: () => svgCover('💡', '#D97706', '#FBBF24') },
-  { name: 'Pessoal',   src: () => svgCover('💜', '#7C3AED', '#C4B5FD') },
-  { name: 'Trabalho',  src: () => svgCover('💼', '#065F46', '#34D399') },
-  { name: 'Aviso',     src: () => svgCover('📢', '#BE185D', '#F9A8D4') },
-];
-
-/* ========== UTILITÁRIOS ========== */
-// Impedimentos de dados: o core salva gamificação/logs em uma leitura separada.
-// Preserve esses efeitos antes de gravar as notas para não revertê-los.
-function preserveCoreSideEffects(data) {
-  const latest = page.getDB();
-  data.gamification = latest.gamification;
-  data.logs = latest.logs;
-}
-
-function findNote(data, id) {
-  return (data.notes || []).find(n => String(n.id) === String(id));
-}
-
-function noteCats(n) {
-  return Array.isArray(n.categories) ? n.categories.filter(Boolean) : [];
-}
-
-function isPastNote(n, today) {
-  return n.date && n.date < today;
-}
-
-function fmtDesc(text) {
-  // Mini-markdown (mesmo estilo do blog das notícias): **negrito**, *itálico*,
-  // - listas, ## H2, ### H3. Escapa HTML antes de formatar (sem XSS).
-  const esc = page.esc(text || '');
-  const html = esc
-    .replace(/^## (.*)$/gm, '<h3>$1</h3>')
-    .replace(/^### (.*)$/gm, '<h3>$1</h3>')
-    .replace(/\*\*(.+?)\*\*/g, '<b>$1</b>')
-    .replace(/\*(.+?)\*/g, '<i>$1</i>')
-    .replace(/\n- (.+)(?=\n|$)/g, '\n• $1');
-  return html.split(/\n+/).map(line =>
-    /^<(h3|b|i)/.test(line) || !line.trim() ? line : `<p>${line}</p>`
-  ).join('');
-}
-
-function stripMarkdown(text) {
-  return (text || '').replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1');
-}
-
-/* ========== FILTROS CATEGORIAS ========== */
-function initCategories() {
-  const cats = getNotesCategories();
-  const filterCat = document.getElementById('filterCategory');
-  filterCat.innerHTML = '<option value="all">Todas categorias</option>';
-  cats.forEach(c => {
-    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
-  });
+function initCategories(){
+  const cats=getNotesCategories();
+  const filterCat=document.getElementById('filterCategory');
+  filterCat.innerHTML='<option value="all">Todas categorias</option>';
+  cats.forEach(c=>{ filterCat.innerHTML+=`<option value="${page.esc(c)}">${page.esc(c)}</option>`; });
   buildNoteCategoryBoxes([]);
 }
+function buildNoteCategoryBoxes(selectedNames){
+  const cats=getNotesCategories(); const selected=new Set(selectedNames);
+  document.getElementById('noteCategoryBoxes').innerHTML=cats.map(c=>`<label class="cat-check ${selected.has(c)?'checked':''}"><input type="checkbox" value="${page.esc(c)}" ${selected.has(c)?'checked':''} onchange="this.closest('.cat-check').classList.toggle('checked',this.checked)"><span class="check-dot">✓</span><span>${page.esc(c)}</span></label>`).join('');
+}
+function getSelectedCategories(){ return Array.from(document.querySelectorAll('#noteCategoryBoxes input[type="checkbox"]:checked')).map(input=>input.value); }
 
-function buildNoteCategoryBoxes(selectedNames) {
-  const cats = getNotesCategories();
-  const selected = new Set(selectedNames);
-  document.getElementById('noteCategoryBoxes').innerHTML = cats.map(c => `
-    <label class="cat-check ${selected.has(c) ? 'checked' : ''}">
-      <input type="checkbox" value="${page.esc(c)}" ${selected.has(c) ? 'checked' : ''} onchange="this.closest('.cat-check').classList.toggle('checked', this.checked)">
-      <span class="check-dot">✓</span>
-      <span>${page.esc(c)}</span>
-    </label>
-  `).join('');
+function setStatusFilter(s){
+  statusFilter=s;
+  localStorage.setItem('cl-notes-status',s);
+  document.querySelectorAll('#statusFilter button').forEach(b=>b.classList.toggle('active',b.dataset.status===s));
+  // também atualiza o select de período para coerência? não, mantém independente
+  render();
 }
 
-function getSelectedCategories() {
-  return Array.from(document.querySelectorAll('#noteCategoryBoxes input[type="checkbox"]:checked'))
-    .map(input => input.value);
-}
+function getFilteredNotes(){
+  const data=page.getDB();
+  const notes=(data.notes||[]).filter(n=>!user||!n.owner||String(n.owner)===String(user.id||user.uid));
+  const search=document.getElementById('search').value.toLowerCase();
+  const cat=document.getElementById('filterCategory').value;
+  const period=document.getElementById('filterPeriod').value;
+  const today=core.today();
+  const now=new Date();
 
-/* ========== FILTRO / ORDENAÇÃO ========== */
-function getFilteredNotes() {
-  const data = page.getDB();
-  const notes = (data.notes || []).filter(n => !user || !n.owner || String(n.owner) === String(user.id || user.uid));
-  const search = document.getElementById('search').value.toLowerCase();
-  const cat = document.getElementById('filterCategory').value;
-  const period = document.getElementById('filterPeriod').value;
-  const today = core.today();
-  const now = new Date();
-
-  const filtered = notes.filter(n => {
-    if (search && !n.title.toLowerCase().includes(search) && !stripMarkdown(n.desc).toLowerCase().includes(search)) return false;
-    if (cat !== 'all' && !noteCats(n).includes(cat)) return false;
-    if (period === 'today' && n.date !== today) return false;
-    if (period === 'past' && !isPastNote(n, today)) return false;
-    if (period === 'reminders' && !n.remind) return false;
-    if (period === 'upcoming') {
-      const end = new Date(); end.setDate(now.getDate() + 7);
-      if (!n.date || n.date < today || n.date > end.toISOString().slice(0, 10)) return false;
+  let filtered=notes.filter(n=>{
+    if(search && !n.title.toLowerCase().includes(search) && !stripMarkdown(n.desc).toLowerCase().includes(search)) return false;
+    if(cat!=='all' && !noteCats(n).includes(cat)) return false;
+    if(period==='today' && n.date!==today) return false;
+    if(period==='upcoming'){ const end=new Date(); end.setDate(now.getDate()+7); if(!n.date||n.date<today||n.date>end.toISOString().slice(0,10)) return false; }
+    if(period==='month'){ const monthStart=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10); const monthEnd=new Date(now.getFullYear(),now.getMonth()+1,0).toISOString().slice(0,10); if(!n.date||n.date<monthStart||n.date>monthEnd) return false; }
+    // filtro de status principal
+    if(statusFilter==='active'){
+      if(isDone(n)) return false;
+      if(n.date && n.date < today) return false; // pendentes não aparecem em ativas, vão para pendentes
+      // inclui hoje e futuro
+      return true;
     }
-    if (period === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
-      if (!n.date || n.date < monthStart || n.date > monthEnd) return false;
+    if(statusFilter==='pending'){
+      return isPending(n,today);
     }
+    if(statusFilter==='past'){
+      return isPastNote(n,today);
+    }
+    if(statusFilter==='done'){
+      return isDone(n);
+    }
+    // all
     return true;
   });
 
-  // Fixados primeiro; depois data mais próxima; depois hora.
-  return filtered.sort((a, b) => {
-    if (!!b.pinned !== !!a.pinned) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
-    const da = a.date || '9999', dbb = b.date || '9999';
-    if (da !== dbb) return da.localeCompare(dbb);
-    return String(a.time || '99:99').localeCompare(String(b.time || '99:99'));
+  return filtered.sort((a,b)=>{
+    if(!!b.pinned!==!!a.pinned) return (b.pinned?1:0)-(a.pinned?1:0);
+    // done last
+    if(!!a.done!==!!b.done) return a.done?1:-1;
+    const da=a.date||'9999', dbb=b.date||'9999';
+    if(da!==dbb) return da.localeCompare(dbb);
+    return String(a.time||'99:99').localeCompare(String(b.time||'99:99'));
   });
 }
 
-/* ========== RENDER ========== */
-function render() {
-  if (view === 'cards') renderCards();
-  else renderCalendar();
-}
+function render(){ if(view==='cards') renderCards(); else renderCalendar(); }
 
-function renderCards() {
-  const list = getFilteredNotes();
-  const today = core.today();
-  const wrap = document.getElementById('cardsView');
-
-  if (!list.length) {
-    wrap.innerHTML = `<div class="card"><div class="empty">
-      <div class="icon">📝</div>
-      <p><b>Nenhum recadinho por aqui</b></p>
-      <p style="font-size:13px;color:var(--muted)">Crie o primeiro com título, data, hora e uma imagem legal.</p>
-      <button class="btn btn-primary" onclick="openNoteForm()" style="margin-top:12px">＋ Novo recadinho</button>
-    </div></div>`;
+function renderCards(){
+  const list=getFilteredNotes();
+  const today=core.today();
+  const wrap=document.getElementById('cardsView');
+  if(!list.length){
+    let msg='Nenhum recadinho aqui';
+    if(statusFilter==='active') msg='Nenhuma nota ativa — tudo em dia! Crie uma nova para um aviso futuro.';
+    if(statusFilter==='pending') msg='Nenhuma pendente — você está em dia! 🎉';
+    if(statusFilter==='done') msg='Nenhuma concluída ainda';
+    wrap.innerHTML=`<div class="card"><div class="empty"><div class="icon">📝</div><p><b>${msg}</b></p><button class="btn btn-primary" onclick="openNoteForm()" style="margin-top:12px">＋ Novo recadinho</button></div></div>`;
     return;
   }
-
-  const pinned = list.filter(n => n.pinned);
-  const regular = list.filter(n => !n.pinned);
-
-  let html = '';
-  if (pinned.length) {
-    html += `<div class="note-section-title">📌 Fixados <span class="count">${pinned.length}</span></div>`;
-    html += `<div class="note-grid">${pinned.map(n => renderNoteCard(n, today)).join('')}</div>`;
+  const pinned=list.filter(n=>n.pinned && !isDone(n));
+  const regular=list.filter(n=>!n.pinned || isDone(n));
+  let html='';
+  if(pinned.length && statusFilter!=='done'){
+    html+=`<div class="note-section-title">📌 Fixados <span class="count">${pinned.length}</span></div><div class="note-grid">${pinned.map(n=>renderNoteCard(n,today)).join('')}</div>`;
   }
-  if (regular.length) {
-    html += `<div class="note-section-title">${pinned.length ? '🗂️ Demais recadinhos' : '🗂️ Recadinhos'} <span class="count">${regular.length}</span></div>`;
-    html += `<div class="note-grid">${regular.map(n => renderNoteCard(n, today)).join('')}</div>`;
-  }
-  wrap.innerHTML = html;
+  let titleMap={active:'🔜 Ativas — vão acontecer ou são de hoje',pending:'⏰ Pendentes — passou da data e não foi feita',past:'📚 Já passaram',done:'✅ Concluídas',all:'🗂️ Todas as notas'};
+  html+=`<div class="note-section-title">${titleMap[statusFilter]||'🗂️ Notas'} <span class="count">${regular.length}</span></div><div class="note-grid">${regular.map(n=>renderNoteCard(n,today)).join('')}</div>`;
+  wrap.innerHTML=html;
 }
 
-function renderNoteCard(n, today) {
-  const past = isPastNote(n, today);
-  const isToday = n.date === today;
-  const dateChip = `<span class="nt-chip ${past ? 'past' : isToday ? 'today' : ''}" title="Data do recadinho">📅 ${n.date ? n.date.slice(8, 10) + '/' + n.date.slice(5, 7) : '—'}${n.time ? ' ' + n.time : ''}</span>`;
-  const remindChip = n.remind && n.time ? `<span class="nt-chip remind" title="Lembrete agendado">⏰ ${n.time}</span>` : '';
-  const catChips = noteCats(n).map(c =>
-    `<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('');
-  const accent = noteCats(n).length ? catColor(noteCats(n)[0]) : '#94A3B8';
+function renderNoteCard(n,today){
+  const past=isPastNote(n,today);
+  const isToday=isTodayNote(n,today);
+  const done=isDone(n);
+  const pending=isPending(n,today);
+  let statusChip='';
+  if(done) statusChip='<span class="nt-chip done">✅ Feita</span>';
+  else if(pending) statusChip='<span class="nt-chip pending">⚠️ Pendente</span>';
+  else if(isToday) statusChip='<span class="nt-chip today">📅 Hoje</span>';
+  else if(past) statusChip='<span class="nt-chip past">📅 Passou</span>';
 
-  return `
-  <div class="note-card ${n.pinned ? 'pinned' : ''}" style="--accent:${accent}">
-    ${n.image ? `<img class="note-cover" src="${n.image}" alt="" loading="lazy" onclick="viewNote('${n.id}')">` : ''}
+  const dateChip=`<span class="nt-chip ${pending?'past':isToday?'today':''}">📅 ${n.date ? n.date.slice(8,10)+'/'+n.date.slice(5,7) : '—'}${n.time?' '+n.time:''}</span>`;
+  const remindChip=n.remind&&n.time?`<span class="nt-chip remind">⏰ ${n.time}</span>`:'';
+  const catChips=noteCats(n).map(c=>`<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('');
+  const accent=noteCats(n).length?catColor(noteCats(n)[0]):(pending?'#EF4444':done?'#10B981':'#94A3B8');
+  const cardCls = done ? 'done' : pending ? 'pending' : '';
+  return `<div class="note-card ${n.pinned?'pinned':''} ${cardCls}" style="--accent:${accent}">
+    ${n.image?`<img class="note-cover" src="${n.image}" alt="" loading="lazy" onclick="viewNote('${n.id}')">`:''}
     <div class="note-body">
-      <div class="note-title" onclick="viewNote('${n.id}')" title="Abrir recadinho">${page.esc(n.title)}</div>
-      <div class="note-meta">${dateChip}${remindChip}${catChips}</div>
-      ${n.desc ? `<div class="note-desc">${page.esc(stripMarkdown(n.desc))}</div>` : ''}
+      <div class="note-title" onclick="viewNote('${n.id}')">${page.esc(n.title)}</div>
+      <div class="note-meta">${dateChip}${remindChip}${statusChip}${catChips}</div>
+      ${n.desc?`<div class="note-desc">${page.esc(stripMarkdown(n.desc))}</div>`:''}
     </div>
     <div class="note-actions">
-      <button class="btn-icon" onclick="togglePin('${n.id}')" title="${n.pinned ? 'Desafixar' : 'Fixar no topo'}">📌</button>
+      <button class="btn-icon" onclick="toggleDone('${n.id}')" title="${done?'Desmarcar como feita':'Marcar como feita'}">${done?'↩️':'✅'}</button>
+      <button class="btn-icon" onclick="togglePin('${n.id}')" title="${n.pinned?'Desafixar':'Fixar'}">📌</button>
       <button class="btn-icon" onclick="viewNote('${n.id}')" title="Abrir">👁️</button>
-      <button class="btn-icon" onclick="shareNote('${n.id}')" title="Copiar p/ compartilhar">🔗</button>
       <button class="btn-icon" onclick="editNote('${n.id}')" title="Editar">✏️</button>
       <button class="btn-icon" onclick="deleteNote('${n.id}')" title="Excluir">🗑️</button>
     </div>
   </div>`;
 }
 
-/* ========== CALENDÁRIO ========== */
-function setView(v) {
-  view = v;
-  document.getElementById('btnViewCards').classList.toggle('active', v === 'cards');
-  document.getElementById('btnViewCal').classList.toggle('active', v === 'calendar');
-  document.getElementById('cardsView').style.display = v === 'cards' ? '' : 'none';
-  document.getElementById('calendarView').style.display = v === 'calendar' ? '' : 'none';
+function setView(v){
+  view=v;
+  document.getElementById('btnViewCards').classList.toggle('active',v==='cards');
+  document.getElementById('btnViewCal').classList.toggle('active',v==='calendar');
+  document.getElementById('cardsView').style.display=v==='cards'?'':'none';
+  document.getElementById('calendarView').style.display=v==='calendar'?'':'none';
   render();
 }
+function changeMonth(delta){ calCursor.setMonth(calCursor.getMonth()+delta); renderCalendar(); }
+function goToday(){ calCursor=new Date(); renderCalendar(); }
 
-function changeMonth(delta) { calCursor.setMonth(calCursor.getMonth() + delta); renderCalendar(); }
-function goToday() { calCursor = new Date(); renderCalendar(); }
-
-function renderCalendar() {
-  const lang = page.getLanguage();
-  const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
-  const year = calCursor.getFullYear();
-  const month = calCursor.getMonth();
-  document.getElementById('calTitle').textContent =
-    new Date(year, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
-
-  const data = page.getDB();
-  const uid = user?.id || user?.uid;
-  const notes = (data.notes || []).filter(n => !uid || !n.owner || String(n.owner) === String(uid));
-  const today = core.today();
-
-  const firstDay = new Date(year, month, 1);
-  const daysInMonth = new Date(year, month + 1, 0).getDate();
-  const startWeekday = firstDay.getDay();
-
-  let html = '';
-  [page.t('calendar.sun','dom'), page.t('calendar.mon','seg'), page.t('calendar.tue','ter'),
-   page.t('calendar.wed','qua'), page.t('calendar.thu','qui'), page.t('calendar.fri','sex'),
-   page.t('calendar.sat','sáb')].forEach(w => { html += `<div class="cal-weekday">${w}</div>`; });
-
-  const prevLastDay = new Date(year, month, 0).getDate();
-  for (let i = startWeekday - 1; i >= 0; i--) {
-    html += `<div class="cal-day other-month"><div class="cal-day-num">${prevLastDay - i}</div></div>`;
-  }
-
-  for (let d = 1; d <= daysInMonth; d++) {
-    const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-    const dayNotes = notes.filter(n => n.date === dateStr);
-    const isToday = dateStr === today;
-    const events = dayNotes.slice(0, 2).map(n => {
-      const cats = noteCats(n);
-      const accent = cats.length ? catColor(cats[0]) : '#2563EB';
-      const pastCls = dateStr < today ? 'past' : '';
-      return `<div class="cal-event cal-note-event ${pastCls}" style="--accent:${accent};background:${accent}"
-        onclick="event.stopPropagation();viewNote('${n.id}')" title="${page.esc(n.title)}${n.time ? ' · ' + n.time : ''}">${n.remind ? '⏰ ' : ''}${page.esc(n.title)}</div>`;
+function renderCalendar(){
+  const lang=page.getLanguage(); const locale=lang==='en'?'en-US':lang==='es'?'es-ES':'pt-BR';
+  const year=calCursor.getFullYear(); const month=calCursor.getMonth();
+  document.getElementById('calTitle').textContent=new Date(year,month,1).toLocaleDateString(locale,{month:'long',year:'numeric'});
+  const data=page.getDB(); const uid=user?.id||user?.uid;
+  const notes=(data.notes||[]).filter(n=>!uid||!n.owner||String(n.owner)===String(uid));
+  const today=core.today();
+  const firstDay=new Date(year,month,1); const daysInMonth=new Date(year,month+1,0).getDate(); const startWeekday=firstDay.getDay();
+  let html=''; [page.t('calendar.sun','dom'),page.t('calendar.mon','seg'),page.t('calendar.tue','ter'),page.t('calendar.wed','qua'),page.t('calendar.thu','qui'),page.t('calendar.fri','sex'),page.t('calendar.sat','sáb')].forEach(w=>{ html+=`<div class="cal-weekday">${w}</div>`; });
+  const prevLastDay=new Date(year,month,0).getDate();
+  for(let i=startWeekday-1;i>=0;i--){ html+=`<div class="cal-day other-month"><div class="cal-day-num">${prevLastDay-i}</div></div>`; }
+  for(let d=1;d<=daysInMonth;d++){
+    const dateStr=`${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    const dayNotes=notes.filter(n=>n.date===dateStr);
+    const isToday=dateStr===today;
+    const events=dayNotes.slice(0,2).map(n=>{
+      const cats=noteCats(n); const accent=cats.length?catColor(cats[0]): (isDone(n)?'#10B981': isPending(n,today)?'#EF4444':'#2563EB');
+      const pastCls=dateStr<today?'past':''; const doneCls=isDone(n)?'finished':'';
+      return `<div class="cal-event cal-note-event ${pastCls} ${doneCls}" style="background:${accent}" onclick="event.stopPropagation();viewNote('${n.id}')" title="${page.esc(n.title)}${n.time?' · '+n.time:''}${isDone(n)?' ✅':''}">${isDone(n)?'✅ ': n.remind?'⏰ ':''}${page.esc(n.title)}</div>`;
     }).join('');
-    const more = dayNotes.length > 2 ? `<div class="cal-more">+${dayNotes.length - 2} mais</div>` : '';
-    html += `<div class="cal-day ${isToday ? 'today' : ''}" onclick="openDayModal('${dateStr}')">
-      <div class="cal-day-num">${d}</div>${events}${more}</div>`;
+    const more=dayNotes.length>2?`<div class="cal-more">+${dayNotes.length-2} mais</div>`:'';
+    html+=`<div class="cal-day ${isToday?'today':''}" onclick="openDayModal('${dateStr}')"><div class="cal-day-num">${d}</div>${events}${more}</div>`;
   }
-
-  const totalCells = startWeekday + daysInMonth;
-  const remaining = (7 - (totalCells % 7)) % 7;
-  for (let d = 1; d <= remaining; d++) {
-    html += `<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`;
-  }
-
-  const grid = document.getElementById('calGrid');
-  grid.style.gridTemplateColumns = 'repeat(7,1fr)';
-  grid.innerHTML = html;
+  const totalCells=startWeekday+daysInMonth; const remaining=(7-(totalCells%7))%7;
+  for(let d=1;d<=remaining;d++){ html+=`<div class="cal-day other-month"><div class="cal-day-num">${d}</div></div>`; }
+  const grid=document.getElementById('calGrid'); grid.style.gridTemplateColumns='repeat(7,1fr)'; grid.innerHTML=html;
 }
-
-function openDayModal(dateStr) {
-  const data = page.getDB();
-  const uid = user?.id || user?.uid;
-  const notes = (data.notes || []).filter(n => n.date === dateStr && (!uid || !n.owner || String(n.owner) === String(uid)));
-  document.getElementById('dayModalTitle').textContent = `📝 ${core.formatDate(dateStr)} (${notes.length})`;
-  document.getElementById('dayModal').dataset.date = dateStr;
-  document.getElementById('dayModalList').innerHTML = notes.length === 0
-    ? '<div class="empty"><p>Nenhum recadinho nesta data</p></div>'
-    : notes.map(n => `
-      <div class="item">
-        <span>${n.remind ? '⏰' : '📝'}</span>
-        <div class="item-info">
-          <b>${page.esc(n.title)}</b>
-          <small>${n.time ? n.time + ' · ' : ''}${noteCats(n).join(', ') || 'Sem categoria'}</small>
-        </div>
-        <button class="btn-icon" onclick="closeDayModal();viewNote('${n.id}')" title="Abrir">👁️</button>
-      </div>`).join('');
+function openDayModal(dateStr){
+  const data=page.getDB(); const uid=user?.id||user?.uid;
+  const notes=(data.notes||[]).filter(n=>n.date===dateStr && (!uid||!n.owner||String(n.owner)===String(uid)));
+  document.getElementById('dayModalTitle').textContent=`📝 ${core.formatDate(dateStr)} (${notes.length})`;
+  document.getElementById('dayModal').dataset.date=dateStr;
+  document.getElementById('dayModalList').innerHTML=notes.length===0?'<div class="empty"><p>Nenhum recadinho nesta data</p></div>':notes.map(n=>`<div class="item"><span>${isDone(n)?'✅': isPending(n,core.today())?'⚠️':'📝'}</span><div class="item-info"><b>${page.esc(n.title)}</b><small>${n.time?n.time+' · ':''}${noteCats(n).join(', ')||'Sem categoria'} ${isDone(n)?'· Feita':''}</small></div><button class="btn-icon" onclick="closeDayModal();viewNote('${n.id}')" title="Abrir">👁️</button></div>`).join('');
   document.getElementById('dayModal').classList.remove('hidden');
 }
+function closeDayModal(){ document.getElementById('dayModal').classList.add('hidden'); }
+function newNoteForDay(){ const date=document.getElementById('dayModal').dataset.date||core.today(); closeDayModal(); openNoteForm(null,date); }
 
-function closeDayModal() { document.getElementById('dayModal').classList.add('hidden'); }
+function buildGallery(){ document.getElementById('imgGallery').innerHTML=GALLERY.map((g,i)=>`<button type="button" data-gallery="${i}" onclick="selectGallery(${i})" title="${g.name}"><img src="${g.src()}" alt="${g.name}"></button>`).join(''); }
+function setImgTab(tab){ document.getElementById('tabGallery').classList.toggle('active',tab==='gallery'); document.getElementById('tabUpload').classList.toggle('active',tab==='upload'); document.getElementById('tabUrl').classList.toggle('active',tab==='url'); document.getElementById('imgGallery').style.display=tab==='gallery'?'':'none'; document.getElementById('imgUpload').style.display=tab==='upload'?'':'none'; document.getElementById('imgUrlBox').style.display=tab==='url'?'':'none'; }
+function selectGallery(idx){ document.querySelectorAll('#imgGallery button').forEach((b,i)=>b.classList.toggle('active',i===idx)); setImage(GALLERY[idx].src()); }
+function setImage(src){ currentImage=src||''; const wrap=document.getElementById('imgPreviewWrap'); if(currentImage){ document.getElementById('imgPreview').src=currentImage; wrap.style.display=''; } else wrap.style.display='none'; }
+function clearImage(){ setImage(''); document.getElementById('noteImageUrl').value=''; document.getElementById('noteImageFile').value=''; document.querySelectorAll('#imgGallery button').forEach(b=>b.classList.remove('active')); }
+async function handleImageUpload(e){ const file=e.target.files[0]; if(!file) return; if(!file.type.startsWith('image/')) return page.toast('Escolha um arquivo de imagem.','warning'); try{ const webp=await core.compressImage(file,1280,0.85); setImage(webp); page.toast('Imagem convertida para .webp! ✅','success'); }catch(err){ console.warn(err); page.toast('Não foi possível processar a imagem.','error'); } }
 
-function newNoteForDay() {
-  const date = document.getElementById('dayModal').dataset.date || core.today();
-  closeDayModal();
-  openNoteForm(null, date);
-}
-
-/* ========== FORM (CRIAR/EDITAR) ========== */
-function buildGallery() {
-  document.getElementById('imgGallery').innerHTML = GALLERY.map((g, i) => `
-    <button type="button" data-gallery="${i}" onclick="selectGallery(${i})" title="${g.name}">
-      <img src="${g.src()}" alt="${g.name}">
-    </button>`).join('');
-}
-
-function setImgTab(tab) {
-  document.getElementById('tabGallery').classList.toggle('active', tab === 'gallery');
-  document.getElementById('tabUpload').classList.toggle('active', tab === 'upload');
-  document.getElementById('tabUrl').classList.toggle('active', tab === 'url');
-  document.getElementById('imgGallery').style.display = tab === 'gallery' ? '' : 'none';
-  document.getElementById('imgUpload').style.display = tab === 'upload' ? '' : 'none';
-  document.getElementById('imgUrlBox').style.display = tab === 'url' ? '' : 'none';
-}
-
-function selectGallery(idx) {
-  document.querySelectorAll('#imgGallery button').forEach((b, i) =>
-    b.classList.toggle('active', i === idx));
-  setImage(GALLERY[idx].src());
-}
-
-function setImage(src) {
-  currentImage = src || '';
-  const wrap = document.getElementById('imgPreviewWrap');
-  if (currentImage) {
-    document.getElementById('imgPreview').src = currentImage;
-    wrap.style.display = '';
-  } else {
-    wrap.style.display = 'none';
-  }
-}
-
-function clearImage() {
-  setImage('');
-  document.getElementById('noteImageUrl').value = '';
-  document.getElementById('noteImageFile').value = '';
-  document.querySelectorAll('#imgGallery button').forEach(b => b.classList.remove('active'));
-}
-
-/* Upload → WebP (canvas). Máx. 1280px, qualidade 85% — mantém o banco leve. */
-async function handleImageUpload(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  if (!file.type.startsWith('image/')) return page.toast('Escolha um arquivo de imagem.', 'warning');
-  try {
-    const webp = await core.compressImage(file, 1280, 0.85);
-    setImage(webp);
-    page.toast('Imagem convertida para .webp! ✅', 'success');
-  } catch (err) {
-    console.warn('image upload:', err);
-    page.toast('Não foi possível processar a imagem.', 'error');
-  }
-}
-
-function openNoteForm(id, date) {
-  document.getElementById('noteModalTitle').textContent = id ? '✏️ Editar recadinho' : '📝 Novo recadinho';
-  document.getElementById('noteId').value = id || '';
-  document.getElementById('noteDate').value = date || core.today();
-  buildNoteCategoryBoxes([]);
-  buildGallery();
-  setImgTab('gallery');
-  clearImage();
-
-  if (id) {
-    const data = page.getDB();
-    const n = findNote(data, id);
-    if (n) {
-      document.getElementById('noteTitle').value = n.title;
-      document.getElementById('noteDate').value = n.date || core.today();
-      document.getElementById('noteTime').value = n.time || '';
-      document.getElementById('noteRemind').checked = !!n.remind;
-      document.getElementById('noteDesc').value = n.desc || '';
-      document.getElementById('notePinned').checked = !!n.pinned;
-      buildNoteCategoryBoxes(noteCats(n));
-      if (n.image) {
-        setImage(n.image);
-        if (n.image.startsWith('data:image/svg+xml')) {
-          const idx = GALLERY.findIndex(g => g.src() === n.image);
-          if (idx >= 0) document.querySelectorAll('#imgGallery button')[idx]?.classList.add('active');
-        } else if (/^https?:/i.test(n.image)) {
-          setImgTab('url');
-          document.getElementById('noteImageUrl').value = n.image;
-        } else {
-          setImgTab('upload');
-        }
-      }
+function openNoteForm(id,date){
+  document.getElementById('noteModalTitle').textContent=id?'✏️ Editar recadinho':'📝 Novo recadinho';
+  document.getElementById('noteId').value=id||''; document.getElementById('noteDate').value=date||core.today(); buildNoteCategoryBoxes([]); buildGallery(); setImgTab('gallery'); clearImage();
+  if(id){
+    const data=page.getDB(); const n=findNote(data,id);
+    if(n){
+      document.getElementById('noteTitle').value=n.title; document.getElementById('noteDate').value=n.date||core.today(); document.getElementById('noteTime').value=n.time||''; document.getElementById('noteRemind').checked=!!n.remind; document.getElementById('noteDesc').value=n.desc||''; document.getElementById('notePinned').checked=!!n.pinned; buildNoteCategoryBoxes(noteCats(n));
+      if(n.image){ setImage(n.image); if(n.image.startsWith('data:image/svg+xml')){ const idx=GALLERY.findIndex(g=>g.src()===n.image); if(idx>=0) document.querySelectorAll('#imgGallery button')[idx]?.classList.add('active'); } else if(/^https?:/i.test(n.image)){ setImgTab('url'); document.getElementById('noteImageUrl').value=n.image; } else setImgTab('upload'); }
     }
   } else {
-    document.getElementById('noteTitle').value = '';
-    document.getElementById('noteTime').value = '';
-    document.getElementById('noteRemind').checked = false;
-    document.getElementById('noteDesc').value = '';
-    document.getElementById('notePinned').checked = false;
+    document.getElementById('noteTitle').value=''; document.getElementById('noteTime').value=''; document.getElementById('noteRemind').checked=false; document.getElementById('noteDesc').value=''; document.getElementById('notePinned').checked=false;
   }
-  document.getElementById('noteModal').classList.remove('hidden');
-  setTimeout(() => document.getElementById('noteTitle').focus(), 150);
+  document.getElementById('noteModal').classList.remove('hidden'); setTimeout(()=>document.getElementById('noteTitle').focus(),150);
 }
+function editNote(id){ openNoteForm(id); }
+function closeNoteModal(){ document.getElementById('noteModal').classList.add('hidden'); }
+function insertFormat(before,after){ const ta=document.getElementById('noteDesc'); const start=ta.selectionStart,end=ta.selectionEnd; const text=ta.value; const selected=text.slice(start,end)||'texto'; ta.value=text.slice(0,start)+before+selected+after+text.slice(end); ta.focus(); ta.selectionStart=start+before.length; ta.selectionEnd=start+before.length+selected.length; }
 
-function editNote(id) { openNoteForm(id); }
-
-function closeNoteModal() { document.getElementById('noteModal').classList.add('hidden'); }
-
-function insertFormat(before, after) {
-  const ta = document.getElementById('noteDesc');
-  const start = ta.selectionStart, end = ta.selectionEnd;
-  const text = ta.value;
-  const selected = text.slice(start, end) || 'texto';
-  ta.value = text.slice(0, start) + before + selected + after + text.slice(end);
-  ta.focus();
-  ta.selectionStart = start + before.length;
-  ta.selectionEnd = start + before.length + selected.length;
-}
-
-function saveNote(e) {
-  e.preventDefault();
-  const data = page.getDB();
-  const id = document.getElementById('noteId').value;
-  const remind = document.getElementById('noteRemind').checked;
-  const time = document.getElementById('noteTime').value;
-
-  if (remind && !time) {
-    return page.toast('Para ativar o lembrete, escolha um horário. ⏰', 'warning');
-  }
-  // Texto digitado na guia URL tem prioridade sobre a imagem atual
-  const urlImage = document.getElementById('noteImageUrl').value.trim();
-  const image = urlImage || currentImage || '';
-
-  const noteData = {
-    title: document.getElementById('noteTitle').value.trim(),
-    date: document.getElementById('noteDate').value,
-    time,
-    remind,
-    pinned: document.getElementById('notePinned').checked,
-    categories: getSelectedCategories(),
-    image,
-    desc: document.getElementById('noteDesc').value.trim(),
-  };
-
-  if (id) {
-    const note = findNote(data, id);
-    if (note) Object.assign(note, noteData, { updatedAt: core.now() });
-    core.log('note_edit', user?.id, noteData.title);
-    page.toast('Recadinho atualizado! ✅', 'success');
+function saveNote(e){
+  e.preventDefault(); const data=page.getDB(); const id=document.getElementById('noteId').value; const remind=document.getElementById('noteRemind').checked; const time=document.getElementById('noteTime').value;
+  if(remind && !time) return page.toast('Para ativar o lembrete, escolha um horário. ⏰','warning');
+  const urlImage=document.getElementById('noteImageUrl').value.trim(); const image=urlImage||currentImage||'';
+  const noteData={ title:document.getElementById('noteTitle').value.trim(), date:document.getElementById('noteDate').value, time, remind, pinned:document.getElementById('notePinned').checked, categories:getSelectedCategories(), image, desc:document.getElementById('noteDesc').value.trim(), };
+  if(id){
+    const note=findNote(data,id); if(note) Object.assign(note,noteData,{updatedAt:core.now()}); core.log('note_edit',user?.id,noteData.title); page.toast('Recadinho atualizado! ✅','success');
   } else {
-    noteData.id = Date.now();
-    noteData.owner = user?.id || user?.uid || 'unknown';
-    noteData.ownerName = user?.name || user?.username || '';
-    noteData.createdAt = core.now();
-    if (!data.notes) data.notes = [];
-    data.notes.unshift(noteData);
-    core.log('note_create', user?.id, noteData.title);
+    noteData.id=Date.now(); noteData.owner=user?.id||user?.uid||'unknown'; noteData.ownerName=user?.name||user?.username||''; noteData.createdAt=core.now(); noteData.done=false; noteData.doneAt=null; if(!data.notes) data.notes=[]; data.notes.unshift(noteData); core.log('note_create',user?.id,noteData.title);
   }
-
-  preserveCoreSideEffects(data);
-  page.saveDB(data);
-  const savedNote = findNote(data, id || noteData.id);
-  if (savedNote) page.syncDocument('notes', savedNote.id, savedNote);
-  closeNoteModal();
-  render();
-  if (!id) {
-    page.toast(remind
-      ? `Recadinho criado! 📝 Lembrete agendado para ${noteData.date.slice(8, 10)}/${noteData.date.slice(5, 7)} às ${time}.`
-      : 'Recadinho criado! 📝', 'success');
-  }
+  preserveCoreSideEffects(data); page.saveDB(data); const savedNote=findNote(data,id||noteData.id); if(savedNote) page.syncDocument('notes',savedNote.id,savedNote); closeNoteModal(); render();
+  if(!id){ page.toast(remind?`Recadinho criado! Lembrete ${noteData.date.slice(8,10)}/${noteData.date.slice(5,7)} às ${time}.`:'Recadinho criado! 📝','success'); }
 }
 
-function deleteNote(id) {
-  if (!confirm('Excluir este recadinho?')) return;
-  const data = page.getDB();
-  const note = findNote(data, id);
-  data.notes = (data.notes || []).filter(n => String(n.id) !== String(id));
-  preserveCoreSideEffects(data);
-  page.saveDB(data);
-  if (note) page.deleteDocument('notes', note.id);
-  core.log('note_delete', user?.id, note?.title || '');
-  page.toast('Recadinho excluído', 'info');
+function deleteNote(id){
+  if(!confirm('Excluir este recadinho? Ele só é excluído manualmente.')) return;
+  const data=page.getDB(); const note=findNote(data,id); data.notes=(data.notes||[]).filter(n=>String(n.id)!==String(id)); preserveCoreSideEffects(data); page.saveDB(data); if(note) page.deleteDocument('notes',note.id); core.log('note_delete',user?.id,note?.title||''); page.toast('Recadinho excluído','info'); render();
+}
+function togglePin(id){
+  const data=page.getDB(); const note=findNote(data,id); if(!note) return; note.pinned=!note.pinned; note.updatedAt=core.now(); preserveCoreSideEffects(data); page.saveDB(data); page.syncDocument('notes',note.id,note); page.toast(note.pinned?'Fixado 📌':'Desafixado','info'); render();
+}
+function toggleDone(id){
+  const data=page.getDB(); const note=findNote(data,id); if(!note) return;
+  note.done=!note.done;
+  note.doneAt=note.done?core.now():null;
+  note.updatedAt=core.now();
+  preserveCoreSideEffects(data); page.saveDB(data); page.syncDocument('notes',note.id,note);
+  page.toast(note.done?'Marcada como feita ✅':'Marcada como pendente ⏰', note.done?'success':'info');
   render();
 }
 
-function togglePin(id) {
-  const data = page.getDB();
-  const note = findNote(data, id);
-  if (!note) return;
-  note.pinned = !note.pinned;
-  note.updatedAt = core.now();
-  preserveCoreSideEffects(data);
-  page.saveDB(data);
-  page.syncDocument('notes', note.id, note);
-  page.toast(note.pinned ? 'Recadinho fixado no topo 📌' : 'Recadinho desafixado', 'info');
-  render();
-}
-
-/* ========== VER (BLOG) ========== */
-function viewNote(id) {
-  const data = page.getDB();
-  const n = findNote(data, id);
-  if (!n) return;
-  currentViewNoteId = id;
-  const cats = noteCats(n);
-  document.getElementById('viewContent').innerHTML = `
-    ${n.image ? `<img class="blog-cover" src="${n.image}" alt="">` : ''}
-    <h2 style="margin-bottom:8px">${page.esc(n.title)}</h2>
-    <div class="note-meta" style="margin-bottom:14px">
-      <span class="nt-chip">📅 ${core.formatDate(n.date)}</span>
-      ${n.time ? `<span class="nt-chip">⏰ ${n.time}</span>` : ''}
-      ${n.remind ? '<span class="nt-chip remind">🔔 Lembrete ativo</span>' : ''}
-      ${n.pinned ? '<span class="nt-chip">📌 Fixado</span>' : ''}
-      ${cats.map(c => `<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('')}
-    </div>
-    <div class="blog-body">${n.desc ? fmtDesc(n.desc) : '<p class="text-muted">Sem descrição.</p>'}</div>
-    <small style="display:block;margin-top:14px;color:var(--muted)">por ${page.esc(n.ownerName || 'você')} · criado em ${core.formatDateTime(n.createdAt)}</small>
-  `;
+function viewNote(id){
+  const data=page.getDB(); const n=findNote(data,id); if(!n) return; currentViewNoteId=id; const cats=noteCats(n);
+  const doneChip=isDone(n)?'<span class="nt-chip done">✅ Feita</span>': isPending(n,core.today())?'<span class="nt-chip pending">⚠️ Pendente</span>':'';
+  document.getElementById('viewContent').innerHTML=`${n.image?`<img class="blog-cover" src="${n.image}" alt="">`:''}<h2 style="margin-bottom:8px">${page.esc(n.title)}</h2><div class="note-meta" style="margin-bottom:14px"><span class="nt-chip">📅 ${core.formatDate(n.date)}</span>${n.time?`<span class="nt-chip">⏰ ${n.time}</span>`:''}${n.remind?'<span class="nt-chip remind">🔔 Lembrete ativo</span>':''}${doneChip}${n.pinned?'<span class="nt-chip">📌 Fixado</span>':''}${cats.map(c=>`<span class="nt-chip cat" style="--accent:${catColor(c)}">🏷️ ${page.esc(c)}</span>`).join('')}</div><div class="blog-body">${n.desc?fmtDesc(n.desc):'<p class="text-muted">Sem descrição.</p>'}</div><div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap"><button class="btn ${isDone(n)?'btn-secondary':'btn-primary'} btn-sm" onclick="toggleDone('${n.id}');closeViewModal();">${isDone(n)?'↩️ Desmarcar':'✅ Marcar como feita'}</button><span style="font-size:12px;color:var(--muted);display:flex;align-items:center">por ${page.esc(n.ownerName||'você')} · criado em ${core.formatDateTime(n.createdAt)}${n.doneAt?' · feita em '+core.formatDateTime(n.doneAt):''}</span></div>`;
   document.getElementById('viewModal').classList.remove('hidden');
 }
+function closeViewModal(){ document.getElementById('viewModal').classList.add('hidden'); currentViewNoteId=null; }
+function editFromView(){ const id=currentViewNoteId; closeViewModal(); if(id) editNote(id); }
 
-function closeViewModal() { document.getElementById('viewModal').classList.add('hidden'); currentViewNoteId = null; }
-function editFromView() { const id = currentViewNoteId; closeViewModal(); if (id) editNote(id); }
-
-/* ========== COMPARTILHAR (texto pronto para colar) ========== */
-function shareNote(id) {
-  const data = page.getDB();
-  const n = findNote(data, id);
-  if (!n) return;
-  const cats = noteCats(n);
-  const text =
-    `📝 *${n.title}*\n` +
-    `📅 ${core.formatDate(n.date)}${n.time ? ` ⏰ ${n.time}` : ''}${n.remind ? ' 🔔' : ''}\n` +
-    (cats.length ? `🏷️ ${cats.join(', ')}\n` : '') +
-    (n.desc ? `\n${stripMarkdown(n.desc)}\n` : '') +
-    `\n— via ${page.getDB().settings.brand || 'Checklist ML'}`;
-
-  const done = () => page.toast('Recadinho copiado! Cole onde quiser compartilhar 📋', 'success');
-  if (navigator.clipboard?.writeText) {
-    navigator.clipboard.writeText(text).then(done, () => fallbackCopy(text, done));
-  } else {
-    fallbackCopy(text, done);
-  }
+async function askAI(q){
+  const box=document.getElementById('aiAnswerNotas');
+  box.style.display='block'; box.innerHTML='<div style="padding:12px;color:var(--muted)">🤖 Pensando...</div>';
+  try{
+    const key=await page.getDeepseekKey().catch(()=> '') || await page.getGroqKey().catch(()=> '');
+    if(!key){ box.innerHTML=`<div style="padding:12px;background:var(--bg-secondary);border-radius:8px;font-size:13px"><b>🤖 Dica (offline):</b><br>Notas são avisos com data/hora. Use Fixar para deixar no topo, Pendentes mostra o que passou da data e não foi feito. Só você apaga manualmente.</div>`; return; }
+    const prov=(await page.getAdminConfig().catch(()=>({aiProvider:'deepseek'}))).aiProvider||'deepseek';
+    const data=page.getDB();
+    const notes=(data.notes||[]).filter(n=>!user||!n.owner||String(n.owner)===String(user.id||user.uid));
+    const today=core.today();
+    const act=notes.filter(n=>!n.done && n.date>=today).length;
+    const pend=notes.filter(n=>!n.done && n.date<today).length;
+    const ctx=`Você é assistente do Checklist ML, página Notas. Total ${notes.length}, ativas ${act}, pendentes ${pend}. Explique como funciona, dê dicas de organização.`;
+    const res=await AIClient.chat({apiKey:key,provider:prov,systemPrompt:ctx+' Responda curto, direto, pt-BR.',question:q,mode:page.getAIMode(),proxyUrl:page.getAIProxyUrl()});
+    box.innerHTML=`<div style="padding:12px;background:var(--card);border:1px solid var(--line);border-radius:10px;font-size:13px;white-space:pre-wrap">${page.esc(res.answer)}</div>`;
+  }catch(err){ box.innerHTML=`<div style="padding:12px;background:#FEF3C7;border-radius:8px;font-size:13px">⚠️ ${page.esc(err.message||'Erro IA')}</div>`; }
 }
 
-function fallbackCopy(text, done) {
-  const ta = document.createElement('textarea');
-  ta.value = text;
-  ta.style.position = 'fixed'; ta.style.opacity = '0';
-  document.body.appendChild(ta);
-  ta.select();
-  try { document.execCommand('copy'); done(); }
-  catch (e) { page.toast('Não foi possível copiar.', 'error'); }
-  document.body.removeChild(ta);
-}
-
-/* ========== BOOT ==========
-   Inicialização por último (todas as funções/const já existem aqui) e
-   protegida por try/catch: se algo falhar, a página mostra o erro em
-   vez de ficar em branco — mesmo padrão adotado em atividades.html. */
-function boot() {
-  try {
+function boot(){
+  try{
     initCategories();
     buildGallery();
+    document.querySelectorAll('#statusFilter button').forEach(b=>b.classList.toggle('active',b.dataset.status===statusFilter));
     setView('cards');
-  } catch (err) {
-    console.error('Falha ao iniciar a página de notas:', err);
-    const wrap = document.getElementById('cardsView');
-    if (wrap) {
-      wrap.innerHTML = `<div class="card"><div class="empty">
-        <div class="icon">⚠️</div>
-        <p><b>Não foi possível carregar os recadinhos.</b></p>
-        <p style="font-size:12px;color:var(--muted)">${page.esc(err.message || String(err))}</p>
-        <button class="btn btn-secondary btn-sm" onclick="location.reload()" style="margin-top:10px">🔄 Tentar novamente</button>
-      </div></div>`;
-    }
+  }catch(err){
+    console.error(err);
+    const wrap=document.getElementById('cardsView');
+    if(wrap) wrap.innerHTML=`<div class="card"><div class="empty"><div class="icon">⚠️</div><p><b>Erro ao carregar notas.</b></p><p style="font-size:12px;color:var(--muted)">${page.esc(err.message||String(err))}</p></div></div>`;
   }
 }
-
-if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', boot);
-} else {
-  boot();
-}
+if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded',boot); } else boot();
 </script>
 </body>
 </html>
