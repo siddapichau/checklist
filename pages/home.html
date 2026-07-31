@@ -38,8 +38,34 @@
 
 <!-- CONTEÚDO REAL -->
 <div id="realContent" style="display:none">
+  <!-- FILTRO DE PERÍODO (sempre do dia atual para trás) -->
+  <div class="dash-filter card" style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:18px;padding:14px 16px">
+    <div style="display:flex;align-items:center;gap:8px;font-weight:700;color:var(--text)">
+      <span>📆 Período</span>
+    </div>
+    <div class="seg" id="periodSeg" role="tablist" style="display:flex;gap:6px;flex-wrap:wrap">
+      <button class="seg-btn" data-period="day"   onclick="setPeriod('day')">Dia</button>
+      <button class="seg-btn" data-period="week"  onclick="setPeriod('week')">Semana</button>
+      <button class="seg-btn" data-period="month" onclick="setPeriod('month')">Mês</button>
+    </div>
+    <div style="flex:1"></div>
+    <small id="periodRangeLabel" style="color:var(--muted)"></small>
+  </div>
   <div class="widget-grid" id="widgetGrid"></div>
 </div>
+
+<style>
+  .seg-btn{
+    padding:8px 16px;border-radius:999px;border:1.5px solid var(--line,#E2E8F0);
+    background:var(--card,#fff);color:var(--text-secondary,#64748B);
+    font-weight:600;font-size:13px;cursor:pointer;transition:.15s;min-height:38px;
+  }
+  .seg-btn:hover{border-color:var(--primary,#2563EB);color:var(--primary,#2563EB)}
+  .seg-btn.active{
+    background:var(--primary,#2563EB);border-color:var(--primary,#2563EB);color:#fff;
+    box-shadow:0 4px 12px rgba(37,99,235,.25);
+  }
+</style>
 
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
@@ -56,6 +82,7 @@
   else if (hour < 18) greet = 'Boa tarde';
   document.getElementById('greeting').textContent = `${greet}, ${user?.name || user?.username || 'Operador'}! 👋`;
 
+  updatePeriodUI();
   renderWidgets();
 
   setTimeout(() => {
@@ -66,6 +93,52 @@
 
 function statusLabel(s) {
   return { pending:'Pendente', analyzing:'Analisando', finished:'Finalizada', notdone:'Não realizada' }[s] || s;
+}
+
+/* ===== FILTRO DE PERÍODO — sempre do dia atual PARA TRÁS (nunca futuro) ===== */
+let currentPeriod = (function(){
+  try { return localStorage.getItem('cl-dash-period') || 'day'; } catch { return 'day'; }
+})();
+if (!['day','week','month'].includes(currentPeriod)) currentPeriod = 'day';
+
+function periodLabel() {
+  return { day: 'hoje', week: 'nos últimos 7 dias', month: 'nos últimos 30 dias' }[currentPeriod] || 'hoje';
+}
+
+// Retorna { start, end } em 'YYYY-MM-DD'. 'end' é SEMPRE hoje (nada para frente).
+function getPeriodRange() {
+  const end = core.today();
+  const d = new Date(end + 'T00:00:00');
+  if (currentPeriod === 'day') return { start: end, end };
+  if (currentPeriod === 'week') { d.setDate(d.getDate() - 6);  return { start: d.toISOString().slice(0,10), end }; }
+  d.setDate(d.getDate() - 29); // month = últimos 30 dias
+  return { start: d.toISOString().slice(0,10), end };
+}
+
+// Tarefas dentro do período (do dia atual para trás). Ignora datas futuras.
+function tasksInPeriod(tasks) {
+  const { start, end } = getPeriodRange();
+  return (tasks || []).filter(t => t.date && t.date >= start && t.date <= end);
+}
+
+function setPeriod(p) {
+  currentPeriod = p;
+  try { localStorage.setItem('cl-dash-period', p); } catch(e) {}
+  updatePeriodUI();
+  renderWidgets();
+}
+
+function updatePeriodUI() {
+  document.querySelectorAll('#periodSeg .seg-btn').forEach(b => {
+    b.classList.toggle('active', b.dataset.period === currentPeriod);
+  });
+  const { start, end } = getPeriodRange();
+  const lbl = document.getElementById('periodRangeLabel');
+  if (lbl) {
+    lbl.textContent = currentPeriod === 'day'
+      ? `📅 ${core.formatDate(end)}`
+      : `📅 ${core.formatDate(start)} → ${core.formatDate(end)}`;
+  }
 }
 
 function sizeClass(size) {
@@ -83,9 +156,12 @@ function renderWidgets() {
   const now = new Date();
   const user = page.getUser();
 
-  const total = tasks.length;
-  const finished = tasks.filter(t => t.status === 'finished').length;
-  const pending = tasks.filter(t => t.status === 'pending').length;
+  // Métricas do PERÍODO selecionado (do dia atual para trás).
+  const periodTasks = tasksInPeriod(tasks);
+  const total = periodTasks.length;
+  const finished = periodTasks.filter(t => t.status === 'finished').length;
+  const pending = periodTasks.filter(t => t.status === 'pending').length;
+  // Atrasadas = vencidas até hoje e não concluídas (backlog, sempre para trás).
   const late = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
   const todayTasks = tasks.filter(t => t.date === today);
   const todayDone = todayTasks.filter(t => t.status === 'finished').length;
@@ -103,6 +179,7 @@ function renderWidgets() {
       case 'metrics':
         return `<div class="widget ${cls}" draggable="true" data-wtype="${w.type}">
           <div class="widget-handle" title="Arrastar">⠿</div>
+          <h2 style="margin-bottom:12px">📊 Resumo ${periodLabel()}</h2>
           <div class="metrics" style="margin:0">
             <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total</small><strong>${total}</strong></div></div>
             <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong></div></div>
@@ -133,17 +210,19 @@ function renderWidgets() {
         </div>`;
 
       case 'next':
-        const upcoming = tasks
-          .filter(t => t.date >= today && t.status !== 'finished' && t.status !== 'notdone')
-          .sort((a, b) => a.date.localeCompare(b.date))
+        // Atividades DO PERÍODO (do dia atual para trás) — nunca do futuro.
+        // Ordenadas do mais recente (hoje) para o mais antigo.
+        const periodList = tasksInPeriod(tasks)
+          .slice()
+          .sort((a, b) => b.date.localeCompare(a.date))
           .slice(0, 8);
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>📋 Próximas atividades</h2>
-          ${upcoming.length === 0 ? '<div class="empty"><div class="icon">🎉</div><p>Nenhuma atividade pendente!</p></div>' :
-            upcoming.map(t => {
+          <h2>📋 Atividades ${periodLabel()}</h2>
+          ${periodList.length === 0 ? '<div class="empty"><div class="icon">🗓️</div><p>Nenhuma atividade no período.</p></div>' :
+            periodList.map(t => {
               const days = core.daysUntil(t.date);
-              const dayLabel = days === 0 ? 'Hoje' : days === 1 ? 'Amanhã' : `Em ${days} dias`;
+              const dayLabel = days === 0 ? 'Hoje' : days === -1 ? 'Ontem' : `${Math.abs(days)} dias atrás`;
               return `<div class="item">
                 <div class="item-info">
                   <b>${page.esc(t.title)}</b>
@@ -322,7 +401,7 @@ function finishTask(id) {
 
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
-    setTimeout(() => { page.applyI18n(document.body); renderWidgets(); }, 100);
+    setTimeout(() => { page.applyI18n(document.body); updatePeriodUI(); renderWidgets(); }, 100);
   }
 });
 </script>

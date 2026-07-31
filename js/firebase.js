@@ -272,7 +272,10 @@ const FireSync = {
 
             // Apenas configurações públicas do site ficam neste documento.
             // Credenciais de integrações são gravadas separadamente em settings/admin.
-            const publicKeys = ['brand', 'theme', 'mode', 'language', 'categories',
+            // ATENÇÃO: 'theme' e 'mode' NÃO entram aqui — eles são preferências
+            // POR USUÁRIO (cada um escolhe o seu). O documento global carrega o
+            // tema do admin apenas como PADRÃO para quem nunca escolheu.
+            const publicKeys = ['brand', 'language', 'categories',
               'notesCategories', 'menuItems', 'menuOrder', 'logo', 'favicon'];
             publicKeys.forEach(key => {
               if (!Object.prototype.hasOwnProperty.call(remoteSettings, key)) return;
@@ -280,6 +283,17 @@ const FireSync = {
               const remoteValue = JSON.stringify(remoteSettings[key]);
               if (localValue !== remoteValue) {
                 data.settings[key] = remoteSettings[key];
+                changed = true;
+              }
+            });
+
+            // Tema/modo do admin viram apenas o PADRÃO (defaultTheme/defaultMode).
+            // Nunca sobrescrevem a escolha pessoal de cada usuário — isso corrige
+            // o bug em que, após um tempo, o tema travava no tema do admin.
+            [['theme', 'defaultTheme'], ['mode', 'defaultMode']].forEach(([src, dst]) => {
+              if (!Object.prototype.hasOwnProperty.call(remoteSettings, src)) return;
+              if (data.settings[dst] !== remoteSettings[src]) {
+                data.settings[dst] = remoteSettings[src];
                 changed = true;
               }
             });
