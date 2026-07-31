@@ -21,7 +21,12 @@
 // v15 = Parte 2: 🤖 Ajuda desta página (js/help-ai.js + descrição por página),
 //       Notas como lembretes (abas a vir/passadas, feito/pendente, sem
 //       exclusão automática) e Macros com e-mail + campos c1–c10.
-const CACHE_NAME = 'checklist-ml-v15-ajuda-lembretes-macros';
+// v16 = correções da página Perfil (senha/reset), IA mais inteligente com
+//       multi-pergunta, filtro para nunca trazer atividades futuras, remoção
+//       do botão "Testar conexão" da página IA, exclusão definitiva de
+//       atividades com modal próprio, botão "Não irei fazer hoje" e
+//       remoção das atividades pré-programadas do seed.
+const CACHE_NAME = 'checklist-ml-v16-ia-multi-perfil-skip';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',

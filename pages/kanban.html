@@ -153,8 +153,12 @@ function render() {
   // O quadro acompanha a rotina: hoje em qualquer status + pendências atrasadas.
   // Atividades futuras e finalizadas de dias anteriores aparecem no dia certo
   // (ou ao escolher explicitamente uma busca/categoria não muda esta regra).
-  const isDailyVisible = t => !t.date || t.date === today ||
-    (t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  // Atividades puladas via "Não irei fazer hoje" também somem do dia atual.
+  const isSkippedToday = t => t.date === today && t.recurrenceSkip && t.recurrenceSkip[today];
+  const isDailyVisible = t => isSkippedToday(t) ? false : (
+    !t.date || t.date === today ||
+    (t.date < today && t.status !== 'finished' && t.status !== 'notdone')
+  );
 
   const filtered = tasks.filter(t => {
     if (!isDailyVisible(t)) return false;

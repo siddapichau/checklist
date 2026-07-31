@@ -805,6 +805,27 @@ const FireSync = {
     return { hasDeepseekKey: hasKey, hasGroqKey, aiProvider, aiMode, aiProxyUrl, updatedAt: null };
   },
 
+  /* Indica se o Firestore está respondendo para o ambiente atual.
+     Usado pelo seed para evitar criar dados locais "frios" quando o banco
+     remoto trará as atividades reais do usuário. Retorna true quando o
+     cliente está autenticado E consegue ler o doc settings/admin (ou
+     settings/global). Sem auth ou offline, retorna false. */
+  async isAvailable() {
+    try {
+      if (!auth || !auth.currentUser) return false;
+      // Tenta ler um doc público pequeno. Se responder (mesmo permission-denied
+      // conta como "Firestore está vivo"), sabemos que o banco existe.
+      await db.collection('settings').doc('global').get({ source: 'server' }).catch(err => {
+        // permission-denied → Firestore OK, só bloqueou; считаем disponível
+        if (err && err.code === 'permission-denied') return { exists: false };
+        throw err;
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  },
+
   /* Modo de conexão da IA: 'auto' (proxy próprio → direto → públicos),
      'custom' (só proxy próprio), 'direct', 'proxy'. */
   getAIMode() {
