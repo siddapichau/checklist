@@ -6,14 +6,71 @@
   <link rel="stylesheet" href="../css/page.css">
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <title>Relatórios</title>
+  <style>
+    /* ===== Relatórios — visual moderno e profissional ===== */
+    .rep-hero{
+      background:linear-gradient(135deg,var(--primary,#2563eb),var(--accent,#06b6d4));
+      color:#fff;border-radius:20px;padding:26px 28px;margin-bottom:22px;
+      box-shadow:0 18px 40px -18px rgba(37,99,235,.55);position:relative;overflow:hidden;
+    }
+    .rep-hero::after{content:"";position:absolute;right:-40px;top:-40px;width:200px;height:200px;
+      background:radial-gradient(circle,rgba(255,255,255,.18),transparent 70%);border-radius:50%}
+    .rep-hero .info small{color:rgba(255,255,255,.85);font-weight:700;letter-spacing:.6px}
+    .rep-hero h1{color:#fff;font-size:26px;margin:6px 0}
+    .rep-hero p{color:rgba(255,255,255,.9)}
+    .rep-hero .btn-secondary{background:rgba(255,255,255,.18);color:#fff;border:1px solid rgba(255,255,255,.35)}
+    .rep-hero .btn-secondary:hover{background:rgba(255,255,255,.28)}
+    .rep-hero .btn-primary{background:#fff;color:var(--primary,#2563eb)}
+
+    /* KPIs modernos */
+    .kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:14px;margin-bottom:22px}
+    .kpi{
+      background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:16px;
+      padding:18px;position:relative;overflow:hidden;transition:.2s;
+      box-shadow:0 1px 2px rgba(15,23,42,.04);
+    }
+    .kpi:hover{transform:translateY(-3px);box-shadow:0 12px 26px -14px rgba(15,23,42,.35)}
+    .kpi .kpi-top{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+    .kpi .kpi-ico{width:42px;height:42px;border-radius:12px;display:grid;place-items:center;font-size:20px}
+    .kpi .kpi-val{font-size:30px;font-weight:800;color:var(--text,#1E293B);line-height:1}
+    .kpi .kpi-label{font-size:12.5px;color:var(--muted,#94A3B8);font-weight:600;margin-top:6px;text-transform:uppercase;letter-spacing:.4px}
+    .kpi .kpi-sub{font-size:12px;font-weight:700;margin-top:4px}
+    .kpi.-blue .kpi-ico{background:rgba(37,99,235,.12);color:#2563EB}
+    .kpi.-green .kpi-ico{background:rgba(16,185,129,.14);color:#059669}
+    .kpi.-amber .kpi-ico{background:rgba(245,158,11,.15);color:#D97706}
+    .kpi.-red .kpi-ico{background:rgba(239,68,68,.13);color:#DC2626}
+    .kpi.-violet .kpi-ico{background:rgba(139,92,246,.14);color:#7C3AED}
+    .kpi::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;border-radius:4px}
+    .kpi.-blue::before{background:#2563EB}.kpi.-green::before{background:#10B981}
+    .kpi.-amber::before{background:#F59E0B}.kpi.-red::before{background:#EF4444}
+    .kpi.-violet::before{background:#8B5CF6}
+
+    /* Cards de gráfico */
+    .chart-card{
+      background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:18px;
+      padding:20px 22px;margin-bottom:20px;transition:.2s;box-shadow:0 1px 2px rgba(15,23,42,.04);
+    }
+    .chart-card:hover{box-shadow:0 14px 34px -20px rgba(15,23,42,.4)}
+    .chart-card h2{font-size:15.5px;font-weight:800;margin-bottom:4px;color:var(--text,#1E293B)}
+    .chart-card .card-sub{font-size:12.5px;color:var(--muted,#94A3B8);margin-bottom:14px}
+    .chart-box{position:relative;height:300px}
+    .chart-box.-sm{height:250px}
+    .cols-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+    /* período */
+    .rep-seg{display:inline-flex;gap:6px;background:var(--bg-secondary,#F1F5F9);padding:5px;border-radius:12px}
+    .rep-seg button{border:none;background:transparent;color:var(--text-secondary,#64748B);font-weight:700;
+      font-size:13px;padding:7px 15px;border-radius:9px;cursor:pointer;transition:.15s;min-height:36px}
+    .rep-seg button.active{background:var(--card,#fff);color:var(--primary,#2563EB);box-shadow:0 2px 8px rgba(15,23,42,.12)}
+    @media (max-width:600px){ .chart-box{height:260px} .rep-hero h1{font-size:22px} }
+  </style>
 </head>
 <body>
 
-<div class="page-header">
+<div class="rep-hero page-header">
   <div class="info">
     <small>RELATÓRIOS</small>
-    <h1>📊 Relatórios e análises detalhadas</h1>
-    <p>Visualize métricas de produtividade, tendências e desempenho</p>
+    <h1>📊 Relatórios e análises</h1>
+    <p>Produtividade, tendências e desempenho — com visual moderno.</p>
   </div>
   <div class="actions">
     <button class="btn btn-secondary" onclick="exportReport()">📥 Exportar CSV</button>
@@ -21,66 +78,77 @@
   </div>
 </div>
 
-<!-- MÉTRICAS PRINCIPAIS COM CARDS DETALHADOS -->
-<div class="metrics" id="metrics"></div>
+<!-- FILTRO DE PERÍODO -->
+<div style="display:flex;flex-wrap:wrap;align-items:center;gap:12px;margin-bottom:20px">
+  <span style="font-weight:700;color:var(--text)">📆 Período:</span>
+  <div class="rep-seg" id="repSeg">
+    <button data-period="7"   onclick="setRepPeriod('7')">7 dias</button>
+    <button data-period="30"  onclick="setRepPeriod('30')">30 dias</button>
+    <button data-period="90"  onclick="setRepPeriod('90')">90 dias</button>
+    <button data-period="all" onclick="setRepPeriod('all')">Tudo</button>
+  </div>
+  <span id="repRangeLabel" style="color:var(--muted);font-size:13px"></span>
+</div>
+
+<!-- KPIs PRINCIPAIS -->
+<div class="kpi-grid" id="metrics"></div>
 
 <!-- RESUMO EXECUTIVO -->
-<div class="card" id="execSummary"></div>
+<div class="chart-card" id="execSummary"></div>
 
 <!-- GRÁFICOS PRINCIPAIS -->
-<div class="cols">
-  <!-- Pizza: Atividades por status -->
-  <div class="card">
+<div class="cols-2">
+  <div class="chart-card">
     <h2>🍩 Distribuição por status</h2>
-    <canvas id="chartStatus" height="280"></canvas>
-    <div id="statusLegend" style="margin-top:12px"></div>
+    <div class="card-sub">Como estão distribuídas as atividades do período</div>
+    <div class="chart-box"><canvas id="chartStatus"></canvas></div>
+    <div id="statusLegend" style="margin-top:14px"></div>
   </div>
-
-  <!-- Barras: Atividades por categoria -->
-  <div class="card">
+  <div class="chart-card">
     <h2>📊 Volume por categoria</h2>
-    <canvas id="chartCategory" height="280"></canvas>
+    <div class="card-sub">Quantidade de atividades por área</div>
+    <div class="chart-box"><canvas id="chartCategory"></canvas></div>
   </div>
 </div>
 
-<div class="cols">
-  <!-- Linha: Produtividade semanal -->
-  <div class="card">
+<div class="cols-2">
+  <div class="chart-card">
     <h2>📈 Tendência semanal</h2>
-    <canvas id="chartWeekly" height="280"></canvas>
+    <div class="card-sub">Concluídas, planejadas e pendentes nos últimos 7 dias</div>
+    <div class="chart-box"><canvas id="chartWeekly"></canvas></div>
   </div>
-
-  <!-- Barras: Tempo médio por categoria -->
-  <div class="card">
+  <div class="chart-card">
     <h2>⏱️ Tempo médio de conclusão</h2>
+    <div class="card-sub">Da criação até a finalização, por categoria</div>
     <div id="avgTime"></div>
-    <canvas id="chartTime" height="220" style="margin-top:12px"></canvas>
+    <div class="chart-box -sm" style="margin-top:12px"><canvas id="chartTime"></canvas></div>
   </div>
 </div>
 
-<div class="cols">
-  <!-- Pizza: Atividades por prioridade -->
-  <div class="card">
+<div class="cols-2">
+  <div class="chart-card">
     <h2>🎯 Distribuição por prioridade</h2>
-    <canvas id="chartPriorityDonut" height="260"></canvas>
+    <div class="card-sub">Volume por nível de urgência</div>
+    <div class="chart-box -sm"><canvas id="chartPriorityDonut"></canvas></div>
   </div>
-
-  <!-- Barras: Taxa de conclusão -->
-  <div class="card">
-    <h2>📊 Taxa de conclusão por categoria</h2>
-    <canvas id="chartCompletionRate" height="260"></canvas>
+  <div class="chart-card">
+    <h2>✅ Taxa de conclusão por categoria</h2>
+    <div class="card-sub">Percentual finalizado em cada área</div>
+    <div class="chart-box -sm"><canvas id="chartCompletionRate"></canvas></div>
   </div>
 </div>
 
 <!-- TENDÊNCIA MENSAL -->
-<div class="card">
-  <h2>📅 Tendência mensal (últimos 6 meses)</h2>
-  <canvas id="chartMonthly" height="200"></canvas>
+<div class="chart-card">
+  <h2>📅 Tendência mensal</h2>
+  <div class="card-sub">Total x concluídas nos últimos 6 meses</div>
+  <div class="chart-box -sm"><canvas id="chartMonthly"></canvas></div>
 </div>
 
 <!-- TABELA DETALHADA -->
-<div class="card">
+<div class="chart-card">
   <h2>📋 Detalhamento por categoria</h2>
+  <div class="card-sub">Números por área, com taxa e tempo médio</div>
   <div style="overflow-x:auto">
     <table id="detailTable">
       <thead>
@@ -94,30 +162,122 @@
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
-(function() {
-  /* Chart.js vem de CDN; no APK ou offline a lib pode falhar. Envelopar cada
-     gráfico evita que um 'Chart is not defined' derrube TODA a página — com
-     a guarda, os números se calculam e só os gráficos ficam indisponíveis. */
-  const chartsAvailable = typeof Chart !== 'undefined';
-  function makeChart(canvas, config) {
-    if (!chartsAvailable) {
-      const host = canvas?.closest?.('.card') || canvas?.parentElement;
-      if (host && !host.querySelector('.chart-offline-note')) {
-        const note = document.createElement('p');
-        note.className = 'chart-offline-note';
-        note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:6px';
-        note.textContent = '📉 Gráfico indisponível offline (Chart.js não carregou). Os números acima seguem atualizados.';
-        host.appendChild(note);
-      }
-      if (canvas) canvas.style.display = 'none';
-      return null;
-    }
-    try { return new Chart(canvas, config); }
-    catch (err) { console.warn('chart:', err); return null; }
+/* Chart.js vem de CDN; no APK ou offline a lib pode falhar. Envelopar cada
+   gráfico evita que um 'Chart is not defined' derrube TODA a página. */
+const chartsAvailable = typeof Chart !== 'undefined';
+let _repCharts = [];
+
+/* Período selecionado (persistido). Filtra sempre do dia atual para trás. */
+let repPeriod = (function(){ try { return localStorage.getItem('cl-rep-period') || '30'; } catch { return '30'; } })();
+if (!['7','30','90','all'].includes(repPeriod)) repPeriod = '30';
+
+function setRepPeriod(p){
+  repPeriod = p;
+  try { localStorage.setItem('cl-rep-period', p); } catch(e) {}
+  render();
+}
+function repDays(){ return repPeriod === 'all' ? null : parseInt(repPeriod, 10); }
+function repStartDate(){
+  const days = repDays();
+  if (!days) return null;
+  const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - (days - 1));
+  return d.toISOString().slice(0,10);
+}
+function filterByPeriod(tasks){
+  const start = repStartDate();
+  const end = core.today();
+  return (tasks || []).filter(t => {
+    if (!t.date) return repPeriod === 'all';   // sem data só aparece em "Tudo"
+    if (t.date > end) return false;             // nunca considera futuro
+    return start ? t.date >= start : true;
+  });
+}
+function updateRepSeg(){
+  document.querySelectorAll('#repSeg button').forEach(b => b.classList.toggle('active', b.dataset.period === repPeriod));
+  const lbl = document.getElementById('repRangeLabel');
+  if (lbl){
+    const start = repStartDate();
+    lbl.textContent = start ? `${core.formatDate(start)} → ${core.formatDate(core.today())}` : 'Todo o histórico';
   }
+}
+
+/* Cores reais do tema (Chart.js não entende var(--x); lemos o valor computado). */
+function cssVar(name, fb){
+  try { const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim(); return v || fb; }
+  catch { return fb; }
+}
+function repColors(){
+  const isDark = document.documentElement.dataset.mode === 'dark'
+    || (document.documentElement.dataset.mode === 'auto' && window.matchMedia?.('(prefers-color-scheme: dark)').matches);
+  return {
+    isDark,
+    text:  cssVar('--text', isDark ? '#F1F5F9' : '#1E293B'),
+    muted: cssVar('--muted', isDark ? '#94A3B8' : '#64748B'),
+    grid:  isDark ? 'rgba(148,163,184,.18)' : 'rgba(100,116,139,.14)',
+    card:  cssVar('--card', isDark ? '#0f172a' : '#ffffff'),
+  };
+}
+function applyChartDefaults(){
+  if (!chartsAvailable) return;
+  const c = repColors();
+  Chart.defaults.font.family = "Inter, -apple-system, 'Segoe UI', Roboto, sans-serif";
+  Chart.defaults.font.size = 12;
+  Chart.defaults.color = c.muted;
+  Chart.defaults.borderColor = c.grid;
+  Chart.defaults.plugins.legend.labels.usePointStyle = true;
+  Chart.defaults.plugins.legend.labels.boxHeight = 8;
+  Chart.defaults.plugins.legend.labels.padding = 16;
+  Chart.defaults.plugins.tooltip.backgroundColor = c.isDark ? '#0b1220' : '#0f172a';
+  Chart.defaults.plugins.tooltip.titleColor = '#fff';
+  Chart.defaults.plugins.tooltip.bodyColor = '#e2e8f0';
+  Chart.defaults.plugins.tooltip.padding = 12;
+  Chart.defaults.plugins.tooltip.cornerRadius = 10;
+  Chart.defaults.plugins.tooltip.boxPadding = 6;
+  Chart.defaults.plugins.tooltip.usePointStyle = true;
+  Chart.defaults.plugins.tooltip.displayColors = true;
+}
+/* Gradiente vertical suave para barras/áreas. */
+function vGrad(ctx, hex, a1, a2){
+  try {
+    const g = ctx.createLinearGradient(0, 0, 0, 300);
+    g.addColorStop(0, hexA(hex, a1));
+    g.addColorStop(1, hexA(hex, a2));
+    return g;
+  } catch { return hexA(hex, a1); }
+}
+function hexA(hex, a){
+  const h = hex.replace('#',''); const n = parseInt(h.length===3 ? h.split('').map(x=>x+x).join('') : h, 16);
+  return `rgba(${(n>>16)&255},${(n>>8)&255},${n&255},${a})`;
+}
+
+function makeChart(canvas, config) {
+  if (!chartsAvailable) {
+    const host = canvas?.closest?.('.chart-card, .card') || canvas?.parentElement;
+    if (host && !host.querySelector('.chart-offline-note')) {
+      const note = document.createElement('p');
+      note.className = 'chart-offline-note';
+      note.style.cssText = 'font-size:12px;color:var(--muted);margin-top:6px';
+      note.textContent = '📉 Gráfico indisponível offline (Chart.js não carregou). Os números acima seguem atualizados.';
+      host.appendChild(note);
+    }
+    if (canvas) canvas.style.display = 'none';
+    return null;
+  }
+  try { const ch = new Chart(canvas, config); _repCharts.push(ch); return ch; }
+  catch (err) { console.warn('chart:', err); return null; }
+}
+
+function render() {
+  // Reconstrói tudo (permite atualizar cores no dark/light e trocar período).
+  _repCharts.forEach(c => { try { c.destroy(); } catch(e) {} });
+  _repCharts = [];
+  applyChartDefaults();
+  updateRepSeg();
+  const theme = repColors();
 
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const allTasks = data.tasks || [];
+  const tasks = filterByPeriod(allTasks);
   const today = core.today();
   const now = new Date();
   const user = page.getUser();
@@ -167,14 +327,35 @@
     }
   });
 
-  // ---------- MÉTRICAS ----------
+  // ---------- KPIs ----------
+  const avgDisplay = avgHours < 1 ? (avgHours*60).toFixed(0)+'min' : avgHours >= 24 ? (avgHours/24).toFixed(1)+'d' : avgHours.toFixed(1)+'h';
   document.getElementById('metrics').innerHTML = `
-    <div class="metric"><div class="icon-box blue">📊</div><div class="data"><small>Total de atividades</small><strong>${total}</strong></div></div>
-    <div class="metric"><div class="icon-box green">✅</div><div class="data"><small>Finalizadas</small><strong>${finished}</strong><span style="font-size:11px;color:var(--success)">${pct}%</span></div></div>
-    <div class="metric"><div class="icon-box yellow">⏳</div><div class="data"><small>Pendentes</small><strong>${pending}</strong></div></div>
-    <div class="metric"><div class="icon-box red">⚠️</div><div class="data"><small>Atrasadas</small><strong>${late.length}</strong><span style="font-size:11px;color:var(--danger)">${total>0?Math.round(late.length/total*100):0}%</span></div></div>
-    <div class="metric"><div class="icon-box purple">⏱️</div><div class="data"><small>Tempo médio</small><strong>${avgHours < 1 ? (avgHours*60).toFixed(0)+'min' : avgHours.toFixed(1)+'h'}</strong></div></div>
-    <div class="metric"><div class="icon-box blue">📈</div><div class="data"><small>Taxa conclusão</small><strong>${pct}%</strong></div></div>
+    <div class="kpi -blue">
+      <div class="kpi-top"><div class="kpi-val">${total}</div><div class="kpi-ico">📊</div></div>
+      <div class="kpi-label">Total de atividades</div>
+    </div>
+    <div class="kpi -green">
+      <div class="kpi-top"><div class="kpi-val">${finished}</div><div class="kpi-ico">✅</div></div>
+      <div class="kpi-label">Finalizadas</div>
+      <div class="kpi-sub" style="color:#059669">${pct}% do total</div>
+    </div>
+    <div class="kpi -amber">
+      <div class="kpi-top"><div class="kpi-val">${pending}</div><div class="kpi-ico">⏳</div></div>
+      <div class="kpi-label">Pendentes</div>
+    </div>
+    <div class="kpi -red">
+      <div class="kpi-top"><div class="kpi-val">${late.length}</div><div class="kpi-ico">⚠️</div></div>
+      <div class="kpi-label">Atrasadas</div>
+      <div class="kpi-sub" style="color:#DC2626">${total>0?Math.round(late.length/total*100):0}% do total</div>
+    </div>
+    <div class="kpi -violet">
+      <div class="kpi-top"><div class="kpi-val">${avgDisplay}</div><div class="kpi-ico">⏱️</div></div>
+      <div class="kpi-label">Tempo médio</div>
+    </div>
+    <div class="kpi -blue">
+      <div class="kpi-top"><div class="kpi-val">${pct}%</div><div class="kpi-ico">📈</div></div>
+      <div class="kpi-label">Taxa de conclusão</div>
+    </div>
   `;
 
   // ---------- RESUMO EXECUTIVO ----------
@@ -214,7 +395,7 @@
       datasets: [{
         data: [pending, analyzing, finished, notdone],
         backgroundColor: [colors.pending, colors.analyzing, colors.finished, colors.notdone],
-        borderColor: '#fff',
+        borderColor: theme.card,
         borderWidth: 3,
         hoverBorderWidth: 4,
         hoverBorderColor: '#fff',
@@ -272,11 +453,12 @@
       datasets: [{
         label: 'Total de atividades',
         data: catValues,
-        backgroundColor: catLabels.map((_, i) => palette[i % palette.length] + '99'),
+        backgroundColor: (ctx) => vGrad(ctx.chart.ctx, palette[ctx.dataIndex % palette.length], .95, .45),
         borderColor: catLabels.map((_, i) => palette[i % palette.length]),
-        borderWidth: 2,
-        borderRadius: 10,
+        borderWidth: 0,
+        borderRadius: 12,
         borderSkipped: false,
+        maxBarThickness: 46,
       }]
     },
     options: {
@@ -291,7 +473,7 @@
         }
       },
       scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: theme.grid, drawBorder: false } },
         x: { grid: { display: false } }
       },
       animation: { duration: 1200 }
@@ -309,7 +491,8 @@
     const ds = d.toISOString().slice(0, 10);
     const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
     weekDays.push(dayName);
-    const dayTasks = tasks.filter(t => t.date === ds);
+    // Tendência semanal usa o histórico completo (janela fixa de 7 dias).
+    const dayTasks = allTasks.filter(t => t.date === ds);
     weekDoneData.push(dayTasks.filter(t => t.status === 'finished').length);
     weekTotalData.push(dayTasks.length);
     weekPendingData.push(dayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length);
@@ -324,12 +507,13 @@
           label: 'Concluídas',
           data: weekDoneData,
           borderColor: '#10B981',
-          backgroundColor: 'rgba(16,185,129,.15)',
+          backgroundColor: (ctx) => vGrad(ctx.chart.ctx, '#10B981', .35, .02),
           fill: true,
           tension: 0.4,
-          pointRadius: 6,
+          pointRadius: 5,
+          pointHoverRadius: 7,
           pointBackgroundColor: '#10B981',
-          pointBorderColor: '#fff',
+          pointBorderColor: theme.card,
           pointBorderWidth: 2,
           borderWidth: 3,
         },
@@ -368,7 +552,7 @@
         legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true, pointStyleWidth: 8 } }
       },
       scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: theme.grid, drawBorder: false } },
         x: { grid: { display: false } }
       },
       animation: { duration: 1400 }
@@ -436,7 +620,7 @@
           }
         },
         scales: {
-          x: { beginAtZero: true, title: { display: true, text: 'Horas' }, grid: { color: 'var(--line,#E2E8F0)' } },
+          x: { beginAtZero: true, title: { display: true, text: 'Horas' }, grid: { color: theme.grid, drawBorder: false } },
           y: { grid: { display: false } }
         },
         animation: { duration: 1000 }
@@ -457,7 +641,7 @@
       datasets: [{
         data: [prioCount.urgent, prioCount.high, prioCount.medium, prioCount.low],
         backgroundColor: ['#EF4444','#F97316','#F59E0B','#10B981'],
-        borderColor: '#fff',
+        borderColor: theme.card,
         borderWidth: 3,
         hoverBorderWidth: 4,
       }]
@@ -517,7 +701,7 @@
           }
         },
         scales: {
-          y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: 'var(--line,#E2E8F0)' } },
+          y: { beginAtZero: true, max: 100, ticks: { callback: v => v + '%' }, grid: { color: theme.grid, drawBorder: false } },
           x: { grid: { display: false } }
         },
         animation: { duration: 1000 }
@@ -532,7 +716,8 @@
     const monthKey = d.toISOString().slice(0, 7);
     const monthName = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
     monthLabels.push(monthName);
-    const mTasks = tasks.filter(t => t.date && t.date.startsWith(monthKey));
+    // Tendência mensal usa o histórico completo (janela fixa de 6 meses).
+    const mTasks = allTasks.filter(t => t.date && t.date.startsWith(monthKey));
     monthTotal.push(mTasks.length);
     monthFinished.push(mTasks.filter(t => t.status === 'finished').length);
   }
@@ -545,11 +730,12 @@
         {
           label: 'Total',
           data: monthTotal,
-          backgroundColor: '#3B82F644',
+          backgroundColor: (ctx) => vGrad(ctx.chart.ctx, '#3B82F6', .8, .3),
           borderColor: '#3B82F6',
-          borderWidth: 2,
-          borderRadius: 6,
+          borderWidth: 0,
+          borderRadius: 8,
           borderSkipped: false,
+          maxBarThickness: 40,
         },
         {
           label: 'Concluídas',
@@ -569,7 +755,7 @@
         legend: { position: 'bottom', labels: { padding: 18, usePointStyle: true } }
       },
       scales: {
-        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: 'var(--line,#E2E8F0)' } },
+        y: { beginAtZero: true, ticks: { stepSize: 1 }, grid: { color: theme.grid, drawBorder: false } },
         x: { grid: { display: false } }
       },
       animation: { duration: 1000 }
@@ -637,7 +823,21 @@
     window.print();
   };
 
-})();
+}
+
+// Primeira renderização
+render();
+
+// Re-renderiza (recolorindo os gráficos) quando o tema claro/escuro muda.
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'themeChanged') setTimeout(render, 60);
+});
+// Segue a mudança do sistema quando o modo é "automático".
+try {
+  window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+    if (document.documentElement.dataset.mode === 'auto') setTimeout(render, 60);
+  });
+} catch(e) {}
 </script>
 </body>
 </html>
