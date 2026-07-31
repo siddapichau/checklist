@@ -182,6 +182,26 @@ service cloud.firestore {
       );
     }
 
+    // ---------- NOTES / RECADINHOS ----------
+    // Notas e lembretes pessoais (fora das atividades). Cada usuário
+    // gerencia os próprios recadinhos; admin enxerga e remove qualquer um.
+    match /notes/{noteId} {
+      allow read: if isSignedIn() && (
+        resource.data.owner == request.auth.uid || isEditorOrAdmin()
+      );
+      allow create: if isNotBanned()
+                    && request.resource.data.owner == request.auth.uid;
+      // O dono não pode transferir a nota para outra conta.
+      allow update: if isAdmin() || (
+        isNotBanned()
+        && resource.data.owner == request.auth.uid
+        && request.resource.data.owner == resource.data.owner
+      );
+      allow delete: if isSignedIn() && (
+        resource.data.owner == request.auth.uid || isAdmin()
+      );
+    }
+
     // ---------- SETTINGS ----------
     // Configurações que alteram a interface de todo o site.
     match /settings/global {

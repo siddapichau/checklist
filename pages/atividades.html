@@ -114,6 +114,48 @@
   </div>
 </div>
 
+<!-- MODAL: COMPARTILHAR ATIVIDADE (local — execute handlers desta página) -->
+<div class="modal-overlay hidden" id="shareModal" onclick="if(event.target===this)closeShareModal()">
+  <div class="modal">
+    <h2>🔗 Compartilhar atividade</h2>
+    <div id="shareSummary" style="margin-bottom:16px;padding:12px;background:var(--bg-secondary,#F1F5F9);border-radius:8px"></div>
+    <label><span>Link para compartilhar</span>
+      <div style="display:flex;gap:6px">
+        <input type="text" id="shareLink" readonly style="flex:1;font-size:12px" onclick="this.select()">
+        <button class="btn btn-primary btn-sm" onclick="copyShareLink()">📋 Copiar</button>
+      </div>
+    </label>
+    <div style="text-align:center;margin:16px 0 8px" id="shareQrWrap">
+      <div id="qrCode" style="display:inline-block"></div>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px">Escaneie para abrir no celular</p>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="shareNative()">📱 Compartilhar</button>
+      <button class="btn btn-secondary" onclick="shareWhatsApp()">💬 WhatsApp</button>
+      <button class="btn btn-secondary" onclick="shareEmail()">📧 E-mail</button>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
+      <button class="btn btn-secondary" onclick="closeShareModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL: COMENTÁRIOS (local) -->
+<div class="modal-overlay hidden" id="commentsModal" onclick="if(event.target===this)closeCommentsModal()">
+  <div class="modal">
+    <h2 id="commentsTitle">💬 Comentários</h2>
+    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
+    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
+    <form class="comment-form" onsubmit="submitComment(event)">
+      <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
+      <button type="submit" class="btn btn-primary">Enviar</button>
+    </form>
+    <div style="display:flex;justify-content:flex-end;margin-top:12px">
+      <button class="btn btn-secondary" onclick="closeCommentsModal()">Fechar</button>
+    </div>
+  </div>
+</div>
+
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
@@ -277,7 +319,6 @@ function renderTaskCard(t, today, showLateBadge) {
   const recChip = (t.recurrence && t.recurrence !== 'none')
     ? `<span class="tc-chip">🔁 ${recLabel(t.recurrence)}</span>` : '';
   const catChips = cats.map(c => `<span class="tc-chip">🏷️ ${page.esc(c)}</span>`).join('');
-  const escTitleForAttr = page.esc(t.title).replace(/'/g, "\\'");
 
   return `
   <div class="task-card st-${t.status} ${late ? 'late' : ''}">
@@ -290,7 +331,7 @@ function renderTaskCard(t, today, showLateBadge) {
     <div class="tc-meta">${dateChip}${alertChip}${recChip}${catChips}</div>
     ${t.description ? `<div class="tc-desc">${page.esc(t.description)}</div>` : ''}
     <div class="tc-actions">
-      <button class="btn-icon" onclick="openComments('${t.id}','${escTitleForAttr}')" title="Comentários">💬</button>
+      <button class="btn-icon" onclick="openComments('${t.id}')" title="Comentários">💬</button>
       <button class="btn-icon" onclick="shareTask('${t.id}')" title="Compartilhar">🔗</button>
       <button class="btn-icon" onclick="editTask('${t.id}')" title="Editar">✏️</button>
       <button class="btn-icon" onclick="deleteTask('${t.id}')" title="Excluir">🗑️</button>
@@ -477,115 +518,106 @@ function closeModal() {
   document.getElementById('taskModal').classList.add('hidden');
 }
 
-/* ========== SHARE ========== */
+/* ========== SHARE ==========
+   ATENÇÃO: este modal vive AQUI, na página, e não é enviado ao shell com
+   page.openModal(). O shell renderiza modais no documento pai (index.html),
+   então qualquer onclick nele procurava funções que só existem nesta página
+   (copyShareLink, shareWhatsApp...) — era exatamente por isso que o botão
+   "compartilhar" e a nota "não faziam nada". Com modais locais, todos os
+   botões executam de verdade. */
+let shareCtx = null; // { title, text, url }
+
 function shareTask(id) {
   const data = page.getDB();
   const task = findTask(data, id);
   if (!task) return;
 
-  const shareText = `📋 *${task.title}*\n📅 ${core.formatDate(task.date)}\n📌 ${task.category || 'Geral'} | ${statusLabel(task.status)}\n${task.description ? '📝 ' + task.description : ''}`;
-  
-  // Criar link compartilhável (base64 encoded)
+  const shareText = `📋 *${task.title}*\n📅 ${core.formatDate(task.date)}\n📌 ${task.category || 'Geral'} | ${statusLabel(task.status)}${task.description ? '\n📝 ' + task.description : ''}`;
   const shareData = { t: task.title, d: task.date, c: task.category, s: task.status, desc: task.description };
-  const shareUrl = `${window.location.origin}/index.html#share=${btoa(JSON.stringify(shareData))}`;
+  const shareUrl = `${window.location.origin}/index.html#share=${btoa(unescape(encodeURIComponent(JSON.stringify(shareData))))}`;
 
-  // Modal de compartilhamento
-  const modalHtml = `
-    <h2>🔗 Compartilhar atividade</h2>
-    <div style="margin-bottom:16px;padding:12px;background:var(--bg-secondary,#F1F5F9);border-radius:8px">
-      <b>${page.esc(task.title)}</b><br>
-      <small style="color:var(--muted)">${core.formatDate(task.date)} · ${page.esc(task.category || 'Geral')}</small>
-    </div>
+  shareCtx = { title: task.title, text: shareText, url: shareUrl };
 
-    <label><span>Link para compartilhar</span>
-      <div style="display:flex;gap:6px">
-        <input type="text" id="shareLink" value="${shareUrl}" readonly style="flex:1;font-size:12px" onclick="this.select()">
-        <button class="btn btn-primary btn-sm" onclick="copyShareLink()">📋 Copiar</button>
-      </div>
-    </label>
+  document.getElementById('shareSummary').innerHTML =
+    `<b>${page.esc(task.title)}</b><br><small style="color:var(--muted)">${core.formatDate(task.date)} · ${page.esc(task.category || 'Geral')} · ${statusLabel(task.status)}</small>`;
+  document.getElementById('shareLink').value = shareUrl;
+  document.getElementById('shareModal').classList.remove('hidden');
 
-    <div style="text-align:center;margin:20px 0">
-      <div id="qrCode" style="display:inline-block"></div>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px">Escaneie para abrir no celular</p>
-    </div>
-
-    <div style="display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn btn-secondary" onclick="shareNative()">📱 Compartilhar</button>
-      <button class="btn btn-secondary" onclick="shareWhatsApp()">💬 WhatsApp</button>
-      <button class="btn btn-secondary" onclick="shareEmail()">📧 E-mail</button>
-    </div>
-
-    <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
-      <button class="btn btn-secondary" onclick="page.closeModal()">Fechar</button>
-    </div>
-  `;
-
-  page.openModal(modalHtml);
-
-  // Gerar QR code após o modal aparecer
-  setTimeout(() => {
-    const qrEl = document.getElementById('qrCode');
-    if (qrEl && typeof QRCode !== 'undefined') {
-      qrEl.innerHTML = '';
-      new QRCode(qrEl, {
-        text: shareUrl,
-        width: 160,
-        height: 160,
-        colorDark: '#1E293B',
-        colorLight: '#FFFFFF',
-      });
-    }
-  }, 300);
-
-  // Funções auxiliares no escopo do modal
-  window.copyShareLink = function() {
-    const input = document.getElementById('shareLink');
-    input.select();
-    document.execCommand('copy');
-    page.toast('Link copiado! 📋', 'success');
-  };
-
-  window.shareNative = function() {
-    if (navigator.share) {
-      navigator.share({ title: task.title, text: shareText, url: shareUrl }).catch(() => {});
-    } else {
-      copyShareLink();
-    }
-  };
-
-  window.shareWhatsApp = function() {
-    window.open(`https://wa.me/?text=${encodeURIComponent(shareText + '\n' + shareUrl)}`, '_blank');
-  };
-
-  window.shareEmail = function() {
-    window.open(`mailto:?subject=${encodeURIComponent(task.title)}&body=${encodeURIComponent(shareText + '\n\n' + shareUrl)}`, '_blank');
-  };
+  // QR code: a lib qrcodejs carrega ao fim da página. Se estiver indisponível
+  // (offline, bloqueio de CDN), escondemos só a área do QR — o resto funciona.
+  const qrEl = document.getElementById('qrCode');
+  const qrWrap = document.getElementById('shareQrWrap');
+  qrEl.innerHTML = '';
+  if (typeof QRCode !== 'undefined') {
+    qrWrap.style.display = '';
+    new QRCode(qrEl, { text: shareUrl, width: 160, height: 160, colorDark: '#1E293B', colorLight: '#FFFFFF' });
+  } else {
+    qrWrap.style.display = 'none';
+  }
 }
 
-/* ========== COMENTÁRIOS ========== */
-function openComments(taskId, title) {
-  const user = page.getUser();
-  const comments = core.getComments(taskId);
+function closeShareModal() {
+  document.getElementById('shareModal').classList.add('hidden');
+}
 
-  const modalHtml = `
-    <h2>💬 ${page.esc(title)}</h2>
-    <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
-    <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px">
-      ${comments.length === 0
-        ? `<div class="empty"><p>Nenhum comentário ainda. Inicie a discussão!</p></div>`
-        : comments.map(c => renderComment(c, user)).join('')
-      }
-    </div>
-    <form class="comment-form" onsubmit="submitComment(event,'${taskId}')">
-      <input type="text" id="commentInput" placeholder="Escreva um comentário..." required>
-      <button type="submit" class="btn btn-primary">Enviar</button>
-    </form>
-    <div style="display:flex;justify-content:flex-end;margin-top:12px">
-      <button class="btn btn-secondary" onclick="page.closeModal()">Fechar</button>
-    </div>
-  `;
-  page.openModal(modalHtml);
-  setTimeout(() => document.getElementById('commentInput')?.focus(), 200);
+function copyShareLink() {
+  const input = document.getElementById('shareLink');
+  const finish = () => page.toast('Link copiado! 📋', 'success');
+  const legacy = () => {
+    input.select();
+    try { document.execCommand('copy'); finish(); } catch(e) {}
+  };
+  if (navigator.clipboard?.writeText) {
+    navigator.clipboard.writeText(input.value).then(finish, legacy);
+  } else {
+    legacy();
+  }
+}
+
+function shareNative() {
+  if (!shareCtx) return;
+  if (navigator.share) {
+    navigator.share({ title: shareCtx.title, text: shareCtx.text, url: shareCtx.url }).catch(() => {});
+  } else {
+    copyShareLink(); // fallback universal: sem Web Share API, copia o link
+  }
+}
+
+function shareWhatsApp() {
+  if (!shareCtx) return;
+  window.open(`https://wa.me/?text=${encodeURIComponent(shareCtx.text + '\n' + shareCtx.url)}`, '_blank');
+}
+
+function shareEmail() {
+  if (!shareCtx) return;
+  window.open(`mailto:?subject=${encodeURIComponent(shareCtx.title)}&body=${encodeURIComponent(shareCtx.text + '\n\n' + shareCtx.url)}`, '_blank');
+}
+
+/* ========== COMENTÁRIOS (modal local — mesmo motivo do share) ========== */
+let currentCommentsTaskId = null;
+
+function openComments(taskId) {
+  const data = page.getDB();
+  const task = findTask(data, taskId);
+  if (!task) return;
+  currentCommentsTaskId = taskId;
+  document.getElementById('commentsTitle').textContent = '💬 ' + (task.title || 'Comentários');
+  renderCommentsList();
+  document.getElementById('commentsModal').classList.remove('hidden');
+  setTimeout(() => document.getElementById('commentInput')?.focus(), 150);
+}
+
+function closeCommentsModal() {
+  document.getElementById('commentsModal').classList.add('hidden');
+  currentCommentsTaskId = null;
+}
+
+function renderCommentsList() {
+  const comments = core.getComments(currentCommentsTaskId);
+  const list = document.getElementById('commentsList');
+  list.innerHTML = comments.length === 0
+    ? `<div class="empty"><p>Nenhum comentário ainda. Inicie a discussão!</p></div>`
+    : comments.map(c => renderComment(c, page.getUser())).join('');
 }
 
 function renderComment(c, user) {
@@ -608,45 +640,29 @@ function renderComment(c, user) {
   `;
 }
 
-function submitComment(e, taskId) {
+function submitComment(e) {
   e.preventDefault();
+  if (!currentCommentsTaskId) return;
   const input = document.getElementById('commentInput');
   const text = input.value.trim();
   if (!text) return;
-  const user = page.getUser();
-  const c = core.addComment(taskId, user?.id || user?.uid, user?.name || user?.username || 'Anônimo', text);
+  const currentUser = page.getUser();
+  const c = core.addComment(currentCommentsTaskId, currentUser?.id || currentUser?.uid, currentUser?.name || currentUser?.username || 'Anônimo', text);
   if (c) {
     input.value = '';
+    renderCommentsList();
     const list = document.getElementById('commentsList');
-    const empty = list.querySelector('.empty');
-    if (empty) empty.remove();
-    list.insertAdjacentHTML('beforeend', renderComment(c, user));
     list.scrollTop = list.scrollHeight;
     page.toast('Comentário enviado! 💬', 'success');
   }
 }
 
 function deleteComment(commentId) {
+  if (!currentCommentsTaskId || !commentId) return;
   if (!confirm('Excluir este comentário?')) return;
-  // Encontrar o taskId do contexto (modal aberto)
-  // Vamos varrer todas as tasks para achar o comentário
-  const data = page.getDB();
-  for (const t of data.tasks) {
-    const comments = core.getComments(t.id);
-    if (comments.find(c => c.id === commentId)) {
-      core.deleteComment(t.id, commentId);
-      break;
-    }
-  }
-  // Reabrir modal
-  const titleEl = document.querySelector('.modal h2');
-  const titleText = titleEl ? titleEl.textContent.replace('💬 ', '') : '';
-  const taskId = parseInt([...document.querySelectorAll('.comment-item')].map(el => el.closest('.modal')?.dataset.taskid).find(Boolean));
-  page.closeModal();
+  core.deleteComment(currentCommentsTaskId, commentId);
+  renderCommentsList();
   page.toast('Comentário excluído', 'info');
-  if (titleText) {
-    setTimeout(() => openComments(taskId || data.tasks[0]?.id, titleText), 100);
-  }
 }
 
 /* ========== BOOT ==========

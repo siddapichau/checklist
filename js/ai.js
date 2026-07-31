@@ -196,6 +196,37 @@
     }
   }
 
+  /* Verifica se as regras do Firestore publicadas permitem ler settings/admin.
+     Motivo: esse documento guarda a chave/modo/proxy da IA. Se a regra antiga
+     (só admin) ainda estiver no Firebase, a chave existe para quem salvou, mas
+     NÃO chega a outros dispositivos/usuários — e é aí que nasce o relato de
+     "a chave está salva mas a IA não funciona no APK". */
+  async function checkAdminDocAccess() {
+    try {
+      const f = (typeof firebase !== 'undefined') ? firebase : window.parent?.firebase;
+      const firestore = f?.firestore?.();
+      if (!firestore) {
+        return { ok: null, code: 'no-sdk', detail: 'SDK do Firebase indisponível nesta página — teste pulado.' };
+      }
+      await firestore.collection('settings').doc('admin').get();
+      return {
+        ok: true, code: 'ok',
+        detail: 'Leitura de settings/admin permitida — as regras (firestore.rules) estão publicadas corretamente.',
+      };
+    } catch (err) {
+      if (err?.code === 'permission-denied') {
+        return {
+          ok: false, code: err.code,
+          detail: 'Leitura de settings/admin BLOQUEADA pelas regras do Firestore. Sem essa leitura, a chave não chega a outros dispositivos e a IA não funciona neles. Correção: abra o Console do Firebase → Firestore Database → Regras → cole o conteúdo do arquivo firestore.rules deste projeto → Publicar.',
+        };
+      }
+      return {
+        ok: null, code: err?.code || 'erro',
+        detail: 'Não foi possível testar as regras agora (' + (err?.code || err?.message || 'erro') + '). Offline ou SDK em manutenção.',
+      };
+    }
+  }
+
   /* Diagnóstico completo: chave + cada canal disponível. */
   async function diagnose({ apiKey, mode, proxyUrl, onStep }) {
     const rows = [];
@@ -209,8 +240,17 @@
     }[mode] || 'Automático';
     push({ icon: 'ℹ️', title: 'Modo de conexão', detail: modeLabel });
 
+    // Regras do Firestore: sem leitura de settings/admin, a IA morre silenciosa
+    // nos outros dispositivos mesmo com a chave salva no banco.
+    const rules = await checkAdminDocAccess();
+    push({
+      icon: rules.ok === true ? '✅' : rules.ok === false ? '❌' : 'ℹ️',
+      title: 'Regras do Firestore (settings/admin)',
+      detail: rules.detail,
+    });
+
     if (!apiKey) {
-      push({ icon: '❌', title: 'API Key do DeepSeek', detail: 'Nenhuma chave encontrada. Salve em Administração → API / IA.' });
+      push({ icon: '❌', title: 'API Key do DeepSeek', detail: 'Nenhuma chave encontrada. Salve em Administração → API / IA (ou confira as regras acima se você já salvou em outro dispositivo).' });
       return rows;
     }
     push({ icon: '✅', title: 'API Key do DeepSeek', detail: 'Chave encontrada (banco ou cache do navegador).' });
@@ -230,7 +270,7 @@
   }
 
   window.AIClient = {
-    chat, probe, diagnose, buildAttempts, fetchWithTimeout, normalizeBase,
+    chat, probe, diagnose, checkAdminDocAccess, buildAttempts, fetchWithTimeout, normalizeBase,
     PUBLIC_PROXIES, DEEPSEEK_HOST, CHAT_PATH, MODELS_PATH,
   };
 })();

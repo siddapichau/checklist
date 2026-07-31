@@ -16,7 +16,7 @@ const Core = {
       logo: '',
       favicon: '',
       language: 'pt-BR',      // pt-BR | en | es
-      menuOrder: ['home','atividades','kanban','calendario','gamificacao','foco','custom','arquivos','macros','relatorios','IA','perfil','admin'],
+      menuOrder: ['home','atividades','kanban','calendario','notas','gamificacao','foco','custom','arquivos','macros','relatorios','IA','perfil','admin'],
       // Segredos de integração (ex.: DeepSeek) não pertencem ao localStorage.
       // Eles ficam em settings/admin no Firestore, com leitura restrita ao admin.
       menuItems: [
@@ -24,6 +24,7 @@ const Core = {
         { id:'atividades',   label:'Atividades',    icon:'✅', visible:true },
         { id:'kanban',       label:'Kanban',        icon:'📋', visible:true },
         { id:'calendario',   label:'Calendário',    icon:'📅', visible:true },
+        { id:'notas',        label:'Notas',         icon:'📝', visible:true },
         { id:'gamificacao',  label:'Conquistas',    icon:'🏆', visible:true },
         { id:'foco',         label:'Modo Foco',     icon:'🎯', visible:true },
         { id:'custom',       label:'Personalizar',  icon:'🎨', visible:true },
@@ -35,12 +36,19 @@ const Core = {
         { id:'admin',        label:'Painel Admin',   icon:'⚙️', visible:true, adminOnly:true },
       ],
       categories: ['Operação','Segurança','Logística','Manutenção','Qualidade','RH','Geral','Dicas'],
+      // Categorias próprias da página de Notas (recadinhos/lembretes) — editáveis
+      // no Painel Admin, aba "📝 Notas", sem interferir nas categorias das atividades.
+      notesCategories: ['Lembrete','Pessoal','Trabalho','Ideias','Importante','Geral'],
     },
     customThemes: [
       // { id, name, primary, secondary, accent, bg, mode, createdBy, createdAt }
     ],
     users: [],
     tasks: [],
+    notes: [
+      // { id, title, desc, date, time, remind, pinned, categories: [], image,
+      //   owner, ownerName, createdAt, updatedAt }
+    ],
     files: [],
     posts: [],
     macros: [],
@@ -87,7 +95,7 @@ const Core = {
     data = data && typeof data === 'object' ? data : {};
 
     data.settings = { ...defaults.settings, ...(data.settings || {}) };
-    ['users', 'tasks', 'files', 'posts', 'macros', 'logs', 'customThemes', 'automations', 'dashboardWidgets']
+    ['users', 'tasks', 'notes', 'files', 'posts', 'macros', 'logs', 'customThemes', 'automations', 'dashboardWidgets']
       .forEach(key => { if (!Array.isArray(data[key])) data[key] = defaults[key]; });
     ['gamification', 'comments'].forEach(key => {
       if (!data[key] || typeof data[key] !== 'object' || Array.isArray(data[key])) data[key] = defaults[key];
@@ -123,6 +131,7 @@ const Core = {
     });
 
     if (!Array.isArray(data.settings.categories)) data.settings.categories = [...defaults.settings.categories];
+    if (!Array.isArray(data.settings.notesCategories)) data.settings.notesCategories = [...defaults.settings.notesCategories];
     if (!data.settings.language) data.settings.language = 'pt-BR';
     return data;
   },
@@ -408,8 +417,12 @@ const Core = {
   applyI18n(root = document) {
     const lang = this.getCurrentLang();
     if (!this._i18nCache || !this._i18nCache[lang]) {
-      // Carrega em background se não estiver cacheado
-      this._loadLocale(lang).then(() => this.applyI18n(root));
+      // Carrega em background se não estiver cacheado. Importante: só reagenda
+      // quando o load DE FATO trouxer o dicionário (data != null). Sem esse
+      // guard, uma falha de fetch (offline sem cache do service worker)
+      // criava uma promessa que se reagendava para sempre — um loop infinito
+      // de microtasks que congelava a aba inteira.
+      this._loadLocale(lang).then(data => { if (data) this.applyI18n(root); });
       return;
     }
     root.querySelectorAll('[data-i18n]').forEach(el => {
