@@ -409,6 +409,17 @@ window.addEventListener('message', (e) => {
   if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
     setTimeout(() => { page.applyI18n(document.body); updatePeriodUI(); renderWidgets(); }, 100);
   }
+  // Re-renderizar quando dados do Firebase chegarem
+  if (e.data?.type === 'firebaseSync') {
+    console.log('📥 Dados sincronizados, atualizando dashboard...');
+    setTimeout(() => { renderWidgets(); }, 200);
+  }
+});
+
+// Também escutar evento global de sync Firebase
+window.addEventListener('firebaseSync', (e) => {
+  console.log('📥 Evento global firebaseSync na home:', e.detail?.type);
+  setTimeout(() => { renderWidgets(); }, 200);
 });
 </script>
 

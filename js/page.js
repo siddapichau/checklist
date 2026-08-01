@@ -46,7 +46,21 @@
 const Page = {
   getUser() { return core.getCurrentUser(); }, getDB() { return core.getLocalDB(); }, saveDB(d) { core.saveLocalDB(d); },
   toast(msg, type) { core.toast(msg, type); }, chromeNotification(title, body, type) { core.chromeNotification(title, body, type); }, esc(s) { return core.escapeHTML(s); },
-  _post(message) { if (window.parent && window.parent !== window) window.parent.postMessage(message, window.location.origin); },
+  _post(message) { 
+    try {
+      if (window.parent && window.parent !== window) {
+        window.parent.postMessage(message, window.location.origin);
+        // Log para debug
+        if (message.type === 'firebaseSync') {
+          console.log('📤 Página → Shell: firebaseSync', message.collection, message.id);
+        }
+      } else {
+        console.warn('⚠️ postMessage: parent não disponível ou já é o parent');
+      }
+    } catch(e) {
+      console.error('❌ Erro ao enviar mensagem para parent:', e);
+    }
+  },
   reload() { this._post({ type: 'reload' }); }, navigate(page) { this._post({ type: 'navigate', page }); },
   openModal(html) { this._post({ type: 'modal', html }); }, closeModal() { this._post({ type: 'closeModal' }); },
   syncDocument(collection, id, data) { this._post({ type: 'firebaseSync', collection, id, data }); },
