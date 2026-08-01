@@ -818,7 +818,12 @@ function materializeDailyOccurrence() {
   const today = core.today();
   const currentUser = page.getUser();
   if (core.isDayOff(today, currentUser)) return;
-  const daily = (data.tasks || []).filter(t => t.recurrence === 'daily' && t.date && t.date < today && (t.owner === currentUser?.id || t.owner === currentUser?.uid || !t.owner));
+  // Normalizar date local para string antes de comparar (garante não duplicar por tipo diferente)
+  (data.tasks || []).forEach(t => {
+    if (t.date && t.date instanceof Date) t.date = core.dateKeyFromLocalDate(t.date);
+    if (t.date && typeof t.date === 'string' && t.date.length > 10) t.date = t.date.slice(0, 10);
+  });
+  const daily = (data.tasks || []).filter(t => t.recurrence === 'daily' && t.date && String(t.date) < String(today) && (t.owner === currentUser?.id || t.owner === currentUser?.uid || !t.owner));
   const latestBySeries = new Map();
   daily.forEach(t => {
     const root = String(t.recurrenceRootId || t.id);
@@ -827,7 +832,7 @@ function materializeDailyOccurrence() {
   });
   let changed = false;
   latestBySeries.forEach((latest, root) => {
-    if ((data.tasks || []).some(t => String(t.recurrenceRootId || t.id) === root && t.date === today)) return;
+    if ((data.tasks || []).some(t => { const td = (t.date && t.date instanceof Date) ? core.dateKeyFromLocalDate(t.date) : String(t.date || '').slice(0,10); return String(t.recurrenceRootId || t.id) === root && td === String(today).slice(0,10); })) return;
     const next = { ...latest, id: Date.now() + Math.floor(Math.random() * 10000), recurrenceRootId: root,
       date: today, status: 'pending', finishedAt: null, createdAt: core.now(), updatedAt: core.now(), comments: undefined };
     delete next.finishedAt;

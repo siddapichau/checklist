@@ -561,6 +561,12 @@ const FireSync = {
         if (normalized.finishedAt && normalized.finishedAt.toDate) {
           normalized.finishedAt = normalized.finishedAt.toDate().toISOString();
         }
+        // Normalizar date de tarefas para YYYY-MM-DD (evita duplicação por comparação falha)
+        if (normalized.date && normalized.date.toDate) {
+          normalized.date = core.dateKeyFromLocalDate(normalized.date.toDate());
+        } else if (normalized.date instanceof Date) {
+          normalized.date = core.dateKeyFromLocalDate(normalized.date);
+        }
         remoteDocs.push({ id: doc.id, ...normalized });
       });
 
