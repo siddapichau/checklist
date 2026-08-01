@@ -10,7 +10,7 @@
      visual) — nunca mais é o único lugar onde um dado existe.
    • Escritas com falha transitória entram numa fila (outbox) e são
      reenviadas sozinhas até dar certo (ou a regra negar).
-   • Chaves/segregados da IA NÃO ficam mais em localStorage (persistente):
+   • Chaves/segredos da IA NÃO ficam mais em localStorage (persistente):
      apenas sessionStorage (por aba) + Firestore (settings/admin).
    ========================================================= */
 
@@ -89,6 +89,25 @@ function safeSessionRemove(key) {
   try { sessionStorage.removeItem(key); } catch (e) {}
 }
 
+function operationalNow() {
+  try {
+    if (typeof core !== 'undefined' && core.now) return core.now();
+    const tz = 'America/Sao_Paulo';
+    const dtf = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    });
+    const parts = Object.fromEntries(dtf.formatToParts(new Date())
+      .filter(p => p.type !== 'literal')
+      .map(p => [p.type, p.value]));
+    return `${parts.year}-${parts.month}-${parts.day}T${parts.hour}:${parts.minute}:${parts.second}.000-03:00`;
+  } catch(e) {
+    return new Date().toISOString();
+  }
+}
+
 /* ========== HELPER: converter datas com segurança ========== */
 function safeFirestoreTimestamp(value) {
   if (!value) return null;
@@ -120,9 +139,12 @@ const FireSync = {
   _maxCollectionErrors: 5,
   // Fila de reescrita (outbox): escritas com falha transitória (offline/rede)
   // são reenviadas sozinhas até darem certo — nada fica só no cache local.
+  // v18: a fila também é persistida localmente até a nuvem confirmar. Assim,
+  // se o APK/WebView fechar offline, os dados voltam a subir ao reabrir.
   _outbox: [],
   _outboxFlushing: false,
   _outboxTimer: null,
+  _outboxKey: 'cl-firesync-outbox-v18',
 
   /* Iniciar sincronização para um usuário */
   async start(userId) {
@@ -137,6 +159,7 @@ const FireSync = {
     this.stop();
     this._userId = userId;
     this._collectionErrors = {};
+    this._loadOutbox();
 
     console.log('🔄 FireSync iniciado para:', userId);
 
@@ -362,7 +385,7 @@ const FireSync = {
       this._unsubscribers.push(settingsUnsub);
 
       // 5. Preferências/estado por usuário sincronizados da nuvem:
-      //    notificações, histórico da IA e configuração do Pomodoro vivem em
+      //    notificações, histórico/memória da IA e configuração do Pomodoro vivem em
       //    settings/{section}/user/{uid} no Firestore (regras: só o dono lê/escreve).
       ['notifications', 'ai', 'pomodoro'].forEach(section => {
         const unsub = db.collection('settings').doc(section).collection('user').doc(userId)
@@ -438,6 +461,65 @@ const FireSync = {
 
   _canPush(collection) {
     return (this._collectionErrors[collection] || 0) < this._maxCollectionErrors;
+  },
+
+  _loadOutbox() {
+    try {
+      const raw = safeLocalGet(this._outboxKey);
+      const list = raw ? JSON.parse(raw) : [];
+      if (Array.isArray(list)) this._outbox = list.slice(0, 1000);
+    } catch(e) {
+      this._outbox = [];
+    }
+  },
+
+  _saveOutbox() {
+    try {
+      if (this._outbox.length) safeLocalSet(this._outboxKey, JSON.stringify(this._outbox.slice(0, 1000)));
+      else safeLocalRemove(this._outboxKey);
+    } catch(e) {}
+  },
+
+  _sanitizeOutboxData(collection, data) {
+    const copy = data && typeof data === 'object' ? { ...data } : data;
+    // Senhas/hashes do fallback local nunca devem ir para uma fila persistente.
+    if (collection === 'users' && copy && typeof copy === 'object') {
+      delete copy.pass;
+      delete copy.passHash;
+    }
+    return copy;
+  },
+
+
+  _removeQueuedWrite(collection, id) {
+    const before = this._outbox.length;
+    this._outbox = this._outbox.filter(w =>
+      w._pref || w._delete || w.collection !== collection || String(w.id) !== String(id)
+    );
+    if (this._outbox.length !== before) this._saveOutbox();
+  },
+
+  _removeQueuedPref(section, userId) {
+    const before = this._outbox.length;
+    this._outbox = this._outbox.filter(w => !(w._pref && w.section === section && w.userId === userId));
+    if (this._outbox.length !== before) this._saveOutbox();
+  },
+
+
+  _enqueuePref(section, userId, data) {
+    const existing = this._outbox.find(w => w._pref && w.section === section && w.userId === userId);
+    const prefWrite = { _pref: true, section, userId, data, queuedAt: operationalNow() };
+    if (existing) Object.assign(existing, prefWrite);
+    else this._outbox.push(prefWrite);
+    if (this._outbox.length > 1000) this._outbox.shift();
+    this._saveOutbox();
+    this._scheduleOutboxFlush();
+  },
+
+  _removeQueuedDelete(collection, id) {
+    const before = this._outbox.length;
+    this._outbox = this._outbox.filter(w => !(w._delete && w.collection === collection && String(w.id) === String(id)));
+    if (this._outbox.length !== before) this._saveOutbox();
   },
 
   _clearError(collection) {
@@ -772,7 +854,7 @@ const FireSync = {
             this._bumpErrorSafe(collection);
           } else {
             // Falha transitória: agenda reenvio para não perder os dados.
-            this._outbox.push(...chunk.map(item => ({ collection, id: item.id, data: item })));
+            chunk.forEach(item => this._enqueueWrite(collection, item.id, item));
             this._scheduleOutboxFlush();
           }
         }
@@ -798,6 +880,7 @@ const FireSync = {
       console.log('📤 pushDocument → Firestore:', collection, id);
       await this._writeDoc(collection, id, dataObj);
       this._clearError(collection);
+      this._removeQueuedWrite(collection, id);
       console.log('✅ pushDocument OK:', collection, id);
       return true;
     } catch (err) {
@@ -835,16 +918,18 @@ const FireSync = {
 
   /* ---------- FILA DE REESCRITA (OUTBOX) ---------- */
   _enqueueWrite(collection, id, data) {
+    const safeData = this._sanitizeOutboxData(collection, data);
     const existing = this._outbox.find(w =>
-      w.collection === collection && String(w.id) === String(id)
+      !w._pref && !w._delete && w.collection === collection && String(w.id) === String(id)
     );
     if (existing) {
       // Mesma escrita de novo: versão mais recente vence.
-      existing.data = data;
+      existing.data = safeData;
     } else {
-      this._outbox.push({ collection, id, data });
-      if (this._outbox.length > 500) this._outbox.shift();
+      this._outbox.push({ collection, id, data: safeData, queuedAt: operationalNow() });
+      if (this._outbox.length > 1000) this._outbox.shift();
     }
+    this._saveOutbox();
   },
 
   _scheduleOutboxFlush(delay = 3000) {
@@ -860,6 +945,10 @@ const FireSync = {
      transitórias são tentadas de novo mais tarde. */
   async _flushOutbox() {
     if (this._outboxFlushing || !this._outbox.length) return;
+    if (!auth.currentUser) {
+      this._scheduleOutboxFlush(5000);
+      return;
+    }
     this._outboxFlushing = true;
     const started = Date.now();
     try {
@@ -878,11 +967,17 @@ const FireSync = {
           }
           this._clearError(item.collection || item.section);
           this._outbox.shift();
+          this._saveOutbox();
         } catch (err) {
-          if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
+          if (err.code === 'unauthenticated') {
+            // Auth ainda não restaurou: mantém a fila para tentar novamente.
+            break;
+          }
+          if (err.code === 'permission-denied') {
             console.warn('Outbox: escrita sem permissão descartada:', item.collection || item.section, item.id || item.userId);
             this._bumpErrorSafe(item.collection || item.section);
             this._outbox.shift();
+            this._saveOutbox();
           } else {
             // Erro transitório (offline): tenta de novo mais tarde.
             break;
@@ -938,19 +1033,28 @@ const FireSync = {
   },
 
   async deleteDocument(collection, id) {
+    if (!auth.currentUser) {
+      this._outbox.push({ collection, id, _delete: true, queuedAt: operationalNow() });
+      if (this._outbox.length > 1000) this._outbox.shift();
+      this._saveOutbox();
+      this._scheduleOutboxFlush();
+      return false;
+    }
     try {
       await db.collection(collection).doc(String(id)).delete();
       console.log(`🗑️ ${collection}/${id} removido do Firestore`);
       this._clearError(collection);
+      this._removeQueuedDelete(collection, id);
       return true;
     } catch (err) {
       console.warn(`Erro ao remover ${collection}/${id}:`, err.code, err.message);
-      if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
+      if (err.code === 'permission-denied') {
         this._bumpErrorSafe(collection);
       } else {
-        // Falha transitória: enfileira a exclusão para reenvio automático.
-        this._outbox.push({ collection, id, _delete: true });
-        if (this._outbox.length > 500) this._outbox.shift();
+        // Falha transitória/unauth temporário: enfileira a exclusão para reenvio automático.
+        this._outbox.push({ collection, id, _delete: true, queuedAt: operationalNow() });
+        if (this._outbox.length > 1000) this._outbox.shift();
+        this._saveOutbox();
         this._scheduleOutboxFlush();
       }
       return false;
@@ -958,24 +1062,29 @@ const FireSync = {
   },
 
   /* ---------- PREFERÊNCIAS/DADOS POR USUÁRIO NA NUVEM ----------
-     Notificações, histórico da IA e configuração do Pomodoro ficam em
+     Notificações, histórico/memória da IA e configuração do Pomodoro ficam em
      settings/{section}/user/{uid} no Firestore (regras: só o dono lê e
      escreve). O localStorage é apenas cache de leitura. */
   async pushUserPref(section, userId, data) {
     if (!section || !userId || String(userId).includes('local-')) return false;
+    if (!auth.currentUser) {
+      this._enqueuePref(section, userId, data);
+      return false;
+    }
     try {
       await db.collection('settings').doc(section).collection('user').doc(userId)
         .set(data, { merge: true });
+      this._removeQueuedPref(section, userId);
       return true;
     } catch (err) {
       console.warn('pushUserPref error:', section, err.code || err.message);
-      if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
+      if (err.code === 'unauthenticated') {
+        this._enqueuePref(section, userId, data);
+      } else if (err.code === 'permission-denied') {
         this._bumpErrorSafe(section);
       } else {
         // Falha transitória: enfileira com marcador de preferência de usuário.
-        this._outbox.push({ _pref: true, section, userId, data });
-        if (this._outbox.length > 500) this._outbox.shift();
-        this._scheduleOutboxFlush();
+        this._enqueuePref(section, userId, data);
       }
       return false;
     }
@@ -1006,14 +1115,27 @@ const FireSync = {
           window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'notifications' } }));
         }
       } else if (section === 'ai') {
+        let changed = false;
         if (Array.isArray(pref.history)) {
           const key = 'cl-ai-history-' + userId;
           const json = JSON.stringify(pref.history);
           if (safeLocalGet(key) !== json) {
             safeLocalSet(key, json);
-            window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'ai' } }));
+            // Migração: remove a chave antiga usada pela página IA em versões
+            // anteriores para evitar dois históricos divergentes.
+            safeLocalRemove('ai_history_' + userId);
+            changed = true;
           }
         }
+        if (pref.memory && typeof pref.memory === 'object') {
+          const memKey = 'cl-ai-memory-' + userId;
+          const memJson = JSON.stringify(pref.memory);
+          if (safeLocalGet(memKey) !== memJson) {
+            safeLocalSet(memKey, memJson);
+            changed = true;
+          }
+        }
+        if (changed) window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'ai' } }));
       } else if (section === 'pomodoro') {
         if (pref.cfg && typeof pref.cfg === 'object') {
           const key = 'cl-pomodoro-cfg';

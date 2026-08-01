@@ -95,7 +95,7 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 ### ☁️ Arquitetura de dados: nuvem primeiro (v17)
 
 **Tudo que é dado do usuário vive no Firestore** — atividades, notas, macros,
-comentários, gamificação, notificações, histórico da IA, configuração do
+comentários, gamificação, notificações, histórico/memória da IA, configuração do
 Pomodoro, layout do dashboard, arquivos, posts e configurações:
 
 - **Escrita (write-through):** toda criação/edição/exclusão é gravada
@@ -109,10 +109,10 @@ Pomodoro, layout do dashboard, arquivos, posts e configurações:
   verdade. O que fica no cache local é só o necessário para carregar a
   interface sem travar: tema/modo (preferência por usuário), período dos
   gráficos (dia/30 dias) e o espelho de leitura das coleções.
-- **Chaves/segregados da IA** (DeepSeek/Groq) **não** ficam em localStorage:
+- **Chaves/segredos da IA** (DeepSeek/Groq) **não** ficam em localStorage:
   apenas na sessão da aba (`sessionStorage`) e no documento privado
   `settings/admin` do Firestore.
-- **Notificações, histórico da IA e configuração do Pomodoro** ficam em
+- **Notificações, histórico/memória da IA e configuração do Pomodoro** ficam em
   `settings/{seção}/user/{uid}` no Firestore (só o dono lê/escreve) e são
   sincronizados entre dispositivos.
 - ⚠️ **Importante:** republicue as regras do Firestore (veja
@@ -120,6 +120,28 @@ Pomodoro, layout do dashboard, arquivos, posts e configurações:
   permissão da coleção `dashboardWidgets`. É só copiar o conteúdo de
   `firestore.rules` no console e clicar em Publicar — depois basta entrar com
   `wesleystudio@gmail.com` uma vez.
+
+
+### 🕒 Horário operacional de São Paulo (v18)
+
+Todo cálculo de “hoje”, atrasos, recorrência, streak, relatórios, lembretes,
+calendário e histórico/memória da IA passa a usar o fuso **America/Sao_Paulo — São
+Paulo/SP, Brasil (UTC-3)**. O app não depende mais do fuso do celular, navegador
+ou servidor para decidir a data operacional.
+
+### 🧠 IA com aprendizado contínuo em nuvem (v18)
+
+A página **IA Assistente** agora mantém uma memória adaptativa por usuário em
+`settings/ai/user/{uid}` no Firestore:
+
+- cada consulta registra intenção, contexto operacional, canal usado, resumo da
+  resposta e referências de atividades relevantes;
+- a memória é reenviada no prompt das próximas consultas para personalizar foco,
+  tom e recomendações sem inventar dados;
+- histórico e memória têm cache local apenas para abrir rápido/offline, mas a
+  fonte de verdade é a nuvem;
+- a fila de reenvio do FireSync agora é persistente: se o app fechar offline,
+  escritas pendentes sobem automaticamente ao reabrir/conectar.
 
 ## 🤖 IA DeepSeek
 

@@ -2,7 +2,7 @@ rules_version = '2';
 
 // =========================================================
 // CHECKLIST ML — Firestore Security Rules (CORRIGIDO)
-// Coleções: users, tasks, posts, files, macros, settings, comments
+// Coleções: users, tasks, posts, files, macros, settings, comments, gamification
 // Fix: isNotBanned agora permite usuário novo sem doc
 // Fix: validNewUserProfile mais flexível
 // Fix: promoção de administrador inicial passa a ser de USO ÚNICO,
@@ -235,7 +235,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
 
-    // Preferências privadas por usuário.
+    // Preferências privadas por usuário (notificações, histórico/memória da IA, Pomodoro etc.).
     match /settings/{settingId}/user/{userId} {
       allow read, write: if isOwner(userId);
     }

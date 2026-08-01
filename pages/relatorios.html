@@ -180,8 +180,7 @@ function repDays(){ return repPeriod === 'all' ? null : parseInt(repPeriod, 10);
 function repStartDate(){
   const days = repDays();
   if (!days) return null;
-  const d = new Date(); d.setHours(0,0,0,0); d.setDate(d.getDate() - (days - 1));
-  return d.toISOString().slice(0,10);
+  return core.addDays(core.today(), -(days - 1));
 }
 function filterByPeriod(tasks){
   const start = repStartDate();
@@ -279,7 +278,6 @@ function render() {
   const allTasks = data.tasks || [];
   const tasks = filterByPeriod(allTasks);
   const today = core.today();
-  const now = new Date();
   const user = page.getUser();
 
   // ---------- CORES ----------
@@ -320,8 +318,8 @@ function render() {
   const dayStats = Array(7).fill(null).map(() => ({ total: 0, finished: 0 }));
   tasks.forEach(t => {
     if (t.date) {
-      const d = new Date(t.date + 'T00:00:00');
-      const dow = d.getDay();
+      const parts = core.parseDateKey(t.date);
+      const dow = parts ? new Date(Date.UTC(parts.year, parts.month - 1, parts.day)).getUTCDay() : 0;
       dayStats[dow].total++;
       if (t.status === 'finished') dayStats[dow].finished++;
     }
@@ -486,10 +484,8 @@ function render() {
   const weekTotalData = [];
   const weekPendingData = [];
   for (let i = 6; i >= 0; i--) {
-    const d = new Date(now);
-    d.setDate(d.getDate() - i);
-    const ds = d.toISOString().slice(0, 10);
-    const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
+    const ds = core.addDays(today, -i);
+    const dayName = core.dayName(ds, 'short').slice(0, 3);
     weekDays.push(dayName);
     // Tendência semanal usa o histórico completo (janela fixa de 7 dias).
     const dayTasks = allTasks.filter(t => t.date === ds);
@@ -712,9 +708,10 @@ function render() {
   // ---------- TENDÊNCIA MENSAL ----------
   const monthLabels = [], monthTotal = [], monthFinished = [];
   for (let i = 5; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    const monthKey = d.toISOString().slice(0, 7);
-    const monthName = d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' });
+    const monthStartKey = core.addMonths(core.monthBounds(today).start, -i);
+    const monthKey = monthStartKey.slice(0, 7);
+    const monthName = core.dateTimeInSaoPaulo(monthStartKey, '12:00:00')
+      .toLocaleDateString('pt-BR', { timeZone: core.TIME_ZONE, month: 'short', year: '2-digit' });
     monthLabels.push(monthName);
     // Tendência mensal usa o histórico completo (janela fixa de 6 meses).
     const mTasks = allTasks.filter(t => t.date && t.date.startsWith(monthKey));

@@ -269,29 +269,169 @@ const Core = {
     }, 6000);
   },
 
-  /* ---------- DATA / HORA ---------- */
-  today() { return new Date().toISOString().slice(0, 10); },
-  now() { return new Date().toISOString(); },
+  /* ---------- DATA / HORA (São Paulo, Brasil — UTC-3) ---------- */
+  // Todas as regras operacionais usam a data civil de São Paulo. Isso evita
+  // bugs em celulares/servidores configurados em UTC ou em outro fuso, onde
+  // `new Date().toISOString().slice(0,10)` pode virar o dia errado.
+  TIME_ZONE: 'America/Sao_Paulo',
+  TIME_ZONE_OFFSET: '-03:00',
+  TIME_ZONE_LABEL: 'São Paulo/SP, Brasil (UTC-3)',
+
+  _pad2(v) { return String(v).padStart(2, '0'); },
+  _pad3(v) { return String(v).padStart(3, '0'); },
+
+  _dateLocale() {
+    const lang = this.getCurrentLang();
+    return lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
+  },
+
+  _zonedParts(date = new Date()) {
+    const dtf = new Intl.DateTimeFormat('en-CA', {
+      timeZone: this.TIME_ZONE,
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hourCycle: 'h23',
+    });
+    const parts = Object.fromEntries(dtf.formatToParts(date)
+      .filter(p => p.type !== 'literal')
+      .map(p => [p.type, p.value]));
+    return {
+      year: Number(parts.year),
+      month: Number(parts.month),
+      day: Number(parts.day),
+      hour: Number(parts.hour),
+      minute: Number(parts.minute),
+      second: Number(parts.second),
+    };
+  },
+
+  getTimeZoneInfo() {
+    return {
+      timeZone: this.TIME_ZONE,
+      offset: this.TIME_ZONE_OFFSET,
+      label: this.TIME_ZONE_LABEL,
+      today: this.today(),
+      now: this.now(),
+    };
+  },
+
+  today(date = new Date()) {
+    const p = this._zonedParts(date);
+    return `${p.year}-${this._pad2(p.month)}-${this._pad2(p.day)}`;
+  },
+
+  now(date = new Date()) {
+    const p = this._zonedParts(date);
+    const ms = this._pad3(date.getMilliseconds ? date.getMilliseconds() : 0);
+    return `${p.year}-${this._pad2(p.month)}-${this._pad2(p.day)}T${this._pad2(p.hour)}:${this._pad2(p.minute)}:${this._pad2(p.second)}.${ms}${this.TIME_ZONE_OFFSET}`;
+  },
+
+  nowMs() { return Date.now(); },
+
+  parseDateKey(dateStr) {
+    const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    return { year: Number(m[1]), month: Number(m[2]), day: Number(m[3]) };
+  },
+
+  dateKeyFromParts(year, month, day) {
+    return `${year}-${this._pad2(month)}-${this._pad2(day)}`;
+  },
+
+  dateFromDateKey(dateStr, hour = 12) {
+    const p = this.parseDateKey(dateStr) || this.parseDateKey(this.today());
+    // Meio-dia local é intencional: evita virada de data por ajustes de fuso.
+    return new Date(p.year, p.month - 1, p.day, hour, 0, 0, 0);
+  },
+
+  dateKeyFromLocalDate(date) {
+    return this.dateKeyFromParts(date.getFullYear(), date.getMonth() + 1, date.getDate());
+  },
+
+  dateKeyToOrdinal(dateStr) {
+    const p = this.parseDateKey(dateStr);
+    if (!p) return NaN;
+    return Math.floor(Date.UTC(p.year, p.month - 1, p.day) / 86400000);
+  },
+
+  diffDays(fromDateStr, toDateStr) {
+    const from = this.dateKeyToOrdinal(fromDateStr);
+    const to = this.dateKeyToOrdinal(toDateStr);
+    if (!Number.isFinite(from) || !Number.isFinite(to)) return 0;
+    return to - from;
+  },
+
+  addDays(dateStr, days) {
+    const p = this.parseDateKey(dateStr);
+    if (!p) return this.today();
+    const d = new Date(Date.UTC(p.year, p.month - 1, p.day + Number(days || 0)));
+    return this.dateKeyFromParts(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  },
+
+  addMonths(dateStr, months) {
+    const p = this.parseDateKey(dateStr);
+    if (!p) return this.today();
+    const d = new Date(Date.UTC(p.year, p.month - 1 + Number(months || 0), p.day));
+    // Se o mês de destino tiver menos dias, JS transborda. Ajustamos para o
+    // último dia real do mês desejado (ex.: 31/jan + 1 mês => 28/fev).
+    const expectedMonth = ((p.month - 1 + Number(months || 0)) % 12 + 12) % 12;
+    if (d.getUTCMonth() !== expectedMonth) d.setUTCDate(0);
+    return this.dateKeyFromParts(d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate());
+  },
+
+  startOfWeek(dateStr = this.today()) {
+    const p = this.parseDateKey(dateStr) || this.parseDateKey(this.today());
+    const dow = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay(); // domingo=0
+    return this.addDays(dateStr, -dow);
+  },
+
+  endOfWeek(dateStr = this.today()) { return this.addDays(this.startOfWeek(dateStr), 6); },
+
+  monthBounds(dateStr = this.today()) {
+    const p = this.parseDateKey(dateStr) || this.parseDateKey(this.today());
+    const last = new Date(Date.UTC(p.year, p.month, 0)).getUTCDate();
+    return {
+      start: this.dateKeyFromParts(p.year, p.month, 1),
+      end: this.dateKeyFromParts(p.year, p.month, last),
+    };
+  },
+
+  dateTimeInSaoPaulo(dateStr, time = '00:00:00') {
+    if (!dateStr) return null;
+    const normalizedTime = String(time || '00:00:00').length === 5 ? `${time}:00` : String(time || '00:00:00');
+    return new Date(`${dateStr}T${normalizedTime}${this.TIME_ZONE_OFFSET}`);
+  },
+
   formatDate(dateStr) {
     if (!dateStr) return 'Sem data';
-    const lang = this.getCurrentLang();
-    const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
-    const d = new Date(dateStr + 'T00:00:00');
-    return d.toLocaleDateString(locale, { day:'2-digit', month:'short', year:'numeric' });
+    const d = this.dateTimeInSaoPaulo(dateStr, '12:00:00');
+    if (!d || Number.isNaN(d.getTime())) return 'Sem data';
+    return d.toLocaleDateString(this._dateLocale(), {
+      timeZone: this.TIME_ZONE,
+      day:'2-digit', month:'short', year:'numeric'
+    });
   },
   formatDateTime(ts) {
     if (!ts) return '';
-    const lang = this.getCurrentLang();
-    const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
     const d = typeof ts === 'number' ? new Date(ts) : new Date(ts);
-    return d.toLocaleDateString(locale, { day:'2-digit', month:'short' }) + ' ' +
-           d.toLocaleTimeString(locale, { hour:'2-digit', minute:'2-digit' });
+    if (Number.isNaN(d.getTime())) return '';
+    const locale = this._dateLocale();
+    return d.toLocaleDateString(locale, { timeZone: this.TIME_ZONE, day:'2-digit', month:'short' }) + ' ' +
+           d.toLocaleTimeString(locale, { timeZone: this.TIME_ZONE, hour:'2-digit', minute:'2-digit' });
   },
+  formatTime(ts) {
+    const d = typeof ts === 'number' ? new Date(ts) : new Date(ts || Date.now());
+    if (Number.isNaN(d.getTime())) return '';
+    return d.toLocaleTimeString(this._dateLocale(), { timeZone: this.TIME_ZONE, hour:'2-digit', minute:'2-digit' });
+  },
+  dayName(dateStr = this.today(), format = 'long') {
+    const d = this.dateTimeInSaoPaulo(dateStr, '12:00:00');
+    return d.toLocaleDateString(this._dateLocale(), { timeZone: this.TIME_ZONE, weekday: format });
+  },
+  currentHour() { return this._zonedParts().hour; },
   daysUntil(dateStr) {
     if (!dateStr) return Infinity;
-    const now = new Date(); now.setHours(0,0,0,0);
-    const target = new Date(dateStr + 'T00:00:00');
-    return Math.ceil((target - now) / 86400000);
+    return this.diffDays(this.today(), dateStr);
   },
 
   /* ---------- COMPRESSÃO DE IMAGEM ---------- */
@@ -710,11 +850,11 @@ const Core = {
       stats.totalFinished++;
       if (task.priority === 'urgent') stats.urgentFinished++;
       if (task.recurrence && task.recurrence !== 'none') stats.recurrenceFinished++;
-      // Early: finished before due date
+      // Early: compara sempre no fuso operacional de São Paulo (UTC-3).
       if (task.date && task.finishedAt) {
-        const due = new Date(task.date + 'T23:59:59');
+        const due = this.dateTimeInSaoPaulo(task.date, '23:59:59');
         const done = new Date(task.finishedAt);
-        if (done < due) stats.earlyFinishes++;
+        if (!Number.isNaN(done.getTime()) && done < due) stats.earlyFinishes++;
       }
     } else if (action === 'create') {
       points = 1;
@@ -722,11 +862,11 @@ const Core = {
 
     stats.points += points;
 
-    // Streak: se última atividade foi ontem, incrementa; se foi hoje, mantém; senão reseta
+    // Streak: se última atividade foi ontem em São Paulo, incrementa; se foi
+    // hoje, mantém; senão reseta.
     const today = this.today();
     if (stats.lastActiveDate !== today) {
-      const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1);
-      const yest = yesterday.toISOString().slice(0, 10);
+      const yest = this.addDays(today, -1);
       if (stats.lastActiveDate === yest) {
         stats.streak = (stats.streak || 0) + 1;
       } else if (stats.lastActiveDate && stats.lastActiveDate < yest) {
@@ -737,8 +877,8 @@ const Core = {
       stats.lastActiveDate = today;
     }
 
-    // Pontos semanais
-    const weekKey = this._getWeekKey(new Date());
+    // Pontos semanais no calendário de São Paulo.
+    const weekKey = this._getWeekKey(today);
     stats.weeklyPoints[weekKey] = (stats.weeklyPoints[weekKey] || 0) + points;
 
     // Verificar achievements
@@ -779,9 +919,7 @@ const Core = {
 
     // Se o usuário não fez nada hoje nem ontem, reseta o streak
     if (stats.lastActiveDate) {
-      const last = new Date(stats.lastActiveDate + 'T00:00:00');
-      const now = new Date(today + 'T00:00:00');
-      const diffDays = Math.floor((now - last) / 86400000);
+      const diffDays = this.diffDays(stats.lastActiveDate, today);
       if (diffDays > 1) {
         stats.streak = 0;
         data.gamification[userId] = stats;
@@ -790,18 +928,21 @@ const Core = {
     }
   },
 
-  _getWeekKey(d) {
-    const year = d.getFullYear();
-    const onejan = new Date(year, 0, 1);
-    const week = Math.ceil((((d - onejan) / 86400000) + onejan.getDay() + 1) / 7);
-    return `${year}-W${String(week).padStart(2, '0')}`;
+  _getWeekKey(value = this.today()) {
+    // Semana simples (domingo a sábado), calculada por data civil de São Paulo.
+    const dateKey = typeof value === 'string' ? value : this.today(value instanceof Date ? value : new Date());
+    const p = this.parseDateKey(dateKey) || this.parseDateKey(this.today());
+    const yearStart = this.dateKeyFromParts(p.year, 1, 1);
+    const oneJanDow = new Date(Date.UTC(p.year, 0, 1)).getUTCDay();
+    const week = Math.ceil((this.diffDays(yearStart, dateKey) + oneJanDow + 1) / 7);
+    return `${p.year}-W${String(Math.max(1, week)).padStart(2, '0')}`;
   },
 
   getWeeklyRanking(limit = 10) {
     const data = this.getLocalDB();
     const users = data.users || [];
     const gam = data.gamification || {};
-    const weekKey = this._getWeekKey(new Date());
+    const weekKey = this._getWeekKey(this.today());
     const arr = users.map(u => {
       const s = gam[u.id] || gam[u.uid] || { points: 0, weeklyPoints: {}, streak: 0 };
       return {
@@ -984,12 +1125,10 @@ const Core = {
 
   _nextRecurrenceDate(dateStr, recurrence) {
     if (!dateStr) return null;
-    const d = new Date(dateStr + 'T00:00:00');
-    if (recurrence === 'daily') d.setDate(d.getDate() + 1);
-    else if (recurrence === 'weekly') d.setDate(d.getDate() + 7);
-    else if (recurrence === 'monthly') d.setMonth(d.getMonth() + 1);
-    else return null;
-    return d.toISOString().slice(0, 10);
+    if (recurrence === 'daily') return this.addDays(dateStr, 1);
+    if (recurrence === 'weekly') return this.addDays(dateStr, 7);
+    if (recurrence === 'monthly') return this.addMonths(dateStr, 1);
+    return null;
   },
 
   /* Notificações são dados do usuário: vivem na NUVEM
@@ -1091,7 +1230,7 @@ const Core = {
     const recipientIds = adminIds.length ? adminIds : [userId];
 
     late.forEach(task => {
-      const daysLate = Math.floor((new Date(today) - new Date(task.date)) / 86400000);
+      const daysLate = Math.max(0, this.diffDays(task.date, today));
       this.runAutomations('task_late', {
         task,
         daysLate,

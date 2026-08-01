@@ -208,8 +208,7 @@ let usingId = null;
 /* ========== VARIÁVEIS PADRÃO ========== */
 function builtinVarValues() {
   const user = page.getUser() || {};
-  const now = new Date();
-  const hour = now.getHours();
+  const hour = core.currentHour();
   let saudacao = 'Bom dia';
   if (hour >= 12 && hour < 18) {
     saudacao = 'Boa tarde';
@@ -219,8 +218,8 @@ function builtinVarValues() {
   return {
     nome: '',
     cliente: '',
-    data: now.toLocaleDateString('pt-BR'),
-    hora: now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    data: core.formatDate(core.today()),
+    hora: core.formatTime(Date.now()),
     usuario: user.name || user.username || '',
     saldação: saudacao,
     saudacao: saudacao,

@@ -274,7 +274,6 @@ function render() {
   const category = document.getElementById('filterCategory').value;
   const dateFilter = document.getElementById('filterDate').value;
   const today = core.today();
-  const now = new Date();
 
   // Regra diária: mostrar hoje em qualquer status e manter somente atrasadas
   // que ainda precisam de ação. Futuras ficam para o dia marcado; finalizadas
@@ -296,14 +295,13 @@ function render() {
     if (category !== 'all' && !taskCats(t).includes(category)) return false;
     if (dateFilter === 'today' && t.date !== today) return false;
     if (dateFilter === 'week') {
-      const weekStart = new Date(now); weekStart.setDate(now.getDate() - now.getDay());
-      const weekEnd = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
-      if (!t.date || t.date < weekStart.toISOString().slice(0,10) || t.date > weekEnd.toISOString().slice(0,10)) return false;
+      const weekStart = core.startOfWeek(today);
+      const weekEnd = core.endOfWeek(today);
+      if (!t.date || t.date < weekStart || t.date > weekEnd) return false;
     }
     if (dateFilter === 'late' && !isLateTask(t, today)) return false;
     if (dateFilter === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0,10);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0,10);
+      const { start: monthStart, end: monthEnd } = core.monthBounds(today);
       if (!t.date || t.date < monthStart || t.date > monthEnd) return false;
     }
     return true;

@@ -373,12 +373,9 @@ function renderProgressChart(stats) {
   let cum = 0;
 
   for (let i = 11; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i * 7);
-    const key = core._getWeekKey(d);
-    const lang = page.getLanguage();
-    const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
-    labels.push(d.toLocaleDateString(locale, { day:'2-digit', month:'short' }));
+    const dateKey = core.addDays(core.today(), -i * 7);
+    const key = core._getWeekKey(dateKey);
+    labels.push(core.formatDate(dateKey).replace(/ de /g, ' '));
     const val = weekly[key] || 0;
     points.push(val);
     cum += val;
@@ -463,10 +460,8 @@ function renderCompareChart() {
 
   const labels = [];
   for (let i = 3; i >= 0; i--) {
-    const d = new Date();
-    d.setDate(d.getDate() - i * 7);
-    const locale = 'pt-BR';
-    labels.push(d.toLocaleDateString(locale, { day:'2-digit', month:'short' }));
+    const dateKey = core.addDays(core.today(), -i * 7);
+    labels.push(core.formatDate(dateKey).replace(/ de /g, ' '));
   }
 
   const datasets = topUsers.map((u, idx) => {
@@ -475,9 +470,8 @@ function renderCompareChart() {
     const colors = ['#2563EB', '#10B981', '#F59E0B', '#EF4444', '#8B5CF6'];
     const dataPoints = [];
     for (let i = 3; i >= 0; i--) {
-      const d = new Date();
-      d.setDate(d.getDate() - i * 7);
-      const key = core._getWeekKey(d);
+      const dateKey = core.addDays(core.today(), -i * 7);
+      const key = core._getWeekKey(dateKey);
       dataPoints.push(userWeekly[key] || 0);
     }
     return {
