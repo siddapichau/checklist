@@ -73,7 +73,7 @@ const Page = {
   async getGroqKey() { return window.parent?.fireSync?.getGroqKey ? window.parent.fireSync.getGroqKey() : ''; },
   getAIMode() { return window.parent?.fireSync?.getAIMode ? window.parent.fireSync.getAIMode() : 'auto'; },
   getAIProxyUrl() { return window.parent?.fireSync?.getAIProxyUrl ? window.parent.fireSync.getAIProxyUrl() : ''; },
-  /* Dados do usuário na NUVEM (notificações, histórico da IA, pomodoro...):
+  /* Dados do usuário na NUVEM (notificações, histórico/memória da IA, pomodoro...):
      settings/{section}/user/{uid} no Firestore — só o dono lê/escreve. */
   async syncUserPref(section, data) {
     const userId = core.getCurrentUser()?.id || core.getCurrentUser()?.uid;

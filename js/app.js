@@ -798,7 +798,7 @@ const App = {
         // Para localDB: converter serverTimestamp para ISO string
         const profileForLocal = {
           ...profileForFirestore,
-          createdAt: new Date().toISOString()
+          createdAt: core.now()
         };
 
         try {
@@ -847,7 +847,7 @@ const App = {
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: 'member',
           banned: false,
-          createdAt: new Date().toISOString(),
+          createdAt: core.now(),
           provider: fbUser.providerData[0]?.providerId || 'google.com'
         };
         core.toast('Login feito, mas perfil no Firestore sem permissão. Verifique firestore.rules', 'warning');
@@ -949,7 +949,7 @@ const App = {
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         provider: 'password'
       };
-      const profileLocal = { ...profileFS, createdAt: new Date().toISOString() };
+      const profileLocal = { ...profileFS, createdAt: core.now() };
 
       let savedProfile = profileLocal;
       try {
@@ -1366,9 +1366,9 @@ const App = {
   _checkTaskAlerts() {
     if (!this.currentUser) return;
     const uid = this.currentUser.id || this.currentUser.uid;
-    const now = new Date();
     const today = core.today();
-    const hhmm = String(now.getHours()).padStart(2, '0') + ':' + String(now.getMinutes()).padStart(2, '0');
+    const nowParts = core._zonedParts();
+    const hhmm = String(nowParts.hour).padStart(2, '0') + ':' + String(nowParts.minute).padStart(2, '0');
     const data = core.getLocalDB();
 
     (data.tasks || []).forEach(task => {

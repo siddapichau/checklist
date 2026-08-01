@@ -94,7 +94,7 @@
 })();
 
 let view = 'month';
-let cursor = new Date(); // navegação
+let cursor = core.dateFromDateKey(core.today()); // navegação no calendário de São Paulo
 
 function populateCategories() {
   const settings = page.getDB().settings;
@@ -125,14 +125,16 @@ function changePeriod(delta) {
 }
 
 function goToday() {
-  cursor = new Date();
+  cursor = core.dateFromDateKey(core.today());
   render();
 }
 
 function getMonthName(month) {
   const lang = page.getLanguage();
   const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
-  return new Date(cursor.getFullYear(), month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+  const key = core.dateKeyFromParts(cursor.getFullYear(), month + 1, 1);
+  return core.dateTimeInSaoPaulo(key, '12:00:00')
+    .toLocaleDateString(locale, { timeZone: core.TIME_ZONE, month: 'long', year: 'numeric' });
 }
 
 function getWeekStart(d) {
@@ -154,9 +156,11 @@ function render() {
     const ws = getWeekStart(cursor);
     const we = new Date(ws);
     we.setDate(ws.getDate() + 6);
-    const fmt = { day: '2-digit', month: 'short' };
+    const fmt = { timeZone: core.TIME_ZONE, day: '2-digit', month: 'short' };
     document.getElementById('calTitle').textContent =
-      ws.toLocaleDateString(locale, fmt) + ' — ' + we.toLocaleDateString(locale, fmt);
+      core.dateTimeInSaoPaulo(core.dateKeyFromLocalDate(ws), '12:00:00').toLocaleDateString(locale, fmt) +
+      ' — ' +
+      core.dateTimeInSaoPaulo(core.dateKeyFromLocalDate(we), '12:00:00').toLocaleDateString(locale, fmt);
     renderWeek(locale, ws);
   }
 }
@@ -167,8 +171,6 @@ function renderMonth(locale) {
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const today = core.today();
-  const todayDate = new Date();
-  todayDate.setHours(0,0,0,0);
 
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -241,13 +243,13 @@ function renderWeek(locale, weekStart) {
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const today = core.today();
-  const weekdays = ['calendar.sun','calendar.mon','calendar.tue','calendar.thu','calendar.fri','calendar.sat'];
+  const weekdays = ['calendar.sun','calendar.mon','calendar.tue','calendar.wed','calendar.thu','calendar.fri','calendar.sat'];
 
   let html = '';
   for (let i = 0; i < 7; i++) {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
-    const dateStr = d.toISOString().slice(0, 10);
+    const dateStr = core.dateKeyFromLocalDate(d);
     const dayTasks = tasks.filter(t => t.date === dateStr);
     const filtered = dayTasks.filter(t => {
       if (filterCat !== 'all' && t.category !== filterCat) return false;
@@ -256,7 +258,7 @@ function renderWeek(locale, weekStart) {
     });
     const isToday = dateStr === today;
     const wd = page.t(weekdays[i], weekdays[i].split('.')[1]);
-    const dayName = d.toLocaleDateString(locale, { day: '2-digit' });
+    const dayName = dateStr.slice(-2);
 
     const eventsHtml = filtered.map(t => {
       const isFinished = t.status === 'finished';

@@ -19,6 +19,13 @@
     .ai-diag-item b{display:block;color:var(--text,#1E293B)}
     .ai-diag-item small{color:var(--muted,#94A3B8)}
     .ai-channel{font-size:11.5px;color:var(--muted,#94A3B8);margin-bottom:8px;display:block}
+    .ai-learning-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
+    .ai-learning-stat{padding:12px;border:1px solid var(--line,#E2E8F0);border-radius:12px;background:var(--bg-secondary,#F1F5F9)}
+    .ai-learning-stat small{display:block;color:var(--muted,#94A3B8);font-size:11.5px;margin-bottom:4px}
+    .ai-learning-stat b{font-size:18px;color:var(--text,#1E293B)}
+    .ai-memory-list{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px}
+    .ai-chip{font-size:12px;padding:5px 9px;border-radius:999px;background:var(--primary-light,#DBEAFE);color:var(--primary,#2563EB);border:1px solid rgba(37,99,235,.18)}
+    .ai-note{font-size:12.5px;color:var(--text-secondary,#64748B);line-height:1.45;margin-top:8px}
   </style>
   <title>IA Assistente</title>
 </head>
@@ -36,6 +43,23 @@
 <div class="ai-status" id="aiStatus">
   <span class="dot"></span>
   <span id="aiStatusText">Verificando configuração da IA…</span>
+</div>
+
+<div class="card" id="learningCard">
+  <h2>🧠 Aprendizado contínuo na nuvem</h2>
+  <p class="text-muted mb-2">A IA usa o histórico e padrões de uso para responder melhor a cada consulta. Tudo fica sincronizado no Firestore por usuário.</p>
+  <div class="ai-learning-grid">
+    <div class="ai-learning-stat"><small>Consultas aprendidas</small><b id="learnUses">0</b></div>
+    <div class="ai-learning-stat"><small>Foco principal</small><b id="learnFocus">—</b></div>
+    <div class="ai-learning-stat"><small>Último aprendizado</small><b id="learnLast">—</b></div>
+    <div class="ai-learning-stat"><small>Fuso operacional</small><b>SP -03</b></div>
+  </div>
+  <div id="learnTags" class="ai-memory-list"></div>
+  <p class="ai-note" id="learnNote">Carregando memória da nuvem…</p>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+    <button class="btn btn-secondary btn-sm" onclick="loadAICloudState(true)">☁️ Recarregar da nuvem</button>
+    <button class="btn btn-secondary btn-sm" onclick="clearAILearning()">🧹 Limpar aprendizado</button>
+  </div>
 </div>
 
 <div class="card">
@@ -89,60 +113,291 @@
 <script src="../js/ai.js"></script>
 <script>
 const user = page.getUser();
-const uid = user?.id || user?.uid;
+const uid = user?.id || user?.uid || 'local-ai';
+const AI_HISTORY_KEY = 'cl-ai-history-' + uid;
+const AI_HISTORY_LEGACY_KEY = 'ai_history_' + uid;
+const AI_MEMORY_KEY = 'cl-ai-memory-' + uid;
 
-/* Histórico da IA é dado do usuário: a fonte da verdade é a NUVEM
-   (settings/ai/user/{uid} no Firestore). O localStorage é apenas cache
-   para abrir a página rápido — o FireSync/loadHistoryFromCloud mantém o
-   cache em dia e sobe qualquer histórico criado offline. */
+/* Histórico + memória da IA são dados do usuário: a fonte da verdade é a NUVEM
+   (settings/ai/user/{uid} no Firestore). O localStorage é só cache para abrir
+   rápido e trabalhar offline; ao reconectar, o FireSync/outbox envia tudo. */
 let aiHistory = [];
-try { aiHistory = JSON.parse(localStorage.getItem('ai_history_' + uid) || '[]'); } catch(e) { aiHistory = []; }
+let aiMemory = defaultAIMemory();
 
-renderHistory();
-updateAIStatus();
+function readJSON(key, fallback) {
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch(e) { return fallback; }
+}
 
-async function loadHistoryFromCloud() {
+function normalizeHistory(list) {
+  const seen = new Set();
+  return (Array.isArray(list) ? list : [])
+    .filter(Boolean)
+    .map(h => ({
+      id: h.id || core.genId(),
+      question: String(h.question || '').slice(0, 2000),
+      answer: String(h.answer || '').slice(0, 8000),
+      channel: h.channel || '',
+      timestamp: Number(h.timestamp || 0) || Date.now(),
+      createdAt: h.createdAt || core.now(),
+      timezone: h.timezone || core.TIME_ZONE,
+      timezoneOffset: h.timezoneOffset || core.TIME_ZONE_OFFSET,
+    }))
+    .filter(h => {
+      const key = h.id || (h.timestamp + '|' + h.question);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, 30);
+}
+
+function defaultAIMemory() {
+  return {
+    version: 18,
+    timezone: core.TIME_ZONE,
+    timezoneOffset: core.TIME_ZONE_OFFSET,
+    summary: '',
+    intentCounts: {},
+    preferredFocus: [],
+    recentLearnings: [],
+    stats: { uses: 0, success: 0, fallback: 0 },
+    createdAt: core.now(),
+    updatedAt: null,
+    lastQuestionAt: null,
+  };
+}
+
+function normalizeMemory(memory) {
+  const base = defaultAIMemory();
+  const m = memory && typeof memory === 'object' ? memory : {};
+  return {
+    ...base,
+    ...m,
+    version: 18,
+    timezone: core.TIME_ZONE,
+    timezoneOffset: core.TIME_ZONE_OFFSET,
+    intentCounts: m.intentCounts && typeof m.intentCounts === 'object' ? m.intentCounts : {},
+    preferredFocus: Array.isArray(m.preferredFocus) ? m.preferredFocus.slice(0, 8) : [],
+    recentLearnings: Array.isArray(m.recentLearnings) ? m.recentLearnings.slice(0, 30) : [],
+    stats: { ...base.stats, ...(m.stats || {}) },
+  };
+}
+
+function mergeMemory(localMem, cloudMem) {
+  const local = normalizeMemory(localMem);
+  const cloud = normalizeMemory(cloudMem);
+  const merged = normalizeMemory({ ...local, ...cloud });
+
+  // Contadores: preserva o maior número conhecido para não regredir ao alternar
+  // dispositivos; entradas recentes são mescladas por id.
+  merged.stats = {
+    uses: Math.max(local.stats.uses || 0, cloud.stats.uses || 0),
+    success: Math.max(local.stats.success || 0, cloud.stats.success || 0),
+    fallback: Math.max(local.stats.fallback || 0, cloud.stats.fallback || 0),
+  };
+  merged.intentCounts = { ...local.intentCounts };
+  Object.entries(cloud.intentCounts || {}).forEach(([tag, count]) => {
+    merged.intentCounts[tag] = Math.max(Number(merged.intentCounts[tag] || 0), Number(count || 0));
+  });
+
+  const byId = new Map();
+  [...(local.recentLearnings || []), ...(cloud.recentLearnings || [])].forEach(item => {
+    if (!item) return;
+    const id = item.id || ((item.createdAt || '') + '|' + (item.question || ''));
+    if (!byId.has(id)) byId.set(id, { ...item, id });
+  });
+  merged.recentLearnings = [...byId.values()]
+    .sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0))
+    .slice(0, 30);
+  const updatedCandidates = [local.updatedAt, cloud.updatedAt]
+    .filter(Boolean)
+    .sort((a, b) => new Date(b).getTime() - new Date(a).getTime());
+  merged.updatedAt = updatedCandidates[0] || merged.recentLearnings[0]?.createdAt || null;
+  return refreshMemorySummary(merged);
+}
+
+function rankIntentTags(counts) {
+  return Object.entries(counts || {})
+    .sort((a, b) => Number(b[1] || 0) - Number(a[1] || 0))
+    .slice(0, 8)
+    .map(([tag, count]) => ({ tag, count: Number(count || 0) }));
+}
+
+function refreshMemorySummary(memory) {
+  const ranked = rankIntentTags(memory.intentCounts);
+  memory.preferredFocus = ranked.map(x => x.tag);
+  memory.summary = ranked.length
+    ? `O usuário costuma pedir: ${ranked.slice(0, 4).map(x => `${x.tag} (${x.count})`).join(', ')}.`
+    : 'Ainda sem padrão consolidado; adapte-se conforme as próximas consultas.';
+  return memory;
+}
+
+function inferIntentTags(question) {
+  const q = String(question || '').toLowerCase();
+  const tags = [];
+  const rules = [
+    ['resumo do dia', /(resumo|panorama|visão geral|dia)/],
+    ['atrasadas', /(atrasad|vencid)/],
+    ['urgência/prioridade', /(urgent|priorid|crític|importante)/],
+    ['ordem de execução', /(ordem|sequência|sugerir|priorizar|roteiro)/],
+    ['produtividade', /(produtiv|foco|pomodoro|tempo|efici)/],
+    ['detalhes de atividade', /(detalh|explique|descriç|atividade\s+\d+)/],
+    ['relatórios/progresso', /(progress|relat|indicador|porcent|meta)/],
+    ['calendário/prazos', /(calend|prazo|hoje|amanhã|semana|mês|data)/],
+  ];
+  rules.forEach(([tag, re]) => { if (re.test(q)) tags.push(tag); });
+  return tags.length ? tags : ['consulta geral'];
+}
+
+function stripAnswer(text, max = 280) {
+  return String(text || '')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/\*|#/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, max);
+}
+
+function taskRefsFromContext(ctx) {
+  const refs = [];
+  [...(ctx.late || []), ...(ctx.todayOpen || []), ...(ctx.pending || [])].forEach(t => {
+    if (!t || refs.some(r => String(r.id) === String(t.id))) return;
+    refs.push({ id: t.id, title: t.title, date: t.date || '', priority: t.priority || 'medium', status: t.status || 'pending' });
+  });
+  return refs.slice(0, 8);
+}
+
+async function persistAIState(syncCloud = true) {
+  aiHistory = normalizeHistory(aiHistory);
+  aiMemory = refreshMemorySummary(normalizeMemory(aiMemory));
+  try {
+    localStorage.setItem(AI_HISTORY_KEY, JSON.stringify(aiHistory));
+    localStorage.setItem(AI_MEMORY_KEY, JSON.stringify(aiMemory));
+    localStorage.removeItem(AI_HISTORY_LEGACY_KEY);
+  } catch(e) {}
+
+  if (syncCloud && uid && !String(uid).includes('local-') && uid !== 'local-ai') {
+    await page.syncUserPref('ai', {
+      history: aiHistory,
+      memory: aiMemory,
+      updatedAt: core.now(),
+      timezone: core.getTimeZoneInfo(),
+    });
+  }
+  renderHistory();
+  renderAILearning();
+}
+
+async function loadAICloudState(showToast = false) {
+  const cachedHistory = normalizeHistory([
+    ...normalizeHistory(readJSON(AI_HISTORY_KEY, [])),
+    ...normalizeHistory(readJSON(AI_HISTORY_LEGACY_KEY, [])),
+  ]);
+  const cachedMemory = normalizeMemory(readJSON(AI_MEMORY_KEY, null));
+  aiHistory = cachedHistory;
+  aiMemory = cachedMemory;
+
   try {
     const cloud = await page.getUserPref('ai');
-    const cloudHistory = Array.isArray(cloud?.history) ? cloud.history : [];
-
-    if (!cloudHistory.length) {
-      // Nada na nuvem ainda, mas há histórico no cache local (criado offline):
-      // sobe agora para não perder nada.
-      if (aiHistory.length) page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
-      return;
+    if (cloud) {
+      aiHistory = normalizeHistory([...aiHistory, ...(Array.isArray(cloud.history) ? cloud.history : [])]);
+      aiMemory = mergeMemory(aiMemory, cloud.memory);
     }
-
-    // Mescla cache local + nuvem sem perder nada e sem duplicar.
-    const seen = new Set();
-    const merged = [];
-    [...aiHistory, ...cloudHistory].forEach(h => {
-      const k = (h && h.timestamp || 0) + '|' + (h && h.question || '');
-      if (seen.has(k)) return;
-      seen.add(k);
-      merged.push(h);
-    });
-    merged.sort((a, b) => (b && b.timestamp || 0) - (a && a.timestamp || 0));
-    aiHistory = merged.slice(0, 20);
-
-    try { localStorage.setItem('ai_history_' + uid, JSON.stringify(aiHistory)); } catch(e) {}
-
-    // Se a versão mesclada difere da nuvem, sobe de volta (a nuvem vence).
-    if (JSON.stringify(merged) !== JSON.stringify(cloudHistory)) {
-      page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
-    }
-    renderHistory();
+    await persistAIState(Boolean(cloud || aiHistory.length || aiMemory.stats.uses));
+    if (showToast) page.toast('Memória da IA recarregada da nuvem.', 'success');
   } catch (e) {
-    // Mantém o cache local — sem quebrar nada.
+    renderHistory();
+    renderAILearning();
+    if (showToast) page.toast('Não foi possível recarregar agora; usando cache local.', 'warning');
   }
 }
-loadHistoryFromCloud();
 
-// Atualização ao vivo: se o histórico mudou em outro dispositivo (evento de
-// sync do shell), re-puxa da nuvem e re-renderiza.
+function renderAILearning() {
+  const m = normalizeMemory(aiMemory);
+  const ranked = rankIntentTags(m.intentCounts);
+  const uses = document.getElementById('learnUses');
+  const focus = document.getElementById('learnFocus');
+  const last = document.getElementById('learnLast');
+  const tags = document.getElementById('learnTags');
+  const note = document.getElementById('learnNote');
+  if (uses) uses.textContent = String(m.stats.uses || 0);
+  if (focus) focus.textContent = ranked[0]?.tag || '—';
+  if (last) last.textContent = m.updatedAt ? core.formatDateTime(m.updatedAt) : '—';
+  if (tags) tags.innerHTML = ranked.length
+    ? ranked.map(x => `<span class="ai-chip">${page.esc(x.tag)} · ${x.count}</span>`).join('')
+    : '<span class="ai-chip">aprendizado inicial</span>';
+  if (note) note.textContent = `Fonte: Firestore + cache offline. Horário oficial: ${core.TIME_ZONE_LABEL}. ${m.summary}`;
+}
+
+function memoryForPrompt() {
+  const m = normalizeMemory(aiMemory);
+  const ranked = rankIntentTags(m.intentCounts).slice(0, 5);
+  const recent = (m.recentLearnings || []).slice(0, 5);
+  return [
+    `Consultas aprendidas: ${m.stats.uses || 0}.`,
+    `Focos recorrentes: ${ranked.length ? ranked.map(x => `${x.tag} (${x.count})`).join(', ') : 'ainda sem padrão'}.`,
+    `Resumo adaptativo: ${m.summary || 'sem resumo ainda'}`,
+    recent.length ? 'Últimos aprendizados:\n' + recent.map(item => `- ${item.createdAt || ''}: ${item.question || ''} → ${item.answerBrief || ''}`).join('\n') : 'Últimos aprendizados: nenhum.'
+  ].join('\n');
+}
+
+async function recordAILearning({ question, answer, context, channel = '', ok = true }) {
+  const tags = inferIntentTags(question);
+  aiMemory = normalizeMemory(aiMemory);
+  aiMemory.stats.uses = Number(aiMemory.stats.uses || 0) + 1;
+  if (ok) aiMemory.stats.success = Number(aiMemory.stats.success || 0) + 1;
+  else aiMemory.stats.fallback = Number(aiMemory.stats.fallback || 0) + 1;
+  tags.forEach(tag => { aiMemory.intentCounts[tag] = Number(aiMemory.intentCounts[tag] || 0) + 1; });
+  aiMemory.lastQuestionAt = core.now();
+  aiMemory.updatedAt = core.now();
+  aiMemory.timezone = core.TIME_ZONE;
+  aiMemory.timezoneOffset = core.TIME_ZONE_OFFSET;
+
+  aiMemory.recentLearnings.unshift({
+    id: core.genId(),
+    timestamp: Date.now(),
+    createdAt: core.now(),
+    timezone: core.TIME_ZONE,
+    question: String(question || '').slice(0, 240),
+    tags,
+    channel,
+    ok,
+    answerBrief: stripAnswer(answer),
+    contextStats: {
+      today: context.today,
+      todayOpen: context.todayOpen?.length || 0,
+      late: context.late?.length || 0,
+      pending: context.pending?.length || 0,
+      totalVisible: context.totalTasks || 0,
+    },
+    taskRefs: taskRefsFromContext(context),
+  });
+  aiMemory.recentLearnings = aiMemory.recentLearnings.slice(0, 30);
+  await persistAIState(true);
+}
+
+async function clearAILearning() {
+  if (!confirm('Limpar a memória aprendida da IA? O histórico de perguntas será mantido.')) return;
+  aiMemory = defaultAIMemory();
+  aiMemory.updatedAt = core.now();
+  await persistAIState(true);
+  page.toast('Aprendizado da IA limpo e sincronizado.', 'info');
+}
+
+renderHistory();
+renderAILearning();
+updateAIStatus();
+loadAICloudState();
+
+// Atualização ao vivo: se histórico/memória mudou em outro dispositivo, o shell
+// envia firebaseSync para o iframe e a página re-puxa da nuvem.
 window.addEventListener('message', (event) => {
   if (event.data?.type === 'firebaseSync' && event.data?.collection === 'ai') {
-    loadHistoryFromCloud();
+    loadAICloudState();
   }
 });
 
@@ -240,8 +495,7 @@ async function askAI() {
   // "Futuras" NÃO entram na análise operacional — a IA é orientada a não trazer.
   const tasks = data.tasks || [];
   const today = core.today();
-  const todayDate = new Date(today + 'T00:00:00');
-  const dayOfWeek = todayDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+  const dayOfWeek = core.dayName(today);
 
   const isFuture = t => t.date && t.date > today;
   const isLate = t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
@@ -292,7 +546,12 @@ async function askAI() {
   const fmtTask = t => `- [${t.id}] ${t.title} (cat: ${t.category || 'Geral'}, pri: ${t.priority || 'média'}, data: ${t.date || 'sem data'}${t.alertTime ? ', alerta ' + t.alertTime : ''})`;
   const systemPrompt = `Você é a IA Operacional do Checklist ML — um centro logístico do Mercado Livre.
 
+DATA/HORA OPERACIONAL: ${core.now()} — Horário oficial de ${core.TIME_ZONE_LABEL}.
 DATA ATUAL (use APENAS esta data como "hoje"): ${today} (${dayOfWeek}).
+
+=== MEMÓRIA DE APRENDIZADO DO USUÁRIO (sincronizada na nuvem) ===
+${memoryForPrompt()}
+Use essa memória para adaptar tom, foco e recomendações; nunca use a memória para inventar atividades que não estejam nas listas fornecidas.
 
 ⚠️ REGRAS RÍGIDAS (não quebre):
 1) Você SÓ pode falar sobre as listas fornecidas abaixo. Não invente atividades.
@@ -322,7 +581,10 @@ Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura
         generateLocalResponse(question, context) +
         '\n\n— A chave da IA selecionada não foi encontrada para este navegador/conta. ' +
         'Peça ao administrador para salvá-la em Administração → API / IA.',
-        question
+        question,
+        'preview local',
+        context,
+        false
       );
     } else {
       const { answer, channel } = await AIClient.chat({
@@ -334,7 +596,7 @@ Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura
         proxyUrl: cfg.proxyUrl,
         onProgress: attempt => { btn.textContent = `⏳ Conectando (${attempt.label})...`; },
       });
-      showAnswer(answer, question, channel);
+      showAnswer(answer, question, channel, context, true);
       updateAIStatus();
     }
   } catch (err) {
@@ -344,7 +606,10 @@ Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura
     showAnswer(
       `⚠️ **Não foi possível consultar a IA agora.**\n\n${hint}${tried}\n\n---\n\n` +
       generateLocalResponse(question, context),
-      question
+      question,
+      'fallback local',
+      context,
+      false
     );
     core.log('ai_error', user?.id, (err.message || 'erro').slice(0, 80));
     updateAIStatus();
@@ -389,7 +654,7 @@ function diagRow(icon, title, detail) {
 }
 
 /* ================= RESPOSTA / HISTÓRICO ================= */
-function showAnswer(text, question, channel) {
+function showAnswer(text, question, channel, context = {}, ok = true) {
   document.getElementById('answerCard').style.display = 'block';
   const channelEl = document.getElementById('answerChannel');
   if (channel) {
@@ -401,21 +666,35 @@ function showAnswer(text, question, channel) {
   document.getElementById('answer').innerHTML = formatAnswer(text);
 
   // Salvar no histórico (cache local + NUVEM — aparece em todos os aparelhos)
-  aiHistory.unshift({ question, answer: text, timestamp: Date.now() });
-  if (aiHistory.length > 20) aiHistory.length = 20;
-  try { localStorage.setItem('ai_history_' + uid, JSON.stringify(aiHistory)); } catch(e) {}
-  page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
-  renderHistory();
+  aiHistory.unshift({
+    id: core.genId(),
+    question,
+    answer: text,
+    channel: channel || '',
+    timestamp: Date.now(),
+    createdAt: core.now(),
+    timezone: core.TIME_ZONE,
+    timezoneOffset: core.TIME_ZONE_OFFSET,
+  });
+  aiHistory = normalizeHistory(aiHistory);
+  persistAIState(false);
+  recordAILearning({ question, answer: text, context, channel, ok })
+    .catch(err => {
+      console.warn('ai learning sync:', err);
+      persistAIState(true);
+    });
 
-  core.log('ai_query', user?.id, question.slice(0, 50));
+  core.log(ok ? 'ai_query' : 'ai_query_fallback', user?.id, question.slice(0, 50));
 }
 
 function formatAnswer(text) {
-  return text
+  let html = page.esc(String(text || ''));
+  html = html
+    .replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>')
+    .replace(/\*([^*]+?)\*/g, '<i>$1</i>')
     .replace(/\n/g, '<br>')
-    .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-    .replace(/\*(.*?)\*/g, '<i>$1</i>')
     .replace(/- (.*?)(<br>|$)/g, '• $1$2');
+  return html;
 }
 
 function generateLocalResponse(question, ctx) {
@@ -526,12 +805,13 @@ function renderHistory() {
 PageHelpAI.mount({
   pageId: 'IA',
   title: 'IA Assistente',
-  intro: 'A página central da IA do app: você pergunta, a IA responde com base nas suas atividades, mostra o histórico de consultas e faz diagnóstico de conexão.',
+  intro: 'A página central da IA do app: você pergunta, a IA responde com base nas suas atividades, aprende padrões de uso e sincroniza histórico/memória na nuvem.',
   sections: [
     { icon: '💬', title: 'Perguntar', body: 'Escreva a pergunta e clique em "✨ Consultar IA". A IA analisa suas atividades (HOJE, ATRASADAS e PENDENTES — nunca futuras) e responde com prioridades e sugestões.' },
     { icon: '🚀', title: 'Perguntas rápidas', body: 'Botões prontos: resumo + atrasadas + futuras + próximas (tudo de uma vez), urgentes, resumo do dia, sugerir ordem e atrasadas.' },
     { icon: '🧠', title: 'Múltiplos pedidos', body: 'Você pode pedir várias coisas na mesma pergunta — a IA entrega tudo em seções separadas. Exemplo: "resumo do dia, atrasadas, próximas e detalhes da 2ª atividade".' },
-    { icon: '📜', title: 'Histórico', body: 'As últimas consultas ficam salvas no seu navegador para consultar depois.' },
+    { icon: '🧠', title: 'Aprendizado contínuo', body: 'A cada consulta, a página salva intenção, contexto e resumo da resposta em settings/ai/user/{uid}. Essa memória volta nas próximas perguntas para personalizar melhor a IA.' },
+    { icon: '📜', title: 'Histórico em nuvem', body: 'As últimas consultas ficam no Firestore por usuário e também em cache local para abrir rápido/offline.' },
     { icon: '🔌', title: 'Diagnóstico interno', body: 'A função de diagnóstico existe e é usada pelo Painel Admin → API / IA para detectar CORS, chave inválida ou proxy fora do ar.' },
   ],
   tips: [
@@ -539,6 +819,7 @@ PageHelpAI.mount({
     'A solução definitiva para CORS é o proxy próprio (proxy/cloudflare-worker.js) configurado em Administração → API / IA.',
     'Pergunte de forma específica: "quais atividades atrasadas têm prioridade alta?" rende mais que "me ajude".',
     'Use o botão rápido "📋 Resumo + atrasadas + futuras + próximas" para ter tudo em uma única resposta.',
+    'O horário considerado pela IA é sempre São Paulo/SP (UTC-3), mesmo que o aparelho esteja em outro fuso.',
   ],
   quickQuestions: [
     'Como funciona esta página?',

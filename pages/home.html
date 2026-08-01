@@ -76,7 +76,7 @@
 
   // Saudação
   const user = page.getUser();
-  const hour = new Date().getHours();
+  const hour = core.currentHour();
   let greet = 'Boa noite';
   if (hour < 12) greet = 'Bom dia';
   else if (hour < 18) greet = 'Boa tarde';
@@ -108,11 +108,10 @@ function periodLabel() {
 // Retorna { start, end } em 'YYYY-MM-DD'. 'end' é SEMPRE hoje (nada para frente).
 function getPeriodRange() {
   const end = core.today();
-  const d = new Date(end + 'T00:00:00');
   if (currentPeriod === 'day') return { start: end, end };
-  if (currentPeriod === 'week') { d.setDate(d.getDate() - 6);  return { start: d.toISOString().slice(0,10), end }; }
-  d.setDate(d.getDate() - 29); // month = últimos 30 dias
-  return { start: d.toISOString().slice(0,10), end };
+  if (currentPeriod === 'week') return { start: core.addDays(end, -6), end };
+  // month = últimos 30 dias, sempre no calendário de São Paulo.
+  return { start: core.addDays(end, -29), end };
 }
 
 // Tarefas dentro do período (do dia atual para trás). Ignora datas futuras.
@@ -153,7 +152,6 @@ function renderWidgets() {
   const tasks = data.tasks || [];
   const posts = data.posts || [];
   const today = core.today();
-  const now = new Date();
   const user = page.getUser();
 
   // Atividades puladas via "Não irei fazer hoje" NÃO entram nas contagens
@@ -241,25 +239,18 @@ function renderWidgets() {
         </div>`;
 
       case 'weekProgress':
-        const weekStart = new Date(now);
-        weekStart.setDate(now.getDate() - now.getDay());
-        const weekTasks = tasks.filter(t => {
-          if (!t.date) return false;
-          const d = new Date(t.date + 'T00:00:00');
-          return d >= weekStart && d <= now;
-        });
+        const weekStart = core.startOfWeek(today);
+        const weekTasks = tasks.filter(t => t.date && t.date >= weekStart && t.date <= today);
         const weekDone = weekTasks.filter(t => t.status === 'finished').length;
         const weekTotal = weekTasks.length;
         const weekPct = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0;
         let bars = '';
         for (let i = 6; i >= 0; i--) {
-          const d = new Date(now);
-          d.setDate(d.getDate() - i);
-          const ds = d.toISOString().slice(0, 10);
+          const ds = core.addDays(today, -i);
           const dayTasks = tasks.filter(t => t.date === ds);
           const dayDone = dayTasks.filter(t => t.status === 'finished').length;
           const dayTotal = dayTasks.length;
-          const dayName = d.toLocaleDateString('pt-BR', { weekday: 'short' }).slice(0, 3);
+          const dayName = core.dayName(ds, 'short').slice(0, 3);
           const h = dayTotal > 0 ? Math.max(8, (dayDone / dayTotal) * 60) : 8;
           const color = dayTotal === 0 ? 'var(--line,#E2E8F0)' : dayDone === dayTotal ? 'var(--success,#10B981)' : 'var(--warning,#F59E0B)';
           bars += `<div style="flex:1;text-align:center">

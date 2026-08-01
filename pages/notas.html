@@ -229,7 +229,7 @@
 const user = page.getUser();
 let view = 'cards';
 let periodTab = 'upcoming'; // 'upcoming' = vão vir/atuais | 'past' = já passadas
-let calCursor = new Date();
+let calCursor = core.dateFromDateKey(core.today());
 let currentImage = '';
 let currentViewNoteId = null;
 
@@ -361,7 +361,6 @@ function getFilteredNotes() {
   const cat = document.getElementById('filterCategory').value;
   const period = document.getElementById('filterPeriod').value;
   const today = core.today();
-  const now = new Date();
 
   const filtered = notes.filter(n => {
     // Aba do topo: vão vir/atuais (data de hoje ou futura) vs já passadas.
@@ -375,12 +374,11 @@ function getFilteredNotes() {
     if (period === 'today' && n.date !== today) return false;
     if (period === 'reminders' && !n.remind) return false;
     if (period === 'upcoming') {
-      const end = new Date(); end.setDate(now.getDate() + 7);
-      if (!n.date || n.date < today || n.date > end.toISOString().slice(0, 10)) return false;
+      const end = core.addDays(today, 7);
+      if (!n.date || n.date < today || n.date > end) return false;
     }
     if (period === 'month') {
-      const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-      const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+      const { start: monthStart, end: monthEnd } = core.monthBounds(today);
       if (!n.date || n.date < monthStart || n.date > monthEnd) return false;
     }
     return true;
@@ -504,15 +502,17 @@ function setView(v) {
 }
 
 function changeMonth(delta) { calCursor.setMonth(calCursor.getMonth() + delta); renderCalendar(); }
-function goToday() { calCursor = new Date(); renderCalendar(); }
+function goToday() { calCursor = core.dateFromDateKey(core.today()); renderCalendar(); }
 
 function renderCalendar() {
   const lang = page.getLanguage();
   const locale = lang === 'en' ? 'en-US' : lang === 'es' ? 'es-ES' : 'pt-BR';
   const year = calCursor.getFullYear();
   const month = calCursor.getMonth();
+  const monthKey = core.dateKeyFromParts(year, month + 1, 1);
   document.getElementById('calTitle').textContent =
-    new Date(year, month, 1).toLocaleDateString(locale, { month: 'long', year: 'numeric' });
+    core.dateTimeInSaoPaulo(monthKey, '12:00:00')
+      .toLocaleDateString(locale, { timeZone: core.TIME_ZONE, month: 'long', year: 'numeric' });
 
   const data = page.getDB();
   const uid = user?.id || user?.uid;

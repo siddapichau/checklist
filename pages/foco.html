@@ -258,7 +258,7 @@ function setMode(mode) {
 function startTimer() {
   if (state.elapsedSec >= state.durationSec) state.elapsedSec = 0;
   state.running = true;
-  state.startedAt = new Date().toISOString();
+  state.startedAt = core.now();
   state.pausedAt = null;
   state.lastDate = core.today();
   saveState();
@@ -276,7 +276,7 @@ function startTimer() {
 function pauseTimer() {
   if (!state.running) return;
   state.running = false;
-  state.pausedAt = new Date().toISOString();
+  state.pausedAt = core.now();
   clearInterval(timerInterval);
   timerInterval = null;
   saveState();
@@ -287,7 +287,7 @@ function resumeTimer() {
   if (state.running) return;
   state.running = true;
   state.pausedAt = null;
-  state.startedAt = new Date().toISOString();
+  state.startedAt = core.now();
   saveState();
   updateControls();
   tick();
@@ -360,7 +360,7 @@ function onTimerComplete() {
       }
       const s = data.gamification[user.id || user.uid];
       s.points += 20;
-      const weekKey = core._getWeekKey(new Date());
+      const weekKey = core._getWeekKey(core.today());
       s.weeklyPoints[weekKey] = (s.weeklyPoints[weekKey] || 0) + 20;
       s.lastActiveDate = core.today();
       page.saveDB(data);

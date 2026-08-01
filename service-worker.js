@@ -30,7 +30,10 @@
 //       apenas como cache visual/rápido. Escritas com fila de reenvio,
 //       pull inicial do servidor, notificações/histórico da IA/pomodoro
 //       sincronizados por usuário, chaves da IA fora do localStorage.
-const CACHE_NAME = 'checklist-ml-v17-nuvem-primeiro';
+// v18 = Horário operacional fixo em São Paulo/SP (America/Sao_Paulo, UTC-3),
+//       aprendizado contínuo da IA por usuário em Firestore e outbox persistente
+//       para reenviar escritas pendentes mesmo após fechar o app offline.
+const CACHE_NAME = 'checklist-ml-v18-sp-ia-learning-cloud';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',

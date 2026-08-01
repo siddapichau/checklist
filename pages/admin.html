@@ -1086,7 +1086,7 @@ function exportFull() {
   const data = page.getDB();
   const exportData = {
     version: '3.0',
-    exportedAt: new Date().toISOString(),
+    exportedAt: core.now(),
     exportedBy: user?.username || 'unknown',
     settings: data.settings,
     customThemes: data.customThemes || [],
@@ -1110,7 +1110,7 @@ function exportTasks() {
   const data = page.getDB();
   const exportData = {
     version: '2.0',
-    exportedAt: new Date().toISOString(),
+    exportedAt: core.now(),
     tasks: data.tasks,
   };
   downloadJSON(exportData, `checklist-ml-tasks-${core.today()}.json`);
@@ -1121,7 +1121,7 @@ function exportUsers() {
   const data = page.getDB();
   const exportData = {
     version: '2.0',
-    exportedAt: new Date().toISOString(),
+    exportedAt: core.now(),
     users: data.users.map(u => ({ ...u, passHash: undefined, pass: undefined })), // não exportar senhas
   };
   downloadJSON(exportData, `checklist-ml-users-${core.today()}.json`);
