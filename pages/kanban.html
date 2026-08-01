@@ -160,7 +160,9 @@ function render() {
     (t.date < today && t.status !== 'finished' && t.status !== 'notdone')
   );
 
+  const dayOffToday = core.isDayOff(today, page.getUser());
   const filtered = tasks.filter(t => {
+    if (dayOffToday) return false;
     if (!isDailyVisible(t)) return false;
     if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
     if (filterCat !== 'all' && t.category !== filterCat) return false;

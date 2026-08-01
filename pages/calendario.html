@@ -198,7 +198,7 @@ function renderMonth(locale) {
   // Dias do mês atual
   for (let d = 1; d <= daysInMonth; d++) {
     const dateStr = `${year}-${String(month+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
-    const dayTasks = tasks.filter(t => t.date === dateStr);
+    const dayTasks = core.isDayOff(dateStr, page.getUser()) ? [] : tasks.filter(t => t.date === dateStr);
         const filtered = dayTasks.filter(t => {
       if (filterCat !== 'all' && t.category !== filterCat) return false;
       if (filterStatus !== 'all' && t.status !== filterStatus) return false;
@@ -250,7 +250,7 @@ function renderWeek(locale, weekStart) {
     const d = new Date(weekStart);
     d.setDate(weekStart.getDate() + i);
     const dateStr = core.dateKeyFromLocalDate(d);
-    const dayTasks = tasks.filter(t => t.date === dateStr);
+    const dayTasks = core.isDayOff(dateStr, page.getUser()) ? [] : tasks.filter(t => t.date === dateStr);
     const filtered = dayTasks.filter(t => {
       if (filterCat !== 'all' && t.category !== filterCat) return false;
       if (filterStatus !== 'all' && t.status !== filterStatus) return false;
@@ -282,7 +282,7 @@ function renderWeek(locale, weekStart) {
 /* ========== MODAL DIA ========== */
 function openDay(dateStr) {
   const data = page.getDB();
-  const tasks = (data.tasks || []).filter(t => t.date === dateStr);
+  const tasks = core.isDayOff(dateStr, page.getUser()) ? [] : (data.tasks || []).filter(t => t.date === dateStr);
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const filtered = tasks.filter(t => {
