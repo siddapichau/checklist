@@ -782,14 +782,30 @@ const FireSync = {
 
   /* Push manual de um documento — com fila de reenvio (nada se perde) */
   async pushDocument(collection, id, dataObj) {
+    // Validar que temos dados e usuário autenticado antes de tentar escrever
+    if (!collection || !id || !dataObj) {
+      console.warn('⚠️ pushDocument: parâmetros inválidos', { collection, id });
+      return false;
+    }
+    
+    if (!auth.currentUser) {
+      console.warn('⚠️ pushDocument: usuário não autenticado, enfileirando para quando autenticar');
+      this._enqueueWrite(collection, id, dataObj);
+      return false;
+    }
+    
     try {
+      console.log('📤 pushDocument → Firestore:', collection, id);
       await this._writeDoc(collection, id, dataObj);
       this._clearError(collection);
+      console.log('✅ pushDocument OK:', collection, id);
       return true;
     } catch (err) {
-      console.warn(`Erro ao enviar ${collection}/${id}:`, err.code, err.message);
+      console.error('❌ pushDocument ERRO:', collection, id, err.code, err.message);
       if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
+        console.warn('⚠️ Sem permissão para escrever em', collection);
         this._bumpErrorSafe(collection);
+        core.toast(`Sem permissão para sincronizar ${collection}. Verifique as regras.`, 'warning');
       }
       // Enfileira para reenvio automático (offline/rede instável).
       this._enqueueWrite(collection, id, dataObj);
@@ -1017,6 +1033,13 @@ const FireSync = {
      usuário e preferências. Garante que um aparelho novo ou com cache vazio
      receba TUDO do banco, mesmo antes do primeiro evento de snapshot. */
   async _pullUserData(userId) {
+    if (!userId || userId.includes('local-')) {
+      console.log('⚠️ Pull ignorado: usuário local');
+      return;
+    }
+    
+    console.log('📥 Iniciando pull de dados do Firestore para', userId);
+    
     try {
       // allSettled: uma coleção sem permissão (ex.: regras antigas) não pode
       // impedir o pull das demais — cada uma é independente.
@@ -1034,9 +1057,20 @@ const FireSync = {
         docChanges: () => (typeof snap.docChanges === 'function' ? snap.docChanges() : []),
       });
 
-      if (tasksSnap) this._handleCollectionSync('tasks', asSnapshot(tasksSnap), userId);
-      if (notesSnap) this._handleCollectionSync('notes', asSnapshot(notesSnap), userId);
-      if (macrosSnap) this._handleCollectionSync('macros', asSnapshot(macrosSnap), userId);
+      let tasksCount = 0, notesCount = 0, macrosCount = 0;
+      
+      if (tasksSnap) {
+        this._handleCollectionSync('tasks', asSnapshot(tasksSnap), userId);
+        tasksCount = tasksSnap.size || 0;
+      }
+      if (notesSnap) {
+        this._handleCollectionSync('notes', asSnapshot(notesSnap), userId);
+        notesCount = notesSnap.size || 0;
+      }
+      if (macrosSnap) {
+        this._handleCollectionSync('macros', asSnapshot(macrosSnap), userId);
+        macrosCount = macrosSnap.size || 0;
+      }
 
       if (gamSnap && gamSnap.exists) {
         const data = core.getLocalDB();
@@ -1044,6 +1078,7 @@ const FireSync = {
           data.gamification[userId] = gamSnap.data();
           core.saveLocalDB(data);
           window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'gamification' } }));
+          console.log('🏆 Gamificação carregada do Firestore');
         }
       }
 
@@ -1055,19 +1090,28 @@ const FireSync = {
             data.dashboardWidgets = remoteWidgets;
             core.saveLocalDB(data);
             window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'dashboardWidgets' } }));
+            console.log('📊 Dashboard widgets carregados do Firestore');
           }
         }
       }
 
       // Preferências por usuário (notificações, IA, pomodoro) vêm da nuvem.
       await Promise.allSettled(['notifications', 'ai', 'pomodoro'].map(async section => {
-        const pref = await this.getUserPref(section, userId, { source: 'server' });
-        if (pref) this._applyUserPrefSnapshot(section, userId, pref);
+        try {
+          const pref = await this.getUserPref(section, userId, { source: 'server' });
+          if (pref) this._applyUserPrefSnapshot(section, userId, pref);
+        } catch(e) {
+          console.warn('Pull de preferência', section, 'falhou:', e.code);
+        }
       }));
 
-      console.log('📥 Pull inicial do servidor concluído para', userId);
+      console.log('✅ Pull concluído: tarefas=' + tasksCount + ', notas=' + notesCount + ', macros=' + macrosCount);
+      
+      // Notificar que os dados foram carregados para刷新 a interface
+      window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'initialLoad' } }));
     } catch (err) {
-      console.warn('Pull inicial do servidor falhou (snapshots seguem ativos):', err.code || err.message);
+      console.error('❌ Pull inicial falhou:', err.code, err.message);
+      core.toast('Erro ao carregar dados do banco. Verifique sua conexão.', 'warning');
     }
   },
 

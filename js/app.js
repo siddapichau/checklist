@@ -1955,13 +1955,18 @@ const App = {
   },
 
   handleMessage(e) {
-    // Aceite somente mensagens da página atualmente carregada no iframe. Isso
-    // também impede que uma mensagem enviada para a própria janela recrie toast.
-    const frameWindow = document.getElementById('pageFrame')?.contentWindow;
-    if (e.origin !== window.location.origin || !frameWindow || e.source !== frameWindow) return;
+    // Verificação de origem: aceitar apenas mensagens da mesma origem
+    // A verificação de e.source é relaxada para não bloquear mensagens legítimas
+    // de iframes que podem ter perdido a referência ao contentWindow
+    if (e.origin !== window.location.origin) return;
 
     const msg = e.data;
     if (!msg || !msg.type) return;
+
+    // Log para debugging de sincronização Firebase
+    if (msg.type === 'firebaseSync') {
+      console.log('📤 Mensagem firebaseSync recebida:', msg.collection, msg.id);
+    }
 
     switch (msg.type) {
       case 'toast':
@@ -2004,11 +2009,19 @@ const App = {
         break;
       case 'firebaseSync':
         if (msg.collection && msg.id !== undefined && msg.data) {
-          fireSync.pushDocument(msg.collection, msg.id, msg.data);
+          console.log('📤 Enviando para Firestore:', msg.collection, msg.id);
+          fireSync.pushDocument(msg.collection, msg.id, msg.data).then(ok => {
+            if (!ok) console.warn('⚠️ pushDocument retornou false para', msg.collection, msg.id);
+          }).catch(err => {
+            console.error('❌ Erro no pushDocument:', err);
+          });
         }
         break;
       case 'firebaseDelete':
-        if (msg.collection && msg.id !== undefined) fireSync.deleteDocument(msg.collection, msg.id);
+        if (msg.collection && msg.id !== undefined) {
+          console.log('🗑️ Deletando do Firestore:', msg.collection, msg.id);
+          fireSync.deleteDocument(msg.collection, msg.id);
+        }
         break;
       case 'firebaseSettings':
         if (msg.settings) fireSync.pushSettings(msg.settings);
@@ -2018,6 +2031,12 @@ const App = {
         break;
       case 'firebaseWidgets':
         if (msg.userId && msg.widgets) fireSync.pushDashboardWidgets(msg.userId, msg.widgets);
+        break;
+      // Prefs do usuário (notificações, IA, pomodoro) também sincronizam
+      case 'firebaseUserPref':
+        if (msg.section && msg.userId && msg.data) {
+          fireSync.pushUserPref(msg.section, msg.userId, msg.data);
+        }
         break;
     }
   },

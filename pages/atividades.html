@@ -159,8 +159,35 @@
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
+// Aguardar dados do Firebase antes de renderizar pela primeira vez
+let initialDataLoaded = false;
+
 const user = page.getUser();
 const settings = page.getDB().settings;
+
+// Escutar eventos de sincronização do Firebase para re-renderizar quando dados chegarem
+window.addEventListener('message', (e) => {
+  if (e.data?.type === 'firebaseSync') {
+    console.log('📥 Evento firebaseSync recebido na página:', e.data.collection);
+    // Pequeno delay para garantir que o localDB foi atualizado
+    setTimeout(() => {
+      if (typeof render === 'function') {
+        render();
+        console.log('✅ Página re-renderizada após sync Firebase');
+      }
+    }, 100);
+  }
+});
+
+// Também escutar o evento global de sync
+window.addEventListener('firebaseSync', (e) => {
+  console.log('📥 Evento global firebaseSync:', e.detail?.type);
+  setTimeout(() => {
+    if (typeof render === 'function') {
+      render();
+    }
+  }, 100);
+});
 
 /* ========== CATEGORIAS POR CAIXA MARCÁVEL ==========
    Atenção: a inicialização (popular filtros + primeiro render) acontece em
