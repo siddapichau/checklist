@@ -159,13 +159,41 @@ const DURATIONS = () => ({
 });
 
 function loadCfg() {
+  // Cache local abre rápido; a NUVEM (settings/pomodoro/user/{uid}) é a fonte
+  // da verdade e substitui o cache quando tem configuração salva.
   try {
     const cfg = JSON.parse(localStorage.getItem('cl-pomodoro-cfg') || '{}');
     if (cfg.work) document.getElementById('cfgWork').value = cfg.work;
     if (cfg.short) document.getElementById('cfgShort').value = cfg.short;
     if (cfg.long) document.getElementById('cfgLong').value = cfg.long;
   } catch(e) {}
+
+  page.getUserPref('pomodoro').then(cloud => {
+    const cfg = cloud?.cfg || null;
+    if (cfg && typeof cfg === 'object') {
+      try {
+        if (cfg.work) document.getElementById('cfgWork').value = cfg.work;
+        if (cfg.short) document.getElementById('cfgShort').value = cfg.short;
+        if (cfg.long) document.getElementById('cfgLong').value = cfg.long;
+        localStorage.setItem('cl-pomodoro-cfg', JSON.stringify(cfg));
+      } catch(e) {}
+    } else {
+      // Nuvem vazia mas cache local tem configuração (criada offline): sobe.
+      try {
+        const local = JSON.parse(localStorage.getItem('cl-pomodoro-cfg') || '{}');
+        if (local.work) page.syncUserPref('pomodoro', { cfg: local });
+      } catch(e) {}
+    }
+  }).catch(() => {});
 }
+
+// Atualização ao vivo: se a configuração mudou em outro dispositivo
+// (evento de sync do shell), atualiza os campos.
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'firebaseSync' && event.data?.collection === 'pomodoro') {
+    loadCfg();
+  }
+});
 
 function saveCfg() {
   const cfg = {
@@ -173,7 +201,9 @@ function saveCfg() {
     short: parseInt(document.getElementById('cfgShort').value) || 5,
     long: parseInt(document.getElementById('cfgLong').value) || 15,
   };
-  localStorage.setItem('cl-pomodoro-cfg', JSON.stringify(cfg));
+  try { localStorage.setItem('cl-pomodoro-cfg', JSON.stringify(cfg)); } catch(e) {}
+  // Salva na nuvem — a configuração acompanha o usuário em todos os aparelhos.
+  page.syncUserPref('pomodoro', { cfg });
   if (!state.running) {
     state.durationSec = DURATIONS()[state.mode];
     updateDisplay();

@@ -541,10 +541,15 @@ template padrão para evitar abuso de e-mail). Nesse caso:
 
 ### 💡 Dicas para não estourar
 
-1. **Cache local agressivo** (já implementado) — a maioria das operações é no `localStorage`
-2. **Sync seletivo** — só sincroniza `tasks`, `posts` e `files` (não `logs`, `gamification` etc)
-3. **Backup local** — `localStorage` é a fonte primária, Firestore é sincronização
-4. **Cache do Service Worker** — assets ficam em cache, evitando downloads
+1. **Nuvem primeiro (v17)** — o Firestore é a fonte da verdade: toda escrita é
+   gravada direto no banco (com fila de reenvio em falha de rede) e toda
+   leitura puxa do banco (pull inicial + snapshots em tempo real)
+2. **localStorage é só cache de leitura** — usado para carregar a interface
+   rápido e funcionar visualmente offline; nunca é a única cópia de um dado
+3. **Escritas consolidadas** — as telas gravam via `fireSync.pushDocument` /
+   `pushUserPref` (Firestore); o cache local apenas espelha
+4. **Cache do Service Worker** — apenas assets estáticos ficam em cache (os
+   dados nunca passam pelo Service Worker)
 
 ---
 

@@ -992,6 +992,24 @@ const Core = {
     return d.toISOString().slice(0, 10);
   },
 
+  /* Notificações são dados do usuário: vivem na NUVEM
+     (settings/notifications/user/{uid} no Firestore). O localStorage é
+     apenas cache de leitura — o FireSync mantém o cache em dia e a escrita
+     sempre passa pela nuvem (com fila de reenvio em falha de rede). */
+  _notificationsKey(userId) { return 'cl-notifications-' + userId; },
+
+  _pushNotificationsToCloud(userId, list) {
+    if (!userId || String(userId).includes('local-')) return;
+    const payload = { list, updatedAt: this.now() };
+    try {
+      if (typeof page !== 'undefined' && page.syncUserPref) {
+        page.syncUserPref('notifications', payload);
+      } else if (window.fireSync && window.fireSync.pushUserPref) {
+        window.fireSync.pushUserPref('notifications', userId, payload);
+      }
+    } catch (e) { console.warn('notify cloud sync:', e); }
+  },
+
   _createNotification(userId, title, body, type = 'info', options = {}) {
     try {
       if (!userId) return null;
@@ -1001,8 +1019,7 @@ const Core = {
         showToast = true,
         showBrowser = true,
       } = options;
-      const key = 'cl-notifications-' + userId;
-      const list = JSON.parse(localStorage.getItem(key) || '[]');
+      const list = this.getNotifications(userId);
 
       // Uma mesma automação pode ser avaliada mais de uma vez (login, reload e
       // sincronização). A chave torna a criação idempotente e impede spam.
@@ -1017,7 +1034,9 @@ const Core = {
       };
       list.unshift(notification);
       if (list.length > 50) list.length = 50;
-      localStorage.setItem(key, JSON.stringify(list));
+      try { localStorage.setItem(this._notificationsKey(userId), JSON.stringify(list)); } catch(e) {}
+      // Grava na nuvem (fonte da verdade entre dispositivos).
+      this._pushNotificationsToCloud(userId, list);
 
       if (showBrowser && 'Notification' in window && Notification.permission === 'granted') {
         try { new Notification(title, { body }); } catch(e) {}
@@ -1032,14 +1051,24 @@ const Core = {
 
   getNotifications(userId) {
     try {
-      return JSON.parse(localStorage.getItem('cl-notifications-' + userId) || '[]');
+      return JSON.parse(localStorage.getItem(this._notificationsKey(userId)) || '[]');
     } catch { return []; }
   },
 
   markAllNotificationsRead(userId) {
     const list = this.getNotifications(userId);
     list.forEach(n => n.read = true);
-    localStorage.setItem('cl-notifications-' + userId, JSON.stringify(list));
+    try { localStorage.setItem(this._notificationsKey(userId), JSON.stringify(list)); } catch(e) {}
+    this._pushNotificationsToCloud(userId, list);
+  },
+
+  markNotificationRead(userId, id) {
+    const list = this.getNotifications(userId);
+    const n = list.find(x => x.id === id);
+    if (!n) return;
+    n.read = true;
+    try { localStorage.setItem(this._notificationsKey(userId), JSON.stringify(list)); } catch(e) {}
+    this._pushNotificationsToCloud(userId, list);
   },
 
   /**

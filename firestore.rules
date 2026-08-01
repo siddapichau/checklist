@@ -286,6 +286,14 @@ service cloud.firestore {
       allow read, write: if isOwner(userId);
     }
 
+    // ---------- WIDGETS DO DASHBOARD POR USUÁRIO ----------
+    // A tela grava o layout dos widgets em dashboardWidgets/{userId}. Sem este
+    // match, a regra genérica negava a escrita e o layout nunca sincronizava
+    // entre dispositivos. Só o dono lê/escreve.
+    match /dashboardWidgets/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

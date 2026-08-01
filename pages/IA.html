@@ -89,10 +89,62 @@
 <script src="../js/ai.js"></script>
 <script>
 const user = page.getUser();
-const aiHistory = JSON.parse(localStorage.getItem('ai_history_' + user?.id) || '[]');
+const uid = user?.id || user?.uid;
+
+/* Histórico da IA é dado do usuário: a fonte da verdade é a NUVEM
+   (settings/ai/user/{uid} no Firestore). O localStorage é apenas cache
+   para abrir a página rápido — o FireSync/loadHistoryFromCloud mantém o
+   cache em dia e sobe qualquer histórico criado offline. */
+let aiHistory = [];
+try { aiHistory = JSON.parse(localStorage.getItem('ai_history_' + uid) || '[]'); } catch(e) { aiHistory = []; }
 
 renderHistory();
 updateAIStatus();
+
+async function loadHistoryFromCloud() {
+  try {
+    const cloud = await page.getUserPref('ai');
+    const cloudHistory = Array.isArray(cloud?.history) ? cloud.history : [];
+
+    if (!cloudHistory.length) {
+      // Nada na nuvem ainda, mas há histórico no cache local (criado offline):
+      // sobe agora para não perder nada.
+      if (aiHistory.length) page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
+      return;
+    }
+
+    // Mescla cache local + nuvem sem perder nada e sem duplicar.
+    const seen = new Set();
+    const merged = [];
+    [...aiHistory, ...cloudHistory].forEach(h => {
+      const k = (h && h.timestamp || 0) + '|' + (h && h.question || '');
+      if (seen.has(k)) return;
+      seen.add(k);
+      merged.push(h);
+    });
+    merged.sort((a, b) => (b && b.timestamp || 0) - (a && a.timestamp || 0));
+    aiHistory = merged.slice(0, 20);
+
+    try { localStorage.setItem('ai_history_' + uid, JSON.stringify(aiHistory)); } catch(e) {}
+
+    // Se a versão mesclada difere da nuvem, sobe de volta (a nuvem vence).
+    if (JSON.stringify(merged) !== JSON.stringify(cloudHistory)) {
+      page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
+    }
+    renderHistory();
+  } catch (e) {
+    // Mantém o cache local — sem quebrar nada.
+  }
+}
+loadHistoryFromCloud();
+
+// Atualização ao vivo: se o histórico mudou em outro dispositivo (evento de
+// sync do shell), re-puxa da nuvem e re-renderiza.
+window.addEventListener('message', (event) => {
+  if (event.data?.type === 'firebaseSync' && event.data?.collection === 'ai') {
+    loadHistoryFromCloud();
+  }
+});
 
 function quickQ(q) {
   document.getElementById('question').value = q;
@@ -348,10 +400,11 @@ function showAnswer(text, question, channel) {
   }
   document.getElementById('answer').innerHTML = formatAnswer(text);
 
-  // Salvar no histórico
+  // Salvar no histórico (cache local + NUVEM — aparece em todos os aparelhos)
   aiHistory.unshift({ question, answer: text, timestamp: Date.now() });
   if (aiHistory.length > 20) aiHistory.length = 20;
-  localStorage.setItem('ai_history_' + user?.id, JSON.stringify(aiHistory));
+  try { localStorage.setItem('ai_history_' + uid, JSON.stringify(aiHistory)); } catch(e) {}
+  page.syncUserPref('ai', { history: aiHistory, updatedAt: Date.now() });
   renderHistory();
 
   core.log('ai_query', user?.id, question.slice(0, 50));
