@@ -91,7 +91,35 @@ Sistema de gestão operacional para Centros Logísticos — inspirado em Todoist
 - Projeto: `checklist-3e70c`
 - Auth + Firestore + Storage configurados
 - Persistência offline habilitada
-- ⚠️ **Importante:** para ativar o admin de uso único e a coleção `macros`, republicue as regras do Firestore (veja `FIREBASE_SETUP.md` → seção 3 → "Admin de uso único"). É só copiar o conteúdo de `firestore.rules` no console e clicar em Publicar — depois basta entrar com `wesleystudio@gmail.com` uma vez.
+
+### ☁️ Arquitetura de dados: nuvem primeiro (v17)
+
+**Tudo que é dado do usuário vive no Firestore** — atividades, notas, macros,
+comentários, gamificação, notificações, histórico da IA, configuração do
+Pomodoro, layout do dashboard, arquivos, posts e configurações:
+
+- **Escrita (write-through):** toda criação/edição/exclusão é gravada
+  diretamente no Firestore. Falhas transitórias (offline/rede) entram numa
+  **fila de reenvio automática (outbox)** — nada fica preso só no aparelho.
+- **Leitura (read-through):** ao entrar, o app faz um **pull inicial do
+  servidor** (`source: 'server'`) e mantém *snapshots* em tempo real. Um
+  aparelho novo ou com cache vazio recebe todos os dados do banco.
+- **localStorage = apenas cache:** serve para abrir rápido e funcionar com
+  visual offline. Nunca é a única cópia de um dado — a nuvem é a fonte da
+  verdade. O que fica no cache local é só o necessário para carregar a
+  interface sem travar: tema/modo (preferência por usuário), período dos
+  gráficos (dia/30 dias) e o espelho de leitura das coleções.
+- **Chaves/segregados da IA** (DeepSeek/Groq) **não** ficam em localStorage:
+  apenas na sessão da aba (`sessionStorage`) e no documento privado
+  `settings/admin` do Firestore.
+- **Notificações, histórico da IA e configuração do Pomodoro** ficam em
+  `settings/{seção}/user/{uid}` no Firestore (só o dono lê/escreve) e são
+  sincronizados entre dispositivos.
+- ⚠️ **Importante:** republicue as regras do Firestore (veja
+  `FIREBASE_SETUP.md` → seção 3 → "Admin de uso único") — elas incluem a
+  permissão da coleção `dashboardWidgets`. É só copiar o conteúdo de
+  `firestore.rules` no console e clicar em Publicar — depois basta entrar com
+  `wesleystudio@gmail.com` uma vez.
 
 ## 🤖 IA DeepSeek
 

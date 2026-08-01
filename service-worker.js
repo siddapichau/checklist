@@ -26,7 +26,11 @@
 //       do botão "Testar conexão" da página IA, exclusão definitiva de
 //       atividades com modal próprio, botão "Não irei fazer hoje" e
 //       remoção das atividades pré-programadas do seed.
-const CACHE_NAME = 'checklist-ml-v16-ia-multi-perfil-skip';
+// v17 = DADOS 100% NA NUVEM: Firestore como fonte da verdade, localStorage
+//       apenas como cache visual/rápido. Escritas com fila de reenvio,
+//       pull inicial do servidor, notificações/histórico da IA/pomodoro
+//       sincronizados por usuário, chaves da IA fora do localStorage.
+const CACHE_NAME = 'checklist-ml-v17-nuvem-primeiro';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',

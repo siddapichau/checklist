@@ -59,6 +59,20 @@ const Page = {
   async getGroqKey() { return window.parent?.fireSync?.getGroqKey ? window.parent.fireSync.getGroqKey() : ''; },
   getAIMode() { return window.parent?.fireSync?.getAIMode ? window.parent.fireSync.getAIMode() : 'auto'; },
   getAIProxyUrl() { return window.parent?.fireSync?.getAIProxyUrl ? window.parent.fireSync.getAIProxyUrl() : ''; },
+  /* Dados do usuário na NUVEM (notificações, histórico da IA, pomodoro...):
+     settings/{section}/user/{uid} no Firestore — só o dono lê/escreve. */
+  async syncUserPref(section, data) {
+    const userId = core.getCurrentUser()?.id || core.getCurrentUser()?.uid;
+    if (!section || !userId || !window.parent?.fireSync) return false;
+    try { return await window.parent.fireSync.pushUserPref(section, userId, data); }
+    catch (e) { return false; }
+  },
+  async getUserPref(section) {
+    const userId = core.getCurrentUser()?.id || core.getCurrentUser()?.uid;
+    if (!section || !userId || !window.parent?.fireSync) return null;
+    try { return await window.parent.fireSync.getUserPref(section, userId); }
+    catch (e) { return null; }
+  },
   async i18nReady() { await core.tReady(); }, t(key, fallback) { return core.t(key, fallback); }, applyI18n(root) { core.applyI18n(root || document); },
   getTheme() { return core.getLocalDB().settings.theme; }, getMode() { return core.getLocalDB().settings.mode; }, getLanguage() { return core.getCurrentLang(); },
   setLanguage(lang) { core.setLanguage(lang); setTimeout(() => location.reload(), 100); },

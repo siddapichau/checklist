@@ -124,6 +124,9 @@ const App = {
         this.renderSidebar();
         this.updateLangMenuActive();
       }
+      // Notificações vêm da nuvem (settings/notifications/user/{uid}): quando
+      // chega uma versão remota, re-renderiza a central.
+      if (type === 'notifications') this.renderNotifications();
       // Notificar o iframe que algo mudou no banco local via Firebase
       const frame = document.getElementById('pageFrame');
       if (frame?.contentWindow) {
@@ -1721,11 +1724,13 @@ const App = {
 
   openNotif(id) {
     if (!this.currentUser) return;
-    const notifs = core.getNotifications(this.currentUser.id || this.currentUser.uid);
+    const uid = this.currentUser.id || this.currentUser.uid;
+    const notifs = core.getNotifications(uid);
     const n = notifs.find(x => x.id === id);
     if (n) {
-      n.read = true;
-      localStorage.setItem('cl-notifications-' + (this.currentUser.id || this.currentUser.uid), JSON.stringify(notifs));
+      // Marca como lida no cache local E na nuvem (fica lida em todos os
+      // dispositivos do usuário).
+      core.markNotificationRead(uid, id);
     }
     this.renderNotifications();
     document.getElementById('notifMenu')?.classList.add('hidden');
