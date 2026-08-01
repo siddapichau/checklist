@@ -39,6 +39,9 @@ const Core = {
       // Categorias próprias da página de Notas (recadinhos/lembretes) — editáveis
       // no Painel Admin, aba "📝 Notas", sem interferir nas categorias das atividades.
       notesCategories: ['Lembrete','Pessoal','Trabalho','Ideias','Importante','Geral'],
+      // Dias de folga semanais do usuário: mon, tue, wed, thu, fri, sat, sun.
+      // A preferência é individual e não altera o histórico salvo.
+      daysOff: [],
     },
     customThemes: [
       // { id, name, primary, secondary, accent, bg, mode, createdBy, createdAt }
@@ -133,6 +136,8 @@ const Core = {
     if (!Array.isArray(data.settings.categories)) data.settings.categories = [...defaults.settings.categories];
     if (!Array.isArray(data.settings.notesCategories)) data.settings.notesCategories = [...defaults.settings.notesCategories];
     if (!data.settings.language) data.settings.language = 'pt-BR';
+    // Preferências antigas podem não ter a configuração de folga.
+    if (!Array.isArray(data.settings.daysOff)) data.settings.daysOff = [...defaults.settings.daysOff];
     return data;
   },
 
@@ -327,6 +332,37 @@ const Core = {
   },
 
   nowMs() { return Date.now(); },
+
+  /** Retorna a chave curta do dia da semana usando a data operacional de São Paulo. */
+  weekdayKey(date = new Date()) {
+    const key = this.today(date);
+    return this.weekdayKeyFromDateKey(key);
+  },
+
+  weekdayKeyFromDateKey(dateStr) {
+    const p = this.parseDateKey(dateStr);
+    if (!p) return '';
+    // UTC evita que o fuso local do aparelho mude o dia escolhido.
+    const day = new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay();
+    return ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'][day];
+  },
+
+  isDayOff(dateOrKey = this.today(), user = this.getCurrentUser()) {
+    const dateKey = typeof dateOrKey === 'string' ? dateOrKey : this.today(dateOrKey);
+    const days = user?.daysOff;
+    return Array.isArray(days) && days.includes(this.weekdayKeyFromDateKey(dateKey));
+  },
+
+  parseDateRange(question, referenceDate = this.today()) {
+    const q = String(question || '').toLowerCase();
+    const ref = this.parseDateKey(referenceDate);
+    if (!ref) return null;
+    const last = q.match(/(?:últimos?|ultimos?)\s+(\d+)\s+dias?/i);
+    if (last) return { start: this.addDays(referenceDate, -(Number(last[1]) - 1)), end: referenceDate, label: `últimos ${last[1]} dias` };
+    const month = q.match(/(?:dia\s+)?(\d{1,2})\s*(?:a|até|ate|-|ao)\s*(\d{1,2})\s+(?:(?:deste|desse|do|de)\s+)?m[eê]s/i);
+    if (month) return { start: this.dateKeyFromParts(ref.year, ref.month, Number(month[1])), end: this.dateKeyFromParts(ref.year, ref.month, Number(month[2])), label: `dias ${month[1]} a ${month[2]} deste mês` };
+    return null;
+  },
 
   parseDateKey(dateStr) {
     const m = String(dateStr || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);

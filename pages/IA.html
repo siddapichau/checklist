@@ -489,15 +489,14 @@ async function askAI() {
   btn.disabled = true;
   btn.textContent = '⏳ Processando...';
 
-  // ---- JANELA DE ANÁLISE: HOJE APENAS (nunca futuras) ----
-  // "Hoje" = data corrente. "Atrasadas" = datas < hoje.
-  // "Próximas" = datas == hoje e ainda pendentes (NUNCA datas futuras).
-  // "Futuras" NÃO entram na análise operacional — a IA é orientada a não trazer.
+  // A janela padrão é hoje, mas perguntas com período explícito recebem exatamente os dias solicitados.
   const tasks = data.tasks || [];
   const today = core.today();
   const dayOfWeek = core.dayName(today);
-
-  const isFuture = t => t.date && t.date > today;
+  const requestedRange = core.parseDateRange(question, today);
+  const rangeStart = requestedRange?.start || today;
+  const rangeEnd = requestedRange?.end || today;
+  const visibleForAI = tasks.filter(t => t.date && t.date >= rangeStart && t.date <= rangeEnd && !core.isDayOff(t.date, page.getUser()));
   const isLate = t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
   const isTodayPending = t => t.date === today && t.status !== 'finished' && t.status !== 'notdone';
   const isTodayDone = t => t.date === today && t.status === 'finished';
@@ -505,25 +504,22 @@ async function askAI() {
   const isPending = t => t.status === 'pending';
   const isNotDone = t => t.status === 'notdone';
   const isFinished = t => t.status === 'finished';
-
-  // FILTRO PRÉVIO: removemos futuras da lista que vai para a IA. Sem isso a IA
-  // lia "tarefa do dia 15/08" e respondia como se fosse hoje. Agora a IA só
-  // vê HOJE, ATRASADAS e (excepcional) o total de pendentes, e é orientada a
-  // nunca puxar dados futuros.
-  const visibleForAI = tasks.filter(t => !isFuture(t));
   const late = visibleForAI.filter(isLate);
   const todayAll = visibleForAI.filter(t => t.date === today);
   const todayOpen = todayAll.filter(isTodayPending);
   const todayDone = todayAll.filter(isTodayDone);
   const todayAnalyzing = todayAll.filter(isAnalyzing);
-  const pendingAll = visibleForAI.filter(isPending).filter(t => !isFuture(t) && !t.recurrenceSkip?.[today]);
+  const pendingAll = visibleForAI.filter(isPending);
   const notDoneAll = visibleForAI.filter(isNotDone);
   const finishedAll = visibleForAI.filter(isFinished);
+  const rangeTasks = visibleForAI;
+  const rangeLabel = requestedRange?.label || `hoje (${today})`;
 
   const context = {
     today, dayOfWeek,
     totalTasks: visibleForAI.length,
     totalAll: tasks.length,
+    rangeStart, rangeEnd, rangeLabel, rangeTasks,
     pending: pendingAll,
     analyzing: todayAnalyzing,
     finished: finishedAll,
@@ -555,14 +551,14 @@ Use essa memória para adaptar tom, foco e recomendações; nunca use a memória
 
 ⚠️ REGRAS RÍGIDAS (não quebre):
 1) Você SÓ pode falar sobre as listas fornecidas abaixo. Não invente atividades.
-2) Atividades com data POSTERIOR a ${today} (datas futuras) NÃO EXISTEM na sua análise. Se o usuário pedir "futuras", diga: "A análise operacional do app considera apenas HOJE, ATRASADAS e PENDENTES. Datas futuras ficam para o dia marcado." — e ofereça as próximas do dia atual.
-3) "Próximas" = pendentes/em-análise DO DIA ${today}. "Atrasadas" = datas anteriores a ${today} ainda não concluídas. "Hoje" = tudo com data = ${today}.
+2) Respeite exatamente o período solicitado. Se o usuário pedir datas futuras sem dados fornecidos, informe que não há dados disponíveis.
+3) "Atrasadas" = datas anteriores a ${today} ainda não concluídas; "Hoje" = tudo com data = ${today}. Em intervalos, analise todos os dias do intervalo.
 4) Se o usuário fizer MAIS DE UM PEDIDO na mesma pergunta (ex.: "resumo do dia e atrasadas e futuras e mais detalhes da 2ª atividade"), entregue TODOS, em SEÇÕES SEPARADAS e com títulos. Não ignore nenhum pedido.
 5) Se o usuário pedir "detalhes da N-ésima atividade" ou "mais detalhe da atividade X", use o campo "id" e "title" das listas abaixo para localizar e trazer o que sabe: status, prioridade, categoria, data, horário de alerta, descrição.
 6) Linguagem: português, clara, prática, com emojis e marcadores (• / 1./ 2.) para legibilidade.
 
-=== DADOS DE HOJE (data = ${today}) ===
-${todayAll.length ? todayAll.map(fmtTask).join('\n') : '(nenhuma atividade para hoje)'}
+=== DADOS DO PERÍODO SOLICITADO (${rangeLabel}: ${rangeStart} a ${rangeEnd}) ===
+${rangeTasks.length ? rangeTasks.map(fmtTask).join('\n') : '(nenhuma atividade no período solicitado)'}
 
 === ATRASADAS (data < ${today}, ainda pendentes) ===
 ${late.length ? late.map(fmtTask).join('\n') : '(nenhuma atrasada)'}
@@ -700,6 +696,13 @@ function formatAnswer(text) {
 function generateLocalResponse(question, ctx) {
   const q = question.toLowerCase();
   let resp = '🤖 **Modo Preview** (configure a API Key do DeepSeek em Administração para respostas reais).\n\n';
+  if (ctx.rangeStart && (ctx.rangeStart !== ctx.today || ctx.rangeEnd !== ctx.today)) {
+    const byDay = {};
+    (ctx.rangeTasks || []).forEach(t => { byDay[t.date] = (byDay[t.date] || 0) + 1; });
+    resp += `📅 **Período analisado: ${ctx.rangeLabel}** (${ctx.rangeStart} a ${ctx.rangeEnd})\n`;
+    resp += `Total de atividades: **${ctx.rangeTasks.length}**\n`;
+    resp += Object.keys(byDay).sort().map(d => `- ${d}: ${byDay[d]} atividade(s)`).join('\\n') + '\\n\\n';
+  }
 
   // Detecta os pedidos do usuário (multi-pergunta)
   const wants = {

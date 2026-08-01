@@ -48,6 +48,17 @@
       <label><span>Endereço</span>
         <input type="text" id="pAddress" placeholder="Rua, número, bairro, cidade">
       </label>
+      <div class="profile-section-label">📅 Dias de folga</div>
+      <p class="text-muted" style="font-size:12px;margin:0 0 8px">Escolha os dias da semana em que você não trabalha. Nesses dias as atividades ficam ocultas, sem apagar o histórico, e as diárias reaparecem no próximo dia de trabalho.</p>
+      <div id="daysOffChoices" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <label><input type="checkbox" value="mon"> Seg</label>
+        <label><input type="checkbox" value="tue"> Ter</label>
+        <label><input type="checkbox" value="wed"> Qua</label>
+        <label><input type="checkbox" value="thu"> Qui</label>
+        <label><input type="checkbox" value="fri"> Sex</label>
+        <label><input type="checkbox" value="sat"> Sáb</label>
+        <label><input type="checkbox" value="sun"> Dom</label>
+      </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil</button>
     </form>
   </div>
@@ -134,6 +145,9 @@ document.getElementById('pLastName').value = user?.lastName || '';
 document.getElementById('pEmail').value = user?.email || '';
 document.getElementById('pPhone').value = user?.phone || '';
 document.getElementById('pAddress').value = user?.address || '';
+(document.querySelectorAll('#daysOffChoices input') || []).forEach(cb => {
+  cb.checked = Array.isArray(user?.daysOff) && user.daysOff.includes(cb.value);
+});
 
 // Display name
 function updateDisplayName() {
@@ -432,6 +446,7 @@ function saveProfile(e) {
   u.lastName = document.getElementById('pLastName').value.trim();
   u.phone = document.getElementById('pPhone').value.trim();
   u.address = document.getElementById('pAddress').value.trim();
+  u.daysOff = Array.from(document.querySelectorAll('#daysOffChoices input:checked')).map(cb => cb.value);
 
   page.saveDB(data);
 
@@ -442,7 +457,8 @@ function saveProfile(e) {
     name: u.name,
     lastName: u.lastName,
     phone: u.phone,
-    address: u.address
+    address: u.address,
+    daysOff: u.daysOff
   };
   core.setCurrentUser(sessionUser);
   user = sessionUser;

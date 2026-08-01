@@ -288,7 +288,10 @@ function render() {
 
   const taskCats = t => String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
 
+  const dayOffToday = core.isDayOff(today, user);
   let filtered = tasks.filter(t => {
+    // Folga é uma preferência de visualização: não exclui nem altera o histórico.
+    if (dayOffToday) return false;
     if (dateFilter === 'all' && !isDailyVisible(t)) return false;
     if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
     if (status !== 'all' && t.status !== status) return false;
@@ -810,8 +813,33 @@ function deleteComment(commentId) {
    Executado por último: neste ponto TODAS as const/function do script já
    existem, então render() nunca esbarra na "temporal dead zone".
    Se algo falhar, a página mostra o erro em vez de ficar em branco. */
+function materializeDailyOccurrence() {
+  const data = page.getDB();
+  const today = core.today();
+  const currentUser = page.getUser();
+  if (core.isDayOff(today, currentUser)) return;
+  const daily = (data.tasks || []).filter(t => t.recurrence === 'daily' && t.date && t.date < today && (t.owner === currentUser?.id || t.owner === currentUser?.uid || !t.owner));
+  const latestBySeries = new Map();
+  daily.forEach(t => {
+    const root = String(t.recurrenceRootId || t.id);
+    const prev = latestBySeries.get(root);
+    if (!prev || String(t.date) > String(prev.date)) latestBySeries.set(root, t);
+  });
+  let changed = false;
+  latestBySeries.forEach((latest, root) => {
+    if ((data.tasks || []).some(t => String(t.recurrenceRootId || t.id) === root && t.date === today)) return;
+    const next = { ...latest, id: Date.now() + Math.floor(Math.random() * 10000), recurrenceRootId: root,
+      date: today, status: 'pending', finishedAt: null, createdAt: core.now(), updatedAt: core.now(), comments: undefined };
+    delete next.finishedAt;
+    data.tasks.unshift(next); changed = true;
+    try { page.syncDocument('tasks', next.id, next); } catch (e) { console.warn('sync diária:', e); }
+  });
+  if (changed) page.saveDB(data);
+}
+
 function boot() {
   try {
+    materializeDailyOccurrence();
     initCategories();
     render();
   } catch (err) {

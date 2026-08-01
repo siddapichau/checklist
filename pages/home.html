@@ -153,6 +153,7 @@ function renderWidgets() {
   const posts = data.posts || [];
   const today = core.today();
   const user = page.getUser();
+  const dayOffToday = core.isDayOff(today, user);
 
   // Atividades puladas via "Não irei fazer hoje" NÃO entram nas contagens
   // do dia atual (assim como não aparecem na lista do dia). Para outros dias
@@ -161,13 +162,13 @@ function renderWidgets() {
   const notSkippedToday = t => !skippedToday(t);
 
   // Métricas do PERÍODO selecionado (do dia atual para trás).
-  const periodTasks = tasksInPeriod(tasks).filter(notSkippedToday);
+  const periodTasks = (dayOffToday ? [] : tasksInPeriod(tasks)).filter(notSkippedToday);
   const total = periodTasks.length;
   const finished = periodTasks.filter(t => t.status === 'finished').length;
   const pending = periodTasks.filter(t => t.status === 'pending').length;
   // Atrasadas = vencidas até hoje e não concluídas (backlog, sempre para trás).
-  const late = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
-  const todayTasks = tasks.filter(t => t.date === today).filter(notSkippedToday);
+  const late = dayOffToday ? [] : tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+  const todayTasks = (dayOffToday ? [] : tasks.filter(t => t.date === today)).filter(notSkippedToday);
   const todayDone = todayTasks.filter(t => t.status === 'finished').length;
   const pct = total > 0 ? Math.round(finished / total * 100) : 0;
   const points = user ? (core.getUserStats(user.id || user.uid).points || 0) : 0;
