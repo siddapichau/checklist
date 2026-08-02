@@ -30,13 +30,15 @@
   <select id="filterCategory" onchange="render()">
     <option value="all">Todas categorias</option>
   </select>
-  <select id="filterDate" onchange="render()">
+  <select id="filterDate" onchange="toggleExactDateFilter();render()">
     <option value="all">📅 Hoje e pendentes anteriores</option>
     <option value="today">Hoje</option>
+    <option value="date">Dia específico</option>
     <option value="week">Esta semana</option>
     <option value="late">Atrasadas</option>
     <option value="month">Este mês</option>
   </select>
+  <input type="date" id="filterExactDate" style="display:none" onchange="render()" title="Filtrar por dia específico">
 </div>
 
 <!-- LISTA AGRUPADA POR STATUS (cards compactos) -->
@@ -266,6 +268,14 @@ function isSkippedToday(t, today) {
   return t.date === today && t.recurrenceSkip && t.recurrenceSkip[today];
 }
 
+function toggleExactDateFilter() {
+  const sel = document.getElementById('filterDate');
+  const input = document.getElementById('filterExactDate');
+  if (!sel || !input) return;
+  input.style.display = sel.value === 'date' ? '' : 'none';
+  if (sel.value === 'date' && !input.value) input.value = core.today();
+}
+
 function render() {
   const data = page.getDB();
   const tasks = data.tasks || [];
@@ -273,6 +283,7 @@ function render() {
   const status = document.getElementById('filterStatus').value;
   const category = document.getElementById('filterCategory').value;
   const dateFilter = document.getElementById('filterDate').value;
+  const exactDate = document.getElementById('filterExactDate')?.value || core.today();
   const today = core.today();
 
   // Regra diária: mostrar hoje em qualquer status e manter somente atrasadas
@@ -288,15 +299,18 @@ function render() {
 
   const taskCats = t => String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
 
-  const dayOffToday = core.isDayOff(today, user);
+  const selectedDay = dateFilter === 'date' ? exactDate : today;
+  const selectedDayOff = core.isDayOff(selectedDay, user);
   let filtered = tasks.filter(t => {
-    // Folga é uma preferência de visualização: não exclui nem altera o histórico.
-    if (dayOffToday) return false;
+    // Folga é preferência de visualização por DATA da atividade: não apaga nem
+    // altera histórico, mas impede que tarefas daquele dia apareçam como pendentes.
+    if (t.date && core.isDayOff(t.date, user)) return false;
     if (dateFilter === 'all' && !isDailyVisible(t)) return false;
     if (search && !t.title.toLowerCase().includes(search) && !(t.description || '').toLowerCase().includes(search)) return false;
     if (status !== 'all' && t.status !== status) return false;
     if (category !== 'all' && !taskCats(t).includes(category)) return false;
     if (dateFilter === 'today' && t.date !== today) return false;
+    if (dateFilter === 'date' && t.date !== exactDate) return false;
     if (dateFilter === 'week') {
       const weekStart = core.startOfWeek(today);
       const weekEnd = core.endOfWeek(today);
@@ -329,7 +343,11 @@ function render() {
   const list = document.getElementById('taskList');
 
   if (filtered.length === 0) {
-    list.innerHTML = '<div class="card"><div class="empty"><div class="icon">📋</div><p>Nenhuma atividade encontrada</p></div></div>';
+    if ((dateFilter === 'today' || dateFilter === 'date' || dateFilter === 'all') && selectedDayOff) {
+      list.innerHTML = `<div class="card dayoff-card"><div class="empty"><div class="icon">🌴</div><p><b>${dateFilter === 'date' ? core.formatDate(selectedDay) : 'Hoje'} é dia de folga.</b><br>As atividades deste dia ficam ocultas, não contam como pendentes e continuam salvas no banco.</p></div></div>`;
+    } else {
+      list.innerHTML = '<div class="card"><div class="empty"><div class="icon">📋</div><p>Nenhuma atividade encontrada</p></div></div>';
+    }
     return;
   }
 
@@ -654,6 +672,7 @@ function toggleStatus(id) {
   page.syncDocument('tasks', task.id, task);
   createdRecurrences.forEach(recurringTask => page.syncDocument('tasks', recurringTask.id, recurringTask));
   core.log('task_status', user?.id, `${task.title} → ${statusLabel(task.status)}`);
+  core.chromeNotification('Status da atividade alterado', `${task.title}: ${statusLabel(oldStatus)} → ${statusLabel(task.status)}`, task.status === 'finished' ? 'success' : 'info');
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
 }
@@ -846,6 +865,7 @@ function boot() {
   try {
     materializeDailyOccurrence();
     initCategories();
+    toggleExactDateFilter();
     render();
   } catch (err) {
     console.error('Falha ao iniciar a página de atividades:', err);

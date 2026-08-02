@@ -939,12 +939,23 @@ const FireSync = {
   },
 
   _scheduleOutboxFlush(delay = 3000) {
+    // Timer imediato quando o app está aberto + Background Sync quando o APK
+    // estiver em segundo plano/offline. A outbox é persistente, então nada se
+    // perde ao fechar antes de voltar a internet.
+    try {
+      if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.ready.then(reg => {
+          if (reg.sync) return reg.sync.register('firestore-outbox-sync');
+          reg.active?.postMessage({ type: 'QUEUE_FIRESTORE_SYNC' });
+        }).catch(() => {});
+      }
+    } catch(e) {}
     if (this._outboxTimer) return;
     this._outboxTimer = setTimeout(() => {
       this._outboxTimer = null;
       this._flushOutbox();
     }, delay);
-  },
+  }, 
 
   /* Reenvia escritas pendentes até a nuvem confirmar. Escritas negadas pelas
      regras são descartadas (o dado continua no cache local); falhas

@@ -33,7 +33,9 @@
 // v18 = Horário operacional fixo em São Paulo/SP (America/Sao_Paulo, UTC-3),
 //       aprendizado contínuo da IA por usuário em Firestore e outbox persistente
 //       para reenviar escritas pendentes mesmo após fechar o app offline.
-const CACHE_NAME = 'checklist-ml-v18-sp-ia-learning-cloud';
+// v19 = ajustes integrados: avatar Google reversível, folgas por dia, IA D-1,
+//       Background Sync, exportação diária e acessibilidade.
+const CACHE_NAME = 'checklist-ml-v19-integrated-fixes';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -61,6 +63,7 @@ const ASSETS = [
   '/pages/perfil.html',
   '/pages/admin.html',
   '/pages/relatorios.html',
+  '/pages/export.html',
   '/pages/kanban.html',
   '/pages/calendario.html',
   '/pages/notas.html',
@@ -106,6 +109,22 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('message', event => {
   if (event.data?.type === 'SKIP_WAITING') self.skipWaiting();
+  if (event.data?.type === 'QUEUE_FIRESTORE_SYNC') {
+    event.waitUntil(notifyClients({ type: 'flushOutbox', reason: 'message' }));
+  }
+});
+
+async function notifyClients(message) {
+  const clients = await self.clients.matchAll({ includeUncontrolled: true, type: 'window' });
+  await Promise.all(clients.map(client => client.postMessage(message)));
+}
+
+// Background Sync: quando o Android/WebView voltar a ter internet, o SW acorda
+// o app aberto e pede para o FireSync reenviar a outbox persistente.
+self.addEventListener('sync', event => {
+  if (event.tag === 'firestore-outbox-sync') {
+    event.waitUntil(notifyClients({ type: 'flushOutbox', reason: 'background-sync' }));
+  }
 });
 
 function isApiRequest(request) {
@@ -234,4 +253,3 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
-4. Sync Firebase

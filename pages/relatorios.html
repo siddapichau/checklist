@@ -73,8 +73,9 @@
     <p>Produtividade, tendências e desempenho — com visual moderno.</p>
   </div>
   <div class="actions">
-    <button class="btn btn-secondary" onclick="exportReport()">📥 Exportar CSV</button>
-    <button class="btn btn-primary" onclick="printReport()">🖨️ Imprimir</button>
+    <button class="btn btn-secondary" onclick="exportDailyCSV()">📅 CSV diário</button>
+    <button class="btn btn-secondary" onclick="exportReport()">📥 CSV período</button>
+    <button class="btn btn-primary" onclick="exportDailyPDF()">🖨️ PDF diário</button>
   </div>
 </div>
 
@@ -816,9 +817,42 @@ function render() {
     page.toast('Relatório exportado! 📥', 'success');
   };
 
-  window.printReport = function() {
-    window.print();
+  function csvEscape(v){ return `"${String(v ?? '').replace(/"/g,'""')}"`; }
+
+  window.exportDailyCSV = function(dateKey = core.today()) {
+    const daily = (page.getDB().tasks || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
+    let csv = 'Data,Título,Categoria,Prioridade,Status,Alerta,Descrição\n';
+    daily.forEach(t => {
+      csv += [dateKey, t.title, t.category || 'Geral', t.priority || '', t.status || 'pending', t.alertTime || '', t.description || ''].map(csvEscape).join(',') + '\n';
+    });
+    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `relatorio-diario-${dateKey}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    page.toast('Relatório diário CSV exportado! 📅', 'success');
   };
+
+  window.exportDailyPDF = function(dateKey = core.today()) {
+    const daily = (page.getDB().tasks || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
+    const done = daily.filter(t => t.status === 'finished');
+    const pending = daily.filter(t => t.status !== 'finished' && t.status !== 'notdone');
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relatório diário ${dateKey}</title>
+      <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:22px}table{width:100%;border-collapse:collapse;margin-top:14px}th,td{border:1px solid #ddd;padding:8px;text-align:left;font-size:12px}th{background:#f1f5f9}.kpi{display:inline-block;margin-right:12px;padding:8px 12px;background:#f8fafc;border-radius:8px}</style></head><body>
+      <h1>📋 Relatório diário — ${core.formatDate(dateKey)}</h1>
+      <div><span class="kpi">Total: <b>${daily.length}</b></span><span class="kpi">Realizadas: <b>${done.length}</b></span><span class="kpi">Pendentes: <b>${pending.length}</b></span></div>
+      <h2>✅ Realizadas</h2><ul>${done.map(t => `<li>${page.esc(t.title)} — ${page.esc(t.category || 'Geral')}</li>`).join('') || '<li>Nenhuma</li>'}</ul>
+      <h2>⏳ Pendentes / em análise</h2><ul>${pending.map(t => `<li>${page.esc(t.title)} — ${page.esc(t.status || 'pending')}</li>`).join('') || '<li>Nenhuma</li>'}</ul>
+      <table><thead><tr><th>Título</th><th>Categoria</th><th>Prioridade</th><th>Status</th><th>Alerta</th></tr></thead><tbody>${daily.map(t => `<tr><td>${page.esc(t.title)}</td><td>${page.esc(t.category || 'Geral')}</td><td>${page.esc(t.priority || '')}</td><td>${page.esc(t.status || '')}</td><td>${page.esc(t.alertTime || '')}</td></tr>`).join('')}</tbody></table>
+      <script>window.onload=()=>setTimeout(()=>window.print(),100)<\/script></body></html>`;
+    const w = window.open('', '_blank');
+    if (!w) return page.toast('Pop-up bloqueado. Permita abrir janela para gerar PDF.', 'warning');
+    w.document.open(); w.document.write(html); w.document.close();
+  };
+
+  window.printReport = window.exportDailyPDF;
 
 }
 

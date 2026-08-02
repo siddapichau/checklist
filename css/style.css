@@ -643,3 +643,18 @@ input[type="checkbox"]:active {
   .topbar-user .avatar{width:32px;height:32px}
   .page-frame{height:calc(100dvh - 56px)}
 }
+
+/* ---------- ACESSIBILIDADE: FONTE MAIOR ---------- */
+html[data-font-scale="large"] body{font-size:16px;line-height:1.6}
+html[data-font-scale="large"] .nav-item,
+html[data-font-scale="large"] .topnav-trigger,
+html[data-font-scale="large"] .topnav-item,
+html[data-font-scale="large"] .btn-new,
+html[data-font-scale="large"] .btn-new-top,
+html[data-font-scale="large"] button,
+html[data-font-scale="large"] input,
+html[data-font-scale="large"] select,
+html[data-font-scale="large"] textarea{font-size:1.05em}
+html[data-font-scale="large"] .topbar{min-height:64px}
+html[data-font-scale="large"] .page-frame{height:calc(100vh - 64px)}
+@media(max-width:700px){html[data-font-scale="large"] .page-frame{height:calc(100dvh - 60px)}}

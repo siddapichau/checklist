@@ -294,4 +294,3 @@
     PUBLIC_PROXIES, DEEPSEEK_HOST, GROQ_HOST, CHAT_PATH, MODELS_PATH,
   };
 })();
-3. IA offset data -1 dia corrigido

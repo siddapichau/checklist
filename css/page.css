@@ -1015,3 +1015,19 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 [data-mode="dark"] .ai-proxy-help b{color:var(--text,#E2E8F0)}
 [data-mode="dark"] .ai-proxy-help code{background:rgba(255,255,255,.1)}
+
+/* ---------- ACESSIBILIDADE: FONTE MAIOR (herdado do shell) ---------- */
+html[data-font-scale="large"] body{font-size:16px;line-height:1.6}
+html[data-font-scale="large"] button,
+html[data-font-scale="large"] input,
+html[data-font-scale="large"] select,
+html[data-font-scale="large"] textarea{font-size:1.05em}
+html[data-font-scale="large"] .card,
+html[data-font-scale="large"] .task-card{line-height:1.6}
+
+.dayoff-card{border-color:rgba(14,165,233,.35)!important;background:linear-gradient(135deg,rgba(14,165,233,.10),rgba(16,185,129,.10))!important}
+.task-group-header.finished{background:var(--success-light,#D1FAE5);color:var(--success,#10B981)}
+.task-group-header.pending{background:var(--warning-light,#FEF3C7);color:#B45309}
+.task-card.st-finished{border-left:4px solid var(--success,#10B981)}
+.task-card.st-pending,.task-card.st-analyzing{border-left:4px solid var(--warning,#F59E0B)}
+.task-card.st-notdone{border-left:4px solid var(--danger,#EF4444)}

@@ -229,7 +229,8 @@ document.addEventListener('keydown', function(e){
 
       <span class="breadcrumb" id="breadcrumb">📊 Visão geral</span>
       <div class="topbar-actions">
-        <button onclick="App.toggleTheme()" title="Alternar tema" id="btnTheme">🌙</button>
+        <button onclick="App.toggleTheme()" title="Alternar tema claro/escuro/automático" id="btnTheme">🌙</button>
+        <button onclick="App.toggleFontSize()" title="Aumentar/reduzir fonte (acessibilidade)" id="btnFontSize">🔠</button>
         <button onclick="App.handleLogout()" title="Sair">🚪</button>
       </div>
       <div class="topbar-user" onclick="App.navigate('perfil')" id="topbarUser">
@@ -259,4 +260,3 @@ document.addEventListener('keydown', function(e){
 
 </body>
 </html>
-2. Filtro atividades/folga com destaque

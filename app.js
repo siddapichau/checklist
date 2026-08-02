@@ -42,4 +42,4 @@ document.querySelector('#theme-toggle').addEventListener('click', () => { docume
 if (localStorage.getItem('flowlist-dark') === 'true') document.body.classList.add('dark');
 document.querySelector('#export-btn').addEventListener('click', () => { const csv = 'Tarefa,Projeto,Prioridade,Status\n' + tasks.map(t => `"${t.title}","${t.project}","${t.priority}","${t.done ? 'Concluída' : 'Em andamento'}"`).join('\n'); const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'flowlist-tarefas.csv'; link.click(); showToast('Sua lista foi exportada.'); });
 document.addEventListener('keydown', e => { if (e.key.toLowerCase() === 'n' && !['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) openModal(); if (e.key === 'Escape') closeModal(); });
-render();1. Opção voltar foto Google no avatar (adicionado no app.js)
+render();
