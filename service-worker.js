@@ -234,3 +234,4 @@ self.addEventListener('notificationclick', (event) => {
     })
   );
 });
+4. Sync Firebase
