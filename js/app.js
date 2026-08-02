@@ -39,6 +39,7 @@ const App = {
     this.settings = data.settings;
 
     core.initAutoTheme();
+    this.applyFontSize();
     await core.tReady(this.settings.language);
 
     // Verificar se há usuário logado (session + remember)
@@ -115,6 +116,7 @@ const App = {
 
     window.addEventListener('firebaseSync', (e) => {
       const type = e.detail?.type;
+      if (type === 'users') this.refreshCurrentUserFromDB();
       if (type === 'tasks') this.renderSidebar();
       if (type === 'settings') {
         this.settings = core.getLocalDB().settings;
@@ -152,6 +154,11 @@ const App = {
   /* ========== SERVICE WORKER & PWA ========== */
   registerSW() {
     if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.addEventListener('message', (event) => {
+        if (event.data?.type === 'flushOutbox') {
+          try { fireSync._flushOutbox(); } catch (e) { console.warn('flushOutbox SW:', e); }
+        }
+      });
       // Um update do shell deve assumir o controle e recarregar uma única vez.
       // Isso evita que o APK fique preso em arquivos HTML/JS de versões diferentes.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
@@ -787,7 +794,9 @@ const App = {
           lastName: '',
           phone: '',
           address: '',
+          daysOff: [],
           avatar: fbUser.photoURL || '',
+          googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: this.isBootstrapAdminEmail(fbUser.email) ? 'admin' : 'member',
           banned: false,
@@ -843,7 +852,9 @@ const App = {
           email: fbUser.email || '',
           name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Usuário',
           lastName: '', phone: '', address: '',
+          daysOff: [],
           avatar: fbUser.photoURL || '',
+          googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: 'member',
           banned: false,
@@ -885,8 +896,11 @@ const App = {
       lastName: profile.lastName || '',
       phone: profile.phone || '',
       address: profile.address || '',
+      daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
       avatar: profile.avatar || fbUser.photoURL || '',
+      googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
       avatarType: profile.avatarType || (fbUser.photoURL ? 'google' : 'emoji'),
+      fontScale: profile.fontScale || 'normal',
       role: profile.role || 'member',
       provider: profile.provider || 'password'
     };
@@ -900,6 +914,7 @@ const App = {
       core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
     }
     this.applyUserTheme();
+    this.applyFontSize(this.currentUser.fontScale || null);
 
     try { core.getUserStats(this.currentUser.id); } catch(e) {}
     try { core.log('login', this.currentUser.id, 'Login Firebase'); } catch(e) {}
@@ -1028,8 +1043,11 @@ const App = {
             lastName: profile.lastName || '',
             phone: profile.phone || '',
             address: profile.address || '',
+            daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
             avatar: profile.avatar || fbUser.photoURL || '',
+            googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
             avatarType: profile.avatarType || 'emoji',
+            fontScale: profile.fontScale || 'normal',
             role: profile.role || 'member',
             provider: profile.provider || 'google.com'
           };
@@ -1039,6 +1057,7 @@ const App = {
             core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
           }
           this.applyUserTheme();
+          this.applyFontSize(this.currentUser.fontScale || null);
           try { core.getUserStats(this.currentUser.id); } catch(e) {}
           this.showApp();
           // Sync já será iniciado pelo onAuthStateChanged ou init
@@ -1064,6 +1083,7 @@ const App = {
           email: fbUser.email,
           name: fbUser.displayName || fbUser.email?.split('@')[0],
           avatar: fbUser.photoURL || '',
+          googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: 'member',
           provider: 'google.com'
@@ -1437,6 +1457,25 @@ const App = {
     } catch { return ''; }
   },
 
+  refreshCurrentUserFromDB() {
+    if (!this.currentUser) return;
+    const uid = this.currentUser.uid || this.currentUser.id;
+    const profile = (core.getLocalDB().users || []).find(u => String(u.uid || u.id) === String(uid));
+    if (!profile) return;
+    this.currentUser = {
+      ...this.currentUser,
+      ...profile,
+      id: uid,
+      uid,
+      daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : (this.currentUser.daysOff || []),
+      googlePhoto: profile.googlePhoto || this.currentUser.googlePhoto || '',
+      fontScale: profile.fontScale || this.currentUser.fontScale || 'normal',
+    };
+    core.setCurrentUser(this.currentUser);
+    this.applyFontSize(this.currentUser.fontScale || null);
+    this.updateUserInfo();
+  },
+
   updateUserInfo() {
     if (!this.currentUser) return;
     const u = this.currentUser;
@@ -1578,6 +1617,28 @@ const App = {
     if (frame?.contentWindow) {
       frame.contentWindow.postMessage({ type: 'themeChanged', theme: this.settings.theme, mode: newMode }, '*');
     }
+  },
+
+  applyFontSize(scale = null, sync = false) {
+    const uid = this.currentUser && (this.currentUser.id || this.currentUser.uid);
+    const key = uid ? `cl-font-scale:${uid}` : 'cl-font-scale';
+    const value = scale || localStorage.getItem(key) || localStorage.getItem('cl-font-scale') || 'normal';
+    document.documentElement.dataset.fontScale = value === 'large' ? 'large' : 'normal';
+    localStorage.setItem('cl-font-scale', document.documentElement.dataset.fontScale);
+    if (uid) localStorage.setItem(key, document.documentElement.dataset.fontScale);
+    const btn = document.getElementById('btnFontSize');
+    if (btn) btn.textContent = document.documentElement.dataset.fontScale === 'large' ? '🔡' : '🔠';
+    if (sync && uid && !String(uid).includes('local-')) {
+      fireSync.pushDocument('users', uid, { fontScale: document.documentElement.dataset.fontScale });
+    }
+    const frame = document.getElementById('pageFrame');
+    if (frame?.contentWindow) frame.contentWindow.postMessage({ type: 'fontScaleChanged', fontScale: document.documentElement.dataset.fontScale }, '*');
+  },
+
+  toggleFontSize() {
+    const next = document.documentElement.dataset.fontScale === 'large' ? 'normal' : 'large';
+    this.applyFontSize(next, true);
+    core.toast(next === 'large' ? 'Fonte maior ativada' : 'Fonte normal ativada', 'info');
   },
 
   setTheme(theme) {

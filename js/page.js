@@ -7,18 +7,19 @@
       if ((data.customThemes || []).some(item => item.id === theme)) core.applyCustomTheme(theme);
     } catch (_) {}
   };
-  const apply = (theme, mode) => {
+  const apply = (theme, mode, fontScale) => {
     root.dataset.theme = theme || 'ocean';
     root.dataset.mode = mode === 'auto'
       ? (window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
       : (mode || 'light');
+    root.dataset.fontScale = fontScale || 'normal';
     applyCustomTheme(root.dataset.theme);
   };
   try {
     const parentRoot = window.parent.document.documentElement;
-    apply(parentRoot.dataset.theme, parentRoot.dataset.mode);
-    new MutationObserver(() => apply(parentRoot.dataset.theme, parentRoot.dataset.mode))
-      .observe(parentRoot, { attributes: true, attributeFilter: ['data-theme', 'data-mode'] });
+    apply(parentRoot.dataset.theme, parentRoot.dataset.mode, parentRoot.dataset.fontScale);
+    new MutationObserver(() => apply(parentRoot.dataset.theme, parentRoot.dataset.mode, parentRoot.dataset.fontScale))
+      .observe(parentRoot, { attributes: true, attributeFilter: ['data-theme', 'data-mode', 'data-font-scale'] });
     const syncStyle = () => {
       const source = window.parent.document.getElementById('custom-theme-style');
       if (!source) return;
@@ -30,7 +31,7 @@
     new MutationObserver(syncStyle).observe(window.parent.document.head, { childList: true, subtree: true, characterData: true });
   } catch (_) {
     const settings = core.getLocalDB().settings;
-    apply(settings.theme, settings.mode);
+    apply(settings.theme, settings.mode, localStorage.getItem('cl-font-scale') || 'normal');
   }
   window.addEventListener('message', event => {
     if (event.data?.type === 'themeChanged') apply(event.data.theme, event.data.mode);

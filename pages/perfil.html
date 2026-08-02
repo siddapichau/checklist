@@ -77,10 +77,11 @@
         </p>
       </div>
 
-      <h3>📷 Usar foto do Google</h3>
-      <button class="btn btn-secondary" onclick="useGooglePhoto()" style="width:100%;margin-bottom:16px" id="btnGooglePhoto">
-        Usar foto do Google
+      <h3>📷 Fonte do avatar</h3>
+      <button class="btn btn-secondary" onclick="useGooglePhoto()" style="width:100%;margin-bottom:8px" id="btnGooglePhoto">
+        ↩️ Voltar para foto do Google
       </button>
+      <small class="text-muted" id="googlePhotoHint" style="display:block;margin-bottom:16px">Você pode trocar para emoji/upload e voltar para a foto Google a qualquer momento.</small>
 
       <h3>📤 Enviar imagem</h3>
       <input type="file" id="avatarUpload" accept="image/*" onchange="uploadAvatar(event)" style="margin-bottom:16px">
@@ -169,10 +170,22 @@ updateDisplayName();
 // Mostrar avatar atual
 updateAvatarDisplay();
 
-// Botão Google foto
-if (user?.provider !== 'google.com' && user?.provider !== 'google') {
+// Botão Google foto: mantém a URL original separada de avatar/avatarType para
+// permitir trocar para emoji/upload e depois voltar sem fazer logout/login.
+function getGooglePhotoFromProfile() {
+  const data = page.getDB();
+  const uid = user?.uid || user?.id;
+  const userData = (data.users || []).find(u => (u.id || u.uid) === uid || (u.email && user?.email && u.email === user.email));
+  return userData?.googlePhoto || user?.googlePhoto || ((userData?.avatarType === 'google') ? userData.avatar : '') || ((user?.avatarType === 'google') ? user.avatar : '');
+}
+
+const googlePhotoAvailable = Boolean(getGooglePhotoFromProfile());
+if (!googlePhotoAvailable) {
   document.getElementById('btnGooglePhoto').disabled = true;
-  document.getElementById('btnGooglePhoto').textContent = 'Login via Google necessário';
+  document.getElementById('btnGooglePhoto').textContent = (user?.provider === 'google.com' || user?.provider === 'google')
+    ? 'Foto Google não disponível nesta conta'
+    : 'Login via Google necessário';
+  document.getElementById('googlePhotoHint').textContent = 'Quando a conta tiver uma foto Google, este botão restaura essa fonte.';
 }
 
 // Provider info
@@ -355,16 +368,14 @@ async function uploadAvatar(e) {
 }
 
 function useGooglePhoto() {
-  const data = page.getDB();
-  const uid = user?.uid || user?.id;
-  const userData = data.users.find(u => (u.id || u.uid) === uid);
-  if (userData && userData.googlePhoto) {
-    selectedAvatar = userData.googlePhoto;
+  const photo = getGooglePhotoFromProfile();
+  if (photo) {
+    selectedAvatar = photo;
     selectedAvatarType = 'google';
     document.querySelectorAll('.avatar-option').forEach(a => a.classList.remove('selected'));
     updateAvatarDisplay();
     saveAvatarToDB();
-    page.toast('Foto do Google aplicada!', 'success');
+    page.toast('Foto do Google restaurada!', 'success');
   } else {
     page.toast('Nenhuma foto do Google disponível. Faça login com Google.', 'warning');
   }
@@ -387,6 +398,7 @@ function saveAvatarToDB() {
   if (u) {
     u.avatar = selectedAvatar;
     u.avatarType = selectedAvatarType;
+    if (selectedAvatarType === 'google' && selectedAvatar) u.googlePhoto = selectedAvatar;
     page.saveDB(data);
 
     // Atualizar sessão
@@ -458,7 +470,8 @@ function saveProfile(e) {
     lastName: u.lastName,
     phone: u.phone,
     address: u.address,
-    daysOff: u.daysOff
+    daysOff: u.daysOff,
+    googlePhoto: u.googlePhoto || user.googlePhoto || ''
   };
   core.setCurrentUser(sessionUser);
   user = sessionUser;
@@ -476,6 +489,9 @@ function saveProfile(e) {
   updateDisplayName();
   core.log('profile_update', user.id, `${u.name} ${u.lastName} (@${u.username})`);
   page.toast('Perfil atualizado com sucesso! ✅', 'success');
+  if (core.isDayOff(core.today(), sessionUser)) {
+    core.chromeNotification('📅 Dia de folga configurado', 'As atividades de hoje ficam ocultas e não contam como pendentes.', 'info');
+  }
   window.parent.postMessage({ type: 'reload' }, '*');
 
   btnSave.disabled = false;
