@@ -12,6 +12,7 @@
     .editor-toolbar button:hover{background:var(--card,#fff);color:var(--primary,#2563EB)}
     .editor-toolbar .tb-sep{width:1px;background:var(--line,#E2E8F0);margin:4px 2px}
     .editor-toolbar input[type=color]{width:30px;height:30px;border:0;background:transparent;cursor:pointer;padding:2px}
+    .editor-toolbar select{background:#fff;border:1px solid var(--line,#E2E8F0);border-radius:6px;padding:2px 6px;font-size:13px;color:var(--text,#1E293B);cursor:pointer;height:30px;min-width:60px;outline:none;transition:.15s}
     .editor-area{min-height:180px;max-height:320px;overflow-y:auto;padding:14px;border:1px solid var(--line,#E2E8F0);border-radius:0 0 10px 10px;background:var(--card,#fff);color:var(--text,#1E293B);font-size:14px;line-height:1.6;outline:none}
     .editor-area:focus{border-color:var(--primary,#2563EB);box-shadow:0 0 0 3px rgba(37,99,235,.1)}
     .editor-area:empty::before{content:attr(data-placeholder);color:var(--muted,#94A3B8)}
@@ -133,6 +134,30 @@
         <button type="button" title="Sublinhado" onclick="execCmd('underline')"><u>U</u></button>
         <button type="button" title="Tachado" onclick="execCmd('strikeThrough')"><s>S</s></button>
         <span class="tb-sep"></span>
+        <select title="Fonte" onchange="execCmd('fontName',this.value)" style="background:#fff;border:1px solid var(--line,#E2E8F0);border-radius:6px;padding:2px 6px;font-size:13px;color:var(--text,#1E293B);cursor:pointer;height:30px;min-width:65px">
+          <option value="Arial">Arial</option>
+          <option value="Georgia">Georgia</option>
+          <option value="Verdana">Verdana</option>
+          <option value="Times New Roman">Times</option>
+          <option value="Courier New">Mono</option>
+          <option value="Helvetica">Helvetica</option>
+        </select>
+        <select title="Tamanho" onchange="execCmd('fontSize',this.value)" style="background:#fff;border:1px solid var(--line,#E2E8F0);border-radius:6px;padding:2px 6px;font-size:13px;color:var(--text,#1E293B);cursor:pointer;height:30px;min-width:50px">
+          <option value="1">1</option><option value="2">2</option><option value="3">3</option>
+          <option value="4">4</option><option value="5">5</option><option value="6">6</option><option value="7">7</option>
+        </select>
+        <span class="tb-sep"></span>
+        <input type="color" id="colorPicker" title="Cor do texto" onchange="execCmd('foreColor', this.value)">
+        <input type="color" id="bgColorPicker" title="Cor de fundo" value="#ffff00" onchange="execCmd('hiliteColor', this.value)">
+        <span class="tb-sep"></span>
+        <button type="button" title="Alinhar à esquerda" onclick="execCmd('justifyLeft')">◀</button>
+        <button type="button" title="Centralizar" onclick="execCmd('justifyCenter')">◆</button>
+        <button type="button" title="Alinhar à direita" onclick="execCmd('justifyRight')">▶</button>
+        <button type="button" title="Justificar" onclick="execCmd('justifyFull')">◐</button>
+        <span class="tb-sep"></span>
+        <button type="button" title="Aumentar recuo" onclick="execCmd('indent')">↳</button>
+        <button type="button" title="Diminuir recuo" onclick="execCmd('outdent')">↲</button>
+        <span class="tb-sep"></span>
         <button type="button" title="Título H2" onclick="execBlock('h2')">H2</button>
         <button type="button" title="Título H3" onclick="execBlock('h3')">H3</button>
         <button type="button" title="Parágrafo" onclick="execBlock('p')">¶</button>
@@ -143,7 +168,6 @@
         <button type="button" title="Código" onclick="execBlock('pre')">&lt;/&gt;</button>
         <span class="tb-sep"></span>
         <button type="button" title="Inserir link" onclick="insertLink()">🔗</button>
-        <input type="color" id="colorPicker" title="Cor do texto" onchange="execCmd('foreColor', this.value)">
         <button type="button" title="Limpar formatação" onclick="execCmd('removeFormat')">🧹</button>
         <span class="tb-sep"></span>
         <button type="button" title="Emojis" onclick="toggleEmoji()">😀</button>
@@ -605,7 +629,8 @@ function getUseValues() {
 function sendEmailMacro() {
   const m = (page.getDB().macros || []).find(x => String(x.id) === usingId);
   if (!m) return;
-  const body = stripHtml(renderUseResult()).trim();
+  const html = renderUseResult();
+  const text = stripHtml(html).trim();
   const to = document.getElementById('useRecipients').value
     .split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).join(',');
   const su = document.getElementById('useSubject').value.trim();
@@ -616,12 +641,23 @@ function sendEmailMacro() {
     + (su ? '&su=' + encodeURIComponent(su) : '');
   // Abre primeiro (síncrono, para não ser bloqueado como pop-up)...
   window.open(url, '_blank');
-  // ...depois copia o corpo para o Ctrl+V.
-  copyPlain(body).then(() => {
-    page.toast('Gmail aberto! O corpo está copiado — cole com Ctrl+V 📋', 'success');
-  }).catch(() => {
-    page.toast('Gmail aberto! Cole o corpo com Ctrl+V 📋', 'success');
-  });
+  // ...depois copia o corpo FORMATADO para o Ctrl+V (mantém cores, negrito, fontes...
+  (async () => {
+    try {
+      if (navigator.clipboard && window.ClipboardItem) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([text], { type: 'text/plain' })
+        })]);
+      } else {
+        await copyPlain(text);
+      }
+      page.toast('Gmail aberto! O corpo está copiado com formatação — cole com Ctrl+V 📋', 'success');
+    } catch (err) {
+      await copyPlain(text);
+      page.toast('Gmail aberto! Cole o corpo com Ctrl+V 📋', 'success');
+    }
+  })();
   countUse();
 }
 
