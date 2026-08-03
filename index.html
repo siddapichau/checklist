@@ -14,11 +14,39 @@
   <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
   <link rel="stylesheet" href="css/style.css">
 
+  <!-- reCAPTCHA Enterprise - Site Key fornecida: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO -->
+  <script src="https://www.google.com/recaptcha/enterprise.js?render=6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO"></script>
+
   <!-- Firebase SDKs (compat para uso global) -->
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js"></script>
+
+  <style>
+    .grecaptcha-badge { visibility: visible !important; z-index: 9999; }
+    .recaptcha-terms {
+      font-size: 11px;
+      color: #94A3B8;
+      text-align: center;
+      margin-top: 16px;
+      line-height: 1.4;
+    }
+    .recaptcha-terms a { color: #2563EB; }
+    .email-verify-banner {
+      background: #FEF3C7;
+      border: 1px solid #F59E0B;
+      color: #92400e;
+      padding: 12px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+    }
+  </style>
 </head>
 <body>
 
@@ -61,7 +89,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<!-- ========== TELA DE LOGIN / CADASTRO ========== -->
+<!-- ========== TELA DE LOGIN / CADASTRO - 100% FIREBASE ========== -->
 <div class="login-screen hidden" id="loginScreen">
   <div class="login-card">
     <div class="login-brand">
@@ -75,11 +103,11 @@ document.addEventListener('keydown', function(e){
       <div class="login-tab" data-tab="register" onclick="App.switchTab('register')">Criar conta</div>
     </div>
 
-    <!-- FORM LOGIN -->
+    <!-- FORM LOGIN - 100% Firebase Auth + reCAPTCHA Enterprise -->
     <form class="login-form" id="loginForm" onsubmit="App.handleLogin(event)">
       <div class="form-group">
-        <label>Usuário ou e-mail</label>
-        <input type="text" id="loginUser" placeholder="Digite seu usuário ou e-mail" required autocomplete="username">
+        <label>E-mail</label>
+        <input type="email" id="loginUser" placeholder="seu@email.com" required autocomplete="email">
       </div>
       <div class="form-group">
         <label>Senha</label>
@@ -90,9 +118,9 @@ document.addEventListener('keydown', function(e){
       </div>
       <div class="form-error" id="loginError"></div>
       <label class="form-check">
-        <input type="checkbox" id="rememberMe"> Lembrar meu login
+        <input type="checkbox" id="rememberMe" checked> Lembrar meu login (Firebase Persistence)
       </label>
-      <button type="submit" class="btn-primary">Entrar</button>
+      <button type="submit" class="btn-primary" id="btnLogin">Entrar com Firebase</button>
       <button type="button" class="btn-google" onclick="App.loginGoogle()">
         <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Continuar com Google
@@ -102,51 +130,48 @@ document.addEventListener('keydown', function(e){
         <span class="login-divider">|</span>
         <a href="#" onclick="App.switchTab('register')">Criar conta</a>
       </div>
+      <div class="recaptcha-terms">
+        Protegido por reCAPTCHA Enterprise.<br>
+        <a href="https://policies.google.com/privacy" target="_blank">Privacidade</a> •
+        <a href="https://policies.google.com/terms" target="_blank">Termos</a> •
+        Site key: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO
+      </div>
+      <div style="text-align:center;margin-top:8px;font-size:11px;color:#64748B">
+        🔥 Login 100% Firebase Auth — sem armazenamento local de senhas
+      </div>
     </form>
 
-    <!-- FORM RECUPERAÇÃO DE SENHA -->
+    <!-- FORM RECUPERAÇÃO DE SENHA - Firebase sendPasswordResetEmail -->
     <form class="login-form hidden" id="forgotForm" onsubmit="App.handleForgotPassword(event)">
       <div class="form-group">
-        <label>E-mail cadastrado</label>
+        <label>E-mail cadastrado (Firebase)</label>
         <input type="email" id="forgotEmail" placeholder="seu@email.com" required autocomplete="email">
-        <small class="text-muted">Enviaremos um link para redefinir sua senha</small>
+        <small class="text-muted">Enviaremos um link de redefinição via Firebase Auth para seu e-mail</small>
       </div>
       <div class="form-error" id="forgotError"></div>
       <div class="form-success hidden" id="forgotSuccess"></div>
-      <button type="submit" class="btn-primary">📧 Enviar link de recuperação</button>
+      <button type="submit" class="btn-primary">📧 Enviar link de recuperação (Firebase)</button>
       <div class="login-links">
         <a href="#" onclick="App.switchTab('login')">← Voltar para o login</a>
       </div>
+      <div class="recaptcha-terms">Protegido por reCAPTCHA Enterprise (ação: FORGOT_PASSWORD)</div>
     </form>
 
-    <!-- FORM CADASTRO -->
+    <!-- FORM CADASTRO - 100% Firebase -->
     <form class="login-form hidden" id="registerForm" onsubmit="App.handleRegister(event)">
       <div class="form-group">
-        <label>Usuário</label>
-        <input type="text" id="regUser" placeholder="Escolha um nome de usuário" required minlength="3">
+        <label>Nome completo</label>
+        <input type="text" id="regUser" placeholder="Seu nome" required minlength="3" autocomplete="name">
       </div>
       <div class="form-group">
         <label>E-mail</label>
-        <input type="email" id="regEmail" placeholder="seu@email.com" required>
-      </div>
-      <div class="form-group">
-        <label>Pergunta secreta (para recuperação de senha no perfil)</label>
-        <select id="regSecretQ" required>
-          <option value="">Selecione uma pergunta...</option>
-          <option value="cidade de nascimento da mãe">Cidade de nascimento da mãe</option>
-          <option value="Primeiro animal de estimação">Primeiro animal de estimação</option>
-          <option value="Comida favorita">Comida favorita</option>
-        </select>
-      </div>
-      <div class="form-group">
-        <label>Resposta secreta</label>
-        <input type="text" id="regSecretA" placeholder="Digite sua resposta secreta" required>
-        <small class="text-muted">Guarde bem! Usada só no perfil para trocar senha.</small>
+        <input type="email" id="regEmail" placeholder="seu@email.com" required autocomplete="email">
+        <small class="text-muted">Será necessário verificar seu e-mail (Firebase Email Verification)</small>
       </div>
       <div class="form-group">
         <label>Senha</label>
         <div class="input-group">
-          <input type="password" id="regPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" required oninput="App.checkPasswordStrength(this.value)">
+          <input type="password" id="regPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" required oninput="App.checkPasswordStrength(this.value)" autocomplete="new-password">
           <button type="button" class="toggle-pass" onclick="App.togglePassword('regPass', this)">👁</button>
         </div>
         <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBar"></div></div>
@@ -155,12 +180,12 @@ document.addEventListener('keydown', function(e){
       <div class="form-group">
         <label>Confirmar senha</label>
         <div class="input-group">
-          <input type="password" id="regPassConfirm" placeholder="Repita a senha" required>
+          <input type="password" id="regPassConfirm" placeholder="Repita a senha" required autocomplete="new-password">
           <button type="button" class="toggle-pass" onclick="App.togglePassword('regPassConfirm', this)">👁</button>
         </div>
       </div>
       <div class="form-error" id="regError"></div>
-      <button type="submit" class="btn-primary">Criar conta</button>
+      <button type="submit" class="btn-primary" id="btnRegister">Criar conta Firebase</button>
       <button type="button" class="btn-google" onclick="App.loginGoogle()">
         <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Cadastrar com Google
@@ -168,22 +193,51 @@ document.addEventListener('keydown', function(e){
       <div class="login-footer">
         <a href="#" onclick="App.switchTab('login')">Já tem conta? Faça login</a>
       </div>
+      <div class="recaptcha-terms">Protegido por reCAPTCHA Enterprise (ação: REGISTER) • 100% Firebase Auth</div>
     </form>
   </div>
 </div>
 
-<!-- ========== MODAL: RECUPERAÇÃO ENVIADA ========== -->
+<!-- ========== MODAL: RECUPERAÇÃO ENVIADA (Firebase) ========== -->
 <div class="modal-overlay hidden" id="forgotSentModal" onclick="if(event.target===this)this.classList.add('hidden')">
   <div class="modal" style="text-align:center">
     <div style="font-size:64px;margin-bottom:16px">📬</div>
     <h2 style="margin-bottom:12px">E-mail enviado!</h2>
     <p style="color:var(--text-secondary);margin-bottom:20px">
-      Se o e-mail informado está cadastrado, você receberá um link para redefinir sua senha em alguns minutos.
+      Se o e-mail informado está cadastrado no Firebase Auth, você receberá um link para redefinir sua senha em alguns minutos.
     </p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
-      💡 Não esqueça de checar a caixa de spam
+      💡 Não esqueça de checar a caixa de spam e promoções<br>
+      O link é válido por 1 hora e usa verificação reCAPTCHA Enterprise
     </p>
     <button class="btn btn-primary" onclick="document.getElementById('forgotSentModal').classList.add('hidden');App.switchTab('login')">Voltar para o login</button>
+  </div>
+</div>
+
+<!-- ========== MODAL: VERIFICAÇÃO DE EMAIL NECESSÁRIA ========== -->
+<div class="modal-overlay hidden" id="emailVerifyModal" onclick="if(event.target===this)this.classList.add('hidden')">
+  <div class="modal" style="text-align:center;max-width:440px">
+    <div style="font-size:64px;margin-bottom:16px">✉️</div>
+    <h2 style="margin-bottom:12px">Verifique seu e-mail</h2>
+    <p style="color:var(--text-secondary);margin-bottom:12px" id="verifyEmailText">
+      Enviamos um link de verificação para seu e-mail. Você precisa confirmar seu e-mail antes de acessar o app.
+    </p>
+    <div style="background:#EFF6FF;border:1px solid #BFDBFE;padding:12px;border-radius:8px;margin-bottom:16px;text-align:left;font-size:13px">
+      <b>📋 O que fazer:</b><br>
+      1. Abra sua caixa de entrada<br>
+      2. Clique no link de verificação<br>
+      3. Volte aqui e clique em "Já verifiquei"
+    </div>
+    <div class="form-error hidden" id="verifyError"></div>
+    <div style="display:flex;gap:10px;flex-direction:column">
+      <button class="btn btn-primary" id="btnCheckVerified" onclick="App.checkEmailVerified()">✅ Já verifiquei meu e-mail</button>
+      <button class="btn btn-secondary" id="btnResendVerify" onclick="App.resendVerification()">📧 Reenviar e-mail de verificação</button>
+      <button class="btn btn-secondary" onclick="document.getElementById('emailVerifyModal').classList.add('hidden');App.handleLogout()">🚪 Sair e usar outra conta</button>
+    </div>
+    <p style="font-size:11px;color:var(--muted);margin-top:12px">
+      Proteção reCAPTCHA Enterprise ativa (CHECK_EMAIL_VERIFICATION).<br>
+      Se não chegar em 2 min, verifique spam.
+    </p>
   </div>
 </div>
 

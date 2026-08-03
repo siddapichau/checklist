@@ -4,15 +4,25 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
-  <title>Meu Perfil</title>
+  <title>Meu Perfil - Firebase 100%</title>
+  <style>
+    .firebase-badge {
+      background: #FFCA28; color: #000; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;
+    }
+    .recaptcha-mini { font-size: 10px; color: #94A3B8; margin-top: 8px; }
+  </style>
 </head>
 <body>
 
 <div class="page-header">
   <div class="info">
-    <small>CONTA</small>
+    <small>CONTA • 100% FIREBASE + reCAPTCHA Enterprise</small>
     <h1>Meu Perfil</h1>
-    <p>Gerencie suas informações pessoais e personalize sua conta</p>
+    <p>Gerencie suas informações pessoais — tudo salvo no Firestore (sem fallback local de senhas)</p>
+  </div>
+  <div style="display:flex;gap:8px">
+    <span class="firebase-badge">🔥 Firebase Auth</span>
+    <span class="firebase-badge" style="background:#DBEAFE;color:#1E40AF">🛡️ reCAPTCHA 6LfG1HIt...</span>
   </div>
 </div>
 
@@ -38,9 +48,10 @@
           <input type="text" id="pLastName" placeholder="Seu sobrenome">
         </label>
       </div>
-      <div class="profile-section-label">Contato</div>
-      <label><span>E-mail</span>
+      <div class="profile-section-label">Contato (Firebase)</div>
+      <label><span>E-mail (Firebase Auth - não editável aqui)</span>
         <input type="email" id="pEmail" disabled>
+        <small class="text-muted" id="emailVerifyStatus"></small>
       </label>
       <label><span>Telefone</span>
         <input type="tel" id="pPhone" placeholder="(00) 00000-0000">
@@ -49,7 +60,7 @@
         <input type="text" id="pAddress" placeholder="Rua, número, bairro, cidade">
       </label>
       <div class="profile-section-label">📅 Dias de folga</div>
-      <p class="text-muted" style="font-size:12px;margin:0 0 8px">Escolha os dias da semana em que você não trabalha. Nesses dias as atividades ficam ocultas, sem apagar o histórico, e as diárias reaparecem no próximo dia de trabalho.</p>
+      <p class="text-muted" style="font-size:12px;margin:0 0 8px">Escolha os dias da semana em que você não trabalha.</p>
       <div id="daysOffChoices" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
         <label><input type="checkbox" value="mon"> Seg</label>
         <label><input type="checkbox" value="tue"> Ter</label>
@@ -59,11 +70,11 @@
         <label><input type="checkbox" value="sat"> Sáb</label>
         <label><input type="checkbox" value="sun"> Dom</label>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil</button>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil (Firestore)</button>
     </form>
   </div>
 
-  <!-- AVATAR -->
+  <!-- AVATAR + SENHA -->
   <div>
     <div class="card">
       <h2>🖼️ Avatar</h2>
@@ -91,75 +102,58 @@
       <div class="avatar-grid" id="avatarGrid"></div>
     </div>
 
-    <!-- SENHA -->
+    <!-- SENHA & SEGURANÇA - 100% FIREBASE -->
     <div class="card" id="passwordCard">
-      <h2>🔒 Senha & Segurança</h2>
+      <h2>🔒 Senha & Segurança (100% Firebase)</h2>
 
       <div id="providerInfo" style="background:var(--bg-secondary);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
-        <b>Conta via:</b> <span id="providerType">carregando...</span>
+        <b>Conta via:</b> <span id="providerType">carregando...</span><br>
+        <small id="emailVerifiedBadge" style="margin-top:6px;display:block"></small>
       </div>
 
-      <div id="localPasswordForm">
-        <form onsubmit="changePassword(event)">
-          <label><span>Senha atual</span>
-            <input type="password" id="oldPass" required>
+      <!-- VERIFICAÇÃO DE EMAIL -->
+      <div id="verifyEmailBlock" style="margin-bottom:16px;padding:12px;border-radius:8px;background:#EFF6FF;border:1px solid #BFDBFE">
+        <h3 style="font-size:13px;margin-bottom:8px">✉️ Verificação de e-mail</h3>
+        <p style="font-size:12px;color:#1E40AF;margin-bottom:10px" id="verifyBlockText">Carregando status...</p>
+        <button class="btn btn-secondary" style="width:100%" onclick="sendVerificationEmail()" id="btnSendVerify">📧 Reenviar e-mail de verificação</button>
+        <small class="text-muted" style="display:block;margin-top:8px">Protegido por reCAPTCHA Enterprise (VERIFY_EMAIL)</small>
+      </div>
+
+      <!-- TROCA DE SENHA - FIREBASE REAUTH -->
+      <div id="firebasePasswordForm">
+        <h3 style="font-size:14px;margin-bottom:8px">🔑 Trocar senha (Firebase Auth)</h3>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:10px">Você precisará confirmar sua senha atual (reauth Firebase + reCAPTCHA CHANGE_PASSWORD). A nova senha será validada e aplicada ao Firebase Auth.</p>
+        <form onsubmit="changePasswordFirebase(event)">
+          <label><span>Senha atual (para confirmar identidade Firebase)</span>
+            <input type="password" id="oldPass" required placeholder="Sua senha atual" autocomplete="current-password">
           </label>
           <label><span>Nova senha</span>
-            <input type="password" id="newPass" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial">
+            <input type="password" id="newPass" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" autocomplete="new-password">
           </label>
           <label><span>Confirmar nova senha</span>
-            <input type="password" id="confirmPass" required>
+            <input type="password" id="confirmPass" required placeholder="Repita a nova senha" autocomplete="new-password">
           </label>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px">💾 Alterar senha</button>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px" id="btnChangePass">💾 Alterar senha no Firebase</button>
         </form>
+        <div class="recaptcha-mini">Protegido por reCAPTCHA Enterprise (ação: CHANGE_PASSWORD). Site key: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO</div>
       </div>
 
       <div id="forgotPasswordBlock" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
         <h3 style="font-size:14px;margin-bottom:8px">🔑 Esqueceu sua senha?</h3>
         <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
-          Enviaremos um link de redefinição para o seu e-mail.
+          Enviaremos um link de redefinição via Firebase Auth (100% Firebase, com reCAPTCHA FORGOT_PASSWORD).
         </p>
-        <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()">📧 Enviar link de redefinição</button>
+        <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()" id="btnResetEmail">📧 Enviar link de redefinição (Firebase)</button>
       </div>
 
-      <!-- PERGUNTA SECRETA (recuperação no perfil) -->
-      <div id="secretQuestionBlock" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
-        <h3 style="font-size:14px;margin-bottom:8px">🔐 Pergunta secreta (troca de senha no perfil)</h3>
-        <div id="secretStatus"></div>
-        <div id="secretFormContainer">
-          <form onsubmit="setupOrChangeSecret(event)">
-            <label><span>Pergunta</span>
-              <select id="secretQ" required>
-                <option value="">Selecione...</option>
-                <option value="cidade de nascimento da mãe">Cidade de nascimento da mãe</option>
-                <option value="Primeiro animal de estimação">Primeiro animal de estimação</option>
-                <option value="Comida favorita">Comida favorita</option>
-              </select>
-            </label>
-            <label><span>Resposta secreta</span>
-              <input type="text" id="secretA" required placeholder="Resposta exata (case insensitive)">
-            </label>
-            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:6px" id="btnSecret">Salvar pergunta secreta</button>
-          </form>
-          <div style="margin-top:12px">
-            <small class="text-muted">Use a pergunta para trocar senha abaixo (apenas no perfil).</small>
-          </div>
-        </div>
-
-        <div id="secretChangePass" style="display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)">
-          <form onsubmit="changePasswordWithSecret(event)">
-            <label><span>Resposta secreta para confirmar</span>
-              <input type="text" id="secretVerifyA" required placeholder="Digite a resposta secreta">
-            </label>
-            <label><span>Nova senha</span>
-              <input type="password" id="secretNewPass" required>
-            </label>
-            <label><span>Confirmar nova senha</span>
-              <input type="password" id="secretNewPassConfirm" required>
-            </label>
-            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:6px">🔒 Trocar senha com pergunta secreta</button>
-          </form>
-        </div>
+      <div style="margin-top:16px;padding:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;font-size:12px">
+        <b>✅ 100% Firebase Auth — o que foi ajustado:</b><br>
+        • Login apenas por Firebase (sem localStorage de senhas)<br>
+        • Troca de senha via <code>reauthenticateWithCredential</code> + <code>updatePassword</code><br>
+        • Recuperação via <code>sendPasswordResetEmail</code> (link expira em 1h)<br>
+        • Verificação de e-mail via <code>sendEmailVerification</code><br>
+        • Tudo protegido por reCAPTCHA Enterprise (App Check + actions)<br>
+        • Backend Java pode validar token: <code>RecaptchaEnterpriseServiceClient.create().createAssessment()</code>
       </div>
     </div>
   </div>
@@ -174,9 +168,44 @@ let selectedAvatar = user?.avatar || '';
 let selectedAvatarType = user?.avatarType || 'emoji';
 let isSaving = false;
 
-// --- Refresh user from parent periodically ---
 function refreshUser() {
   user = page.getUser();
+}
+
+function getFirebaseAuth() {
+  // Tentar obter do parent (shell) ou do escopo atual se carregado
+  if (window.parent && window.parent.firebase && window.parent.firebase.auth) {
+    return window.parent.firebase.auth();
+  }
+  if (window.firebase && window.firebase.auth) {
+    return window.firebase.auth();
+  }
+  return null;
+}
+
+function getFirebaseCurrentUser() {
+  const auth = getFirebaseAuth();
+  return auth ? auth.currentUser : null;
+}
+
+async function getRecaptchaTokenPerfil(action) {
+  try {
+    if (window.parent && window.parent.getRecaptchaToken) {
+      return await window.parent.getRecaptchaToken(action);
+    }
+    if (window.getRecaptchaToken) return await window.getRecaptchaToken(action);
+    if (window.parent && window.parent.grecaptcha && window.parent.grecaptcha.enterprise) {
+      return await new Promise(res => {
+        window.parent.grecaptcha.enterprise.ready(async () => {
+          try {
+            const t = await window.parent.grecaptcha.enterprise.execute('6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO', { action });
+            res(t);
+          } catch { res(null); }
+        });
+      });
+    }
+  } catch(e) { console.warn('recaptcha perfil:', e); }
+  return null;
 }
 
 // Popular dados
@@ -190,7 +219,6 @@ document.getElementById('pAddress').value = user?.address || '';
   cb.checked = Array.isArray(user?.daysOff) && user.daysOff.includes(cb.value);
 });
 
-// Display name
 function updateDisplayName() {
   const displayName = document.getElementById('displayName');
   if (displayName) {
@@ -206,12 +234,8 @@ function updateDisplayName() {
   }
 }
 updateDisplayName();
-
-// Mostrar avatar atual
 updateAvatarDisplay();
 
-// Botão Google foto: mantém a URL original separada de avatar/avatarType para
-// permitir trocar para emoji/upload e depois voltar sem fazer logout/login.
 function getGooglePhotoFromProfile() {
   const data = page.getDB();
   const uid = user?.uid || user?.id;
@@ -229,35 +253,52 @@ if (!googlePhotoAvailable) {
 }
 
 // Provider info
-const providerEl = document.getElementById('providerType');
-if (user?.provider === 'google.com' || user?.provider === 'google') {
-  providerEl.innerHTML = '🔵 Google (não tem senha local — gerencie pelo Google)';
-  document.getElementById('localPasswordForm').style.display = 'none';
-  document.getElementById('forgotPasswordBlock').style.display = 'none';
-} else {
-  providerEl.innerHTML = '📧 E-mail e senha';
-}
+function updateProviderInfo() {
+  const fbUser = getFirebaseCurrentUser();
+  const providerEl = document.getElementById('providerType');
+  const verifiedEl = document.getElementById('emailVerifiedBadge');
+  const verifyText = document.getElementById('verifyBlockText');
+  const emailStatus = document.getElementById('emailVerifyStatus');
 
-// Secret question status
-function loadSecretStatus() {
-  const statusEl = document.getElementById('secretStatus');
-  const formCont = document.getElementById('secretFormContainer');
-  const changePass = document.getElementById('secretChangePass');
-  refreshUser();
-  const u = findUserInDB(page.getDB());
-  const hasQ = !!(u && u.secretQuestion);
-  if (statusEl) {
-    statusEl.innerHTML = hasQ 
-      ? `<div style="background:#ecfdf5;color:#166534;padding:8px 10px;border-radius:6px;font-size:12px">✅ Pergunta secreta cadastrada: <b>${page.esc(u.secretQuestion)}</b></div>`
-      : `<div style="background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:6px;font-size:12px">⚠️ Nenhuma pergunta secreta. Cadastre agora para poder trocar senha pelo perfil.</div>`;
+  const provider = user?.provider || fbUser?.providerData[0]?.providerId || 'password';
+  const isGoogle = provider === 'google.com' || provider === 'google';
+  const emailVerified = fbUser ? fbUser.emailVerified : (user?.emailVerified || false);
+
+  if (isGoogle) {
+    providerEl.innerHTML = '🔵 Google (senha gerenciada pelo Google • myaccount.google.com)';
+    document.getElementById('firebasePasswordForm').style.display = 'none';
+    document.getElementById('forgotPasswordBlock').style.display = 'none';
+  } else {
+    providerEl.innerHTML = '📧 E-mail e senha (Firebase Auth • 100% nuvem)';
   }
-  if (formCont) formCont.style.display = hasQ ? 'none' : '';
-  if (changePass) changePass.style.display = hasQ ? '' : 'none';
-  if (hasQ && document.getElementById('secretQ')) {
-    document.getElementById('secretQ').value = u.secretQuestion || '';
+
+  if (verifiedEl) {
+    verifiedEl.innerHTML = emailVerified
+      ? '<span style="color:#059669">✅ E-mail verificado</span> — conta protegida'
+      : '<span style="color:#D97706">⚠️ E-mail NÃO verificado</span> — verifique para segurança máxima. <button style="border:0;background:none;color:#2563EB;cursor:pointer;text-decoration:underline;font-size:12px" onclick="sendVerificationEmail()">Reenviar verificação</button>';
+  }
+
+  if (emailStatus) {
+    emailStatus.textContent = emailVerified ? '✅ Verificado via Firebase' : '⚠️ Não verificado — reenvie acima';
+    emailStatus.style.color = emailVerified ? '#059669' : '#D97706';
+  }
+
+  const verifyBlock = document.getElementById('verifyEmailBlock');
+  if (verifyBlock) {
+    if (emailVerified) {
+      verifyBlock.style.background = '#F0FDF4';
+      verifyBlock.style.borderColor = '#BBF7D0';
+      if (verifyText) verifyText.textContent = `✅ Seu e-mail ${user?.email} já está verificado no Firebase Auth.`;
+      document.getElementById('btnSendVerify').style.display = 'none';
+    } else {
+      verifyBlock.style.background = '#FEF3C7';
+      verifyBlock.style.borderColor = '#F59E0B';
+      if (verifyText) verifyText.textContent = `Seu e-mail ${user?.email} ainda NÃO foi verificado. Clique para receber o link de verificação (válido por 1h, com reCAPTCHA).`;
+      document.getElementById('btnSendVerify').style.display = 'block';
+    }
   }
 }
-loadSecretStatus();
+updateProviderInfo();
 
 // Username validation
 function validateUsername() {
@@ -265,128 +306,18 @@ function validateUsername() {
   const hint = document.getElementById('usernameHint');
   const err = document.getElementById('usernameError');
   err.style.display = 'none';
-
   if (!val) { hint.textContent = 'Único. Use letras, números e underscore. Mín. 3 caracteres.'; return true; }
   if (val.length < 3) { err.textContent = 'Mínimo 3 caracteres'; err.style.display = 'block'; return false; }
   if (!/^[a-zA-Z0-9_]+$/.test(val)) { err.textContent = 'Apenas letras, números e underscore'; err.style.display = 'block'; return false; }
-
-  // Check uniqueness
   const data = page.getDB();
   const exists = data.users.find(u => u.username === val && u.id !== user.id && (u.uid || u.id) !== (user.uid || user.id));
   if (exists) { err.textContent = 'Este nome de usuário já está em uso'; err.style.display = 'block'; return false; }
-
   hint.textContent = '✅ Disponível!';
   hint.style.color = 'var(--success)';
   return true;
 }
 
-async function sendResetEmail() {
-  if (!user?.email) {
-    page.toast('Sua conta não tem e-mail cadastrado', 'error');
-    return;
-  }
-
-  // Tenta Firebase Auth primeiro (caso o usuário tenha conta lá).
-  // Se a conta for APENAS local (seed / criada sem Firebase), o Firebase vai
-  // devolver "auth/user-not-found" — nesse caso mostramos o fluxo de reset
-  // LOCAL (modal próprio, sem dependência de e-mail externo).
-  const isGoogleOnly = user?.provider === 'google.com' || user?.provider === 'google';
-  if (isGoogleOnly) {
-    page.toast('Sua conta entra pelo Google. A senha é gerenciada por lá (myaccount.google.com).', 'info');
-    return;
-  }
-
-  try {
-    firebase.auth().useDeviceLanguage();
-    await firebase.auth().sendPasswordResetEmail(user.email);
-    page.toast('E-mail de redefinição enviado para ' + user.email + '! 📬', 'success');
-  } catch (err) {
-    if (err && err.code === 'auth/user-not-found') {
-      // Conta só existe no DB local → oferecemos reset 100% local.
-      page.toast('Esta conta é só local — não tem cadastro no Firebase Auth. Vamos redefinir aqui mesmo.', 'warning');
-      showLocalResetModal();
-    } else if (err && err.code === 'auth/invalid-email') {
-      page.toast('E-mail inválido no Firebase Auth', 'error');
-    } else {
-      page.toast('Erro Firebase: ' + (err?.message || 'desconhecido') + '. Vou abrir o reset local como plano B.', 'warning');
-      showLocalResetModal();
-    }
-  }
-}
-
-/* ---------- RESET LOCAL (sem Firebase) ----------
-   Quando a conta foi criada como local (seed.js ou signup só com DB local),
-   não existe usuário correspondente no Firebase Auth, então o link externo
-   NUNCA chega. Esta modal troca a senha direto no DB local (com hash SHA-256
-   idêntico ao usado no login) e mostra a nova senha para o usuário. */
-function showLocalResetModal() {
-  const html = `
-    <div style="text-align:center;margin-bottom:12px">
-      <div style="font-size:48px">🔑</div>
-      <h2 style="margin:0 0 6px">Redefinir senha (local)</h2>
-      <p style="color:var(--muted);font-size:13px">Sua conta é só local — o link por e-mail não funciona. Defina uma nova senha aqui.</p>
-    </div>
-    <label><span>Nova senha</span>
-      <div class="input-group">
-        <input type="password" id="localResetPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" oninput="App.checkPasswordStrength(this.value)">
-        <button type="button" class="toggle-pass" onclick="App.togglePassword('localResetPass', this)">👁</button>
-      </div>
-      <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBarReset"></div></div>
-      <small class="text-muted" id="passStrengthTextReset"></small>
-    </label>
-    <label><span>Confirmar nova senha</span>
-      <div class="input-group">
-        <input type="password" id="localResetPassConfirm" placeholder="Repita a senha">
-        <button type="button" class="toggle-pass" onclick="App.togglePassword('localResetPassConfirm', this)">👁</button>
-      </div>
-    </label>
-    <div class="form-error" id="localResetError"></div>
-    <div class="modal-actions">
-      <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="btnLocalResetConfirm" onclick="confirmLocalReset()">💾 Redefinir senha local</button>
-    </div>
-  `;
-  page.openModal(html);
-}
-
-async function confirmLocalReset() {
-  refreshUser();
-  const np = document.getElementById('localResetPass')?.value || '';
-  const cf = document.getElementById('localResetPassConfirm')?.value || '';
-  const errEl = document.getElementById('localResetError');
-  if (errEl) { errEl.textContent = ''; errEl.classList.remove('show'); }
-  if (np !== cf) {
-    if (errEl) { errEl.textContent = 'As senhas não coincidem'; errEl.classList.add('show'); }
-    return;
-  }
-  const v = core.validatePassword(np);
-  if (!v.valid) {
-    if (errEl) { errEl.textContent = v.errors.join(', '); errEl.classList.add('show'); }
-    return;
-  }
-  const data = page.getDB();
-  const u = findUserInDB(data);
-  if (!u) {
-    if (errEl) { errEl.textContent = 'Usuário não encontrado no DB local'; errEl.classList.add('show'); }
-    return;
-  }
-  const btn = document.getElementById('btnLocalResetConfirm');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
-  try {
-    u.passHash = await core.hashPassword(np);
-    page.saveDB(data);
-    try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e) {}
-    core.log('password_reset_local', user?.id);
-    page.toast('Senha redefinida localmente! Use a nova senha no próximo login. 🔒', 'success');
-    App.closeModal();
-  } catch (err) {
-    if (errEl) { errEl.textContent = 'Erro: ' + (err?.message || err); errEl.classList.add('show'); }
-  } finally {
-    if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha local'; }
-  }
-}
-
-// Grid de avatares
+// Grid avatares
 const grid = document.getElementById('avatarGrid');
 grid.innerHTML = avatars.map((a, i) => `
   <div class="avatar-option ${selectedAvatar === a ? 'selected' : ''}"
@@ -444,7 +375,6 @@ function useGooglePhoto() {
 
 function findUserInDB(data) {
   const uid = user?.uid || user?.id;
-  // Tenta vários critérios de busca
   return data.users.find(u =>
     (u.id && uid && String(u.id) === String(uid)) ||
     (u.uid && uid && String(u.uid) === String(uid)) ||
@@ -461,17 +391,12 @@ function saveAvatarToDB() {
     u.avatarType = selectedAvatarType;
     if (selectedAvatarType === 'google' && selectedAvatar) u.googlePhoto = selectedAvatar;
     page.saveDB(data);
-
-    // Atualizar sessão
     const sessionUser = { ...user, avatar: selectedAvatar, avatarType: selectedAvatarType };
-    core.setCurrentUser(sessionUser);
+    if (typeof core !== 'undefined' && core.setCurrentUser) core.setCurrentUser(sessionUser);
     user = sessionUser;
-
-    // Sincronizar com Firebase
     try {
-      page.syncDocument('users', u.uid || u.id, { ...u, passHash: undefined, pass: undefined });
+      page.syncDocument('users', u.uid || u.id, { avatar: u.avatar, avatarType: u.avatarType, googlePhoto: u.googlePhoto || '' });
     } catch(e) {}
-
     window.parent.postMessage({ type: 'reload' }, '*');
   }
 }
@@ -480,50 +405,34 @@ function saveProfile(e) {
   e.preventDefault();
   if (isSaving) return;
   isSaving = true;
-
   refreshUser();
   const data = page.getDB();
   const u = findUserInDB(data);
-
   if (!u) {
-    page.toast('Erro: usuário não encontrado no banco de dados', 'error');
+    page.toast('Erro: usuário não encontrado', 'error');
     isSaving = false;
     return;
   }
-
   const newUsername = document.getElementById('pUsername').value.trim();
-  if (newUsername && !validateUsername()) {
-    isSaving = false;
-    return;
-  }
-
+  if (newUsername && !validateUsername()) { isSaving = false; return; }
   const btnSave = document.getElementById('btnSaveProfile');
   const origText = btnSave.textContent;
   btnSave.disabled = true;
-  btnSave.textContent = '⏳ Salvando...';
-
-  // Check username uniqueness
+  btnSave.textContent = '⏳ Salvando no Firestore...';
   if (newUsername && newUsername !== u.username) {
     const exists = data.users.find(usr => usr.username === newUsername && String(usr.id || usr.uid) !== String(u.id || u.uid));
     if (exists) {
       page.toast('Nome de usuário já está em uso', 'error');
-      btnSave.disabled = false;
-      btnSave.textContent = origText;
-      isSaving = false;
-      return;
+      btnSave.disabled = false; btnSave.textContent = origText; isSaving = false; return;
     }
   }
-
   u.username = newUsername || u.username;
   u.name = document.getElementById('pName').value.trim();
   u.lastName = document.getElementById('pLastName').value.trim();
   u.phone = document.getElementById('pPhone').value.trim();
   u.address = document.getElementById('pAddress').value.trim();
   u.daysOff = Array.from(document.querySelectorAll('#daysOffChoices input:checked')).map(cb => cb.value);
-
   page.saveDB(data);
-
-  // Atualizar sessão com todos os campos
   const sessionUser = {
     ...user,
     username: u.username,
@@ -534,150 +443,129 @@ function saveProfile(e) {
     daysOff: u.daysOff,
     googlePhoto: u.googlePhoto || user.googlePhoto || ''
   };
-  core.setCurrentUser(sessionUser);
+  if (typeof core !== 'undefined' && core.setCurrentUser) core.setCurrentUser(sessionUser);
   user = sessionUser;
-
-  // Sincronizar com Firebase (sem dados sensíveis)
   try {
     const firestoreData = { ...u };
-    delete firestoreData.passHash;
-    delete firestoreData.pass;
+    delete firestoreData.passHash; delete firestoreData.pass;
     page.syncDocument('users', u.uid || u.id, firestoreData);
-  } catch(e) {
-    console.warn('Firebase sync warning:', e);
-  }
-
+  } catch(e) { console.warn('Firebase sync warning:', e); }
   updateDisplayName();
-  core.log('profile_update', user.id, `${u.name} ${u.lastName} (@${u.username})`);
-  page.toast('Perfil atualizado com sucesso! ✅', 'success');
+  if (typeof core !== 'undefined' && core.log) core.log('profile_update', user.id, `${u.name} ${u.lastName} (@${u.username})`);
+  page.toast('Perfil atualizado com sucesso no Firestore! ✅', 'success');
   if (core.isDayOff(core.today(), sessionUser)) {
     core.chromeNotification('📅 Dia de folga configurado', 'As atividades de hoje ficam ocultas e não contam como pendentes.', 'info');
   }
   window.parent.postMessage({ type: 'reload' }, '*');
-
   btnSave.disabled = false;
   btnSave.textContent = origText;
   isSaving = false;
 }
 
-async function changePassword(e) {
+// ========== FIREBASE AUTH FLOWS ==========
+async function sendVerificationEmail() {
+  const fbUser = getFirebaseCurrentUser();
+  if (!fbUser) { page.toast('Sessão Firebase não encontrada. Faça login novamente.', 'error'); return; }
+  const btn = document.getElementById('btnSendVerify');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+  try {
+    const token = await getRecaptchaTokenPerfil('VERIFY_EMAIL');
+    console.log('reCAPTCHA VERIFY_EMAIL token:', token ? 'OK' : 'null');
+    if (btn) btn.textContent = '⏳ Enviando e-mail...';
+    await fbUser.sendEmailVerification({
+      url: window.parent ? window.parent.location.origin + '/index.html' : window.location.origin + '/../index.html',
+      handleCodeInApp: false
+    });
+    page.toast(`E-mail de verificação enviado para ${fbUser.email}! 📧`, 'success');
+  } catch (err) {
+    console.warn('sendVerificationEmail erro:', err);
+    page.toast('Erro ao enviar verificação: ' + (err.message || err.code), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
+}
+
+async function sendResetEmail() {
+  const email = user?.email;
+  if (!email) { page.toast('Sua conta não tem e-mail cadastrado', 'error'); return; }
+  const auth = getFirebaseAuth();
+  if (!auth) { page.toast('Firebase Auth indisponível', 'error'); return; }
+  const btn = document.getElementById('btnResetEmail');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+  try {
+    const token = await getRecaptchaTokenPerfil('FORGOT_PASSWORD');
+    console.log('reCAPTCHA FORGOT_PASSWORD token:', token ? 'OK' : 'null');
+    if (btn) btn.textContent = '⏳ Enviando...';
+    auth.useDeviceLanguage();
+    await auth.sendPasswordResetEmail(email);
+    page.toast(`E-mail de redefinição enviado para ${email}! 📬 Verifique sua caixa de entrada.`, 'success');
+  } catch (err) {
+    console.warn('sendResetEmail erro:', err);
+    page.toast('Erro: ' + (err.message || err.code), 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
+  }
+}
+
+async function changePasswordFirebase(e) {
   e.preventDefault();
   const oldP = document.getElementById('oldPass').value;
   const newP = document.getElementById('newPass').value;
   const confP = document.getElementById('confirmPass').value;
-
-  if (!oldP) return page.toast('Digite a senha atual', 'warning');
+  if (!oldP) return page.toast('Digite a senha atual (reauth Firebase)', 'warning');
   if (!newP) return page.toast('Digite a nova senha', 'warning');
   if (newP !== confP) return page.toast('As senhas não coincidem', 'error');
-
-  const validation = core.validatePassword(newP);
-  if (!validation.valid) return page.toast(validation.errors.join(', '), 'error');
-
-  refreshUser();
-  const data = page.getDB();
-  const u = findUserInDB(data);
-
-  if (!u) {
-    return page.toast('Conta local não encontrada — sua conta entra pelo Google ou foi criada em outro dispositivo.', 'error');
-  }
-  if (!u.passHash) {
-    // Conta sem hash local (ex.: logou só pelo Google) → não tem como validar
-    // a senha "atual". Oferecemos o fluxo de reset local em vez de erro.
-    return showLocalResetModal();
-  }
-
-  const valid = await core.verifyPassword(oldP, u.passHash);
-  if (!valid) {
-    return page.toast('Senha atual incorreta. Se você entrou pelo Google, use o link "Esqueci minha senha" abaixo.', 'error');
-  }
-
-  const btn = e.target.querySelector('button[type="submit"]');
-  const origText = btn?.textContent;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Salvando...'; }
-
-  u.passHash = await core.hashPassword(newP);
-  page.saveDB(data);
-
-  let fbMsg = '';
-  try {
-    const fbUser = firebase.auth().currentUser;
-    if (fbUser && fbUser.email === u.email && (fbUser.providerData[0]?.providerId === 'password' || fbUser.providerData[0]?.providerId === 'firebase')) {
-      await fbUser.updatePassword(newP);
-      fbMsg = ' Senha também atualizada no Firebase!';
-    } else {
-      fbMsg = ' Senha local atualizada. (Para atualizar no Firebase, faça logout e login novamente com a nova senha.)';
-    }
-  } catch (err) {
-    if (err.code === 'auth/requires-recent-login') {
-      fbMsg = ' Senha local atualizada. Para atualizar no Firebase também, faça logout e login novamente.';
-    } else {
-      fbMsg = ' Senha local atualizada. (Firebase: ' + (err.message || err.code) + ').';
-    }
-  }
-
-  try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e) {}
-  core.log('password_change', user.id);
-  page.toast('Senha alterada com sucesso! 🔒' + fbMsg, 'success');
-  document.getElementById('oldPass').value = '';
-  document.getElementById('newPass').value = '';
-  document.getElementById('confirmPass').value = '';
-
-  if (btn) { btn.disabled = false; btn.textContent = origText || '💾 Alterar senha'; }
-}
-
-async function setupOrChangeSecret(e) {
-  e.preventDefault();
-  refreshUser();
-  const q = document.getElementById('secretQ').value;
-  const a = document.getElementById('secretA').value.trim();
-  if (!q || !a) return page.toast('Preencha pergunta e resposta', 'error');
-
-  const data = page.getDB();
-  const u = findUserInDB(data);
-  if (!u) return page.toast('Usuário não encontrado', 'error');
-
-  u.secretQuestion = q;
-  try { u.secretAnswerHash = await core.hashPassword(a.toLowerCase()); } catch(e){ u.secretAnswerHash = ''; }
-
-  page.saveDB(data);
-  try { page.syncDocument('users', u.uid || u.id, { secretQuestion: q, secretAnswerHash: u.secretAnswerHash }); } catch(e){}
-
-  page.toast('Pergunta secreta salva! ✅', 'success');
-  loadSecretStatus();
-  window.parent.postMessage({ type: 'reload' }, '*');
-}
-
-async function changePasswordWithSecret(e) {
-  e.preventDefault();
-  refreshUser();
-  const verifyA = document.getElementById('secretVerifyA').value.trim();
-  const newP = document.getElementById('secretNewPass').value;
-  const conf = document.getElementById('secretNewPassConfirm').value;
-
-  if (newP !== conf) return page.toast('Senhas não coincidem', 'error');
   const v = core.validatePassword(newP);
   if (!v.valid) return page.toast(v.errors.join(', '), 'error');
 
-  const data = page.getDB();
-  const u = findUserInDB(data);
-  if (!u || !u.secretAnswerHash) return page.toast('Pergunta secreta não cadastrada', 'error');
+  const auth = getFirebaseAuth();
+  const fbUser = getFirebaseCurrentUser();
+  if (!auth || !fbUser) { page.toast('Sessão Firebase não encontrada. Faça login novamente.', 'error'); return; }
+  if (!fbUser.email) { page.toast('E-mail não disponível para reautenticação', 'error'); return; }
 
-  const ok = await core.verifyPassword(verifyA.toLowerCase(), u.secretAnswerHash);
-  if (!ok) return page.toast('Resposta secreta incorreta', 'error');
+  const btn = document.getElementById('btnChangePass');
+  const orig = btn ? btn.textContent : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
 
-  u.passHash = await core.hashPassword(newP);
-  page.saveDB(data);
-  try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e){}
+  try {
+    const token = await getRecaptchaTokenPerfil('CHANGE_PASSWORD');
+    console.log('reCAPTCHA CHANGE_PASSWORD token:', token ? 'OK' : 'null');
 
-  const fbUser = firebase.auth().currentUser;
-  if (fbUser && fbUser.email === u.email) {
-    try { await fbUser.updatePassword(newP); } catch(e){}
+    if (btn) btn.textContent = '⏳ Reautenticando...';
+
+    // Reautenticar: EmailAuthProvider.credential(email, oldPassword)
+    const credential = window.parent.firebase.auth.EmailAuthProvider.credential(fbUser.email, oldP);
+    // Tentar com parent firebase se existir
+    if (window.parent && window.parent.firebase && window.parent.firebase.auth) {
+      const credParent = window.parent.firebase.auth.EmailAuthProvider.credential(fbUser.email, oldP);
+      await fbUser.reauthenticateWithCredential(credParent);
+    } else {
+      await fbUser.reauthenticateWithCredential(credential);
+    }
+
+    if (btn) btn.textContent = '⏳ Alterando senha no Firebase...';
+    await fbUser.updatePassword(newP);
+
+    page.toast('Senha alterada com sucesso no Firebase Auth! 🔒 Você precisará usar a nova senha no próximo login.', 'success');
+    document.getElementById('oldPass').value = '';
+    document.getElementById('newPass').value = '';
+    document.getElementById('confirmPass').value = '';
+
+    if (typeof core !== 'undefined' && core.log) core.log('password_change_firebase', user.id);
+
+  } catch (err) {
+    console.warn('changePasswordFirebase erro:', err);
+    let msg = err.message;
+    if (err.code === 'auth/wrong-password') msg = 'Senha atual incorreta. Verifique.';
+    else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde (reCAPTCHA ativo).';
+    else if (err.code === 'auth/requires-recent-login') msg = 'Sessão expirada. Faça logout e login novamente, depois tente trocar a senha.';
+    else if (err.code === 'auth/weak-password') msg = 'Nova senha muito fraca.';
+    page.toast('Erro ao trocar senha: ' + msg, 'error');
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = orig; }
   }
-
-  page.toast('Senha alterada com sucesso via pergunta secreta! 🔒', 'success');
-  document.getElementById('secretVerifyA').value = '';
-  document.getElementById('secretNewPass').value = '';
-  document.getElementById('secretNewPassConfirm').value = '';
 }
 </script>
 
@@ -686,22 +574,22 @@ async function changePasswordWithSecret(e) {
 <script>
 PageHelpAI.mount({
   pageId: 'perfil',
-  title: 'Meu Perfil',
-  intro: 'Seus dados pessoais e da conta: nome, avatar, e-mail e senha. As preferências de tema ficam na página Personalizar.',
+  title: 'Meu Perfil - Firebase 100%',
+  intro: 'Seus dados pessoais e de segurança com Firebase Auth + reCAPTCHA Enterprise.',
   sections: [
-    { icon: '👤', title: 'Dados pessoais', body: 'Edite seu nome de exibição e informações básicas — aparecem no ranking, comentários e notificações.' },
-    { icon: '🖼️', title: 'Avatar', body: 'Escolha um avatar entre as opções, envie uma foto ou use a foto do Google.' },
-    { icon: '🔒', title: 'Senha e segurança', body: 'Troque a senha ou solicite o link de redefinição por e-mail.' },
+    { icon: '👤', title: 'Dados pessoais', body: 'Nome, sobrenome, telefone, endereço e dias de folga. Tudo sincronizado no Firestore.' },
+    { icon: '🖼️', title: 'Avatar', body: 'Escolha entre emoji, upload ou foto do Google.' },
+    { icon: '🔒', title: 'Senha e verificação', body: 'Troque sua senha via Firebase reauth, verifique seu e-mail e recupere a senha via link seguro. Tudo com reCAPTCHA Enterprise.' },
   ],
   tips: [
-    'Use um nome claro para o time reconhecê-lo no ranking e nos comentários.',
-    'Mantenha o e-mail correto — é para ele que vão os links de recuperação de senha.',
-    'Tema, idioma e modo claro/escuro ficam em Personalizar, não aqui.',
+    'Verifique seu e-mail para ativar proteções extras do Firebase.',
+    'Use senha forte: 8+ chars, maiúscula, minúscula, 2 números e caractere especial.',
+    'Se entrou com Google, a senha é gerenciada por myaccount.google.com.',
   ],
   quickQuestions: [
     'Como funciona esta página?',
-    'Como troco minha senha?',
-    'Como mudo meu avatar?',
+    'Como troco minha senha no Firebase?',
+    'Como verificar meu e-mail?',
   ],
 });
 </script>

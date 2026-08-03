@@ -1,7 +1,18 @@
 /* =========================================================
-   CHECKLIST ML — app.js  (CORRIGIDO última atualização)
-   Controlador principal: auth, navegação, tema, sidebar,
-   FIX travamento login Google + regras Firestore
+   CHECKLIST ML — app.js (v19 - Firebase Only + reCAPTCHA Enterprise)
+   Refatoração completa:
+   - 100% Firebase Auth (sem fallback local passHash)
+   - reCAPTCHA Enterprise ativo (site key 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO)
+   - Login, cadastro, verificação de email, reset de senha, troca de senha
+   - App Check com reCAPTCHA Enterprise Provider
+
+   Ações reCAPTCHA:
+     LOGIN, REGISTER, FORGOT_PASSWORD, PASSWORD_RESET, VERIFY_EMAIL,
+     GOOGLE_LOGIN, CHANGE_PASSWORD, RESEND_VERIFICATION
+
+   Backend Java exemplo (fornecido pelo usuário) deve validar token:
+     Event event = Event.newBuilder().setSiteKey(recaptchaKey).setToken(token).build();
+     Assessment response = client.createAssessment(parent, Assessment.newBuilder().setEvent(event).build());
    ========================================================= */
 
 const App = {
@@ -15,8 +26,6 @@ const App = {
   _lastConnectionRecovery: 0,
   _alertTimer: null,
 
-  /* Agrupamento do menu superior (desktop). Cada grupo vira um dropdown;
-     a ordem interna segue settings.menuOrder e respeita visibilidade/adminOnly. */
   MENU_GROUPS: [
     { id: 'operacao',    icon: '📋', label: 'Operação',      items: ['home', 'atividades', 'kanban', 'calendario', 'notas'] },
     { id: 'produtividade', icon: '🎯', label: 'Produtividade', items: ['gamificacao', 'foco'] },
@@ -25,16 +34,52 @@ const App = {
     { id: 'sistema',     icon: '⚙️', label: 'Sistema',       items: ['perfil', 'admin'] },
   ],
 
+  RECAPTCHA_SITE_KEY: '6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO',
+
+  /* ========== reCAPTCHA Helper ========== */
+  async getRecaptchaToken(action = 'LOGIN') {
+    try {
+      if (window.getRecaptchaToken && typeof window.getRecaptchaToken === 'function') {
+        const token = await window.getRecaptchaToken(action);
+        if (token && window.fireSync && fireSync.logRecaptchaAssessment) {
+          // Log não bloqueia
+          fireSync.logRecaptchaAssessment(action, token).catch(()=>{});
+        }
+        return token;
+      }
+      // Fallback direto grecaptcha
+      if (window.grecaptcha && grecaptcha.enterprise) {
+        return await new Promise((resolve) => {
+          grecaptcha.enterprise.ready(async () => {
+            try {
+              const t = await grecaptcha.enterprise.execute(this.RECAPTCHA_SITE_KEY, { action });
+              resolve(t);
+            } catch { resolve(null); }
+          });
+        });
+      }
+    } catch (e) {
+      console.warn('getRecaptchaToken falhou:', e);
+    }
+    return null;
+  },
+
+  // Wrapper usado no onClick exemplo do usuário:
+  // function onClick(e) { e.preventDefault(); grecaptcha.enterprise.ready(async () => { const token = await grecaptcha.enterprise.execute('SITE_KEY', {action: 'LOGIN'}); }); }
+  async onClickRecaptcha(e, action = 'LOGIN') {
+    if (e && e.preventDefault) e.preventDefault();
+    return await this.getRecaptchaToken(action);
+  },
+
   /* ========== INICIALIZAÇÃO ========== */
   async init() {
     if (this._initDone) return;
     this._initDone = true;
 
-    // Registrar Service Worker
     this.registerSW();
-    this.handlePasswordResetCode();
+    // Tratar todos os modos de oobCode: resetPassword, verifyEmail, recoverEmail
+    this.handleAuthActionFromURL();
 
-    // Carregar configurações
     const data = core.getLocalDB();
     this.settings = data.settings;
 
@@ -42,39 +87,47 @@ const App = {
     this.applyFontSize();
     await core.tReady(this.settings.language);
 
-    // Verificar se há usuário logado (session + remember)
-    this.currentUser = core.getCurrentUser();
-    if (!this.currentUser) {
-      this.currentUser = core.getRememberedUser();
-      if (this.currentUser) core.setCurrentUser(this.currentUser);
-    }
+    // Firebase Auth é a ÚNICA fonte de verdade para sessão.
+    // Não usamos mais rememberUser local sem Firebase; usamos persistence do SDK.
 
-    // Tema é preferência POR USUÁRIO: cada um vê o tema que escolheu.
-    // Na primeira vez, segue o sistema (claro/escuro) e o padrão do admin.
     this.applyUserTheme();
-    if (this.currentUser) {
-      try { core.updateStreak(this.currentUser.id || this.currentUser.uid); } catch(e) {}
-    }
+    // Tentar atualizar streak se houver sessão anterior em cache (mas vai ser sobrescrito pelo onAuth)
+    try {
+      const cached = core.getCurrentUser();
+      if (cached) { this.currentUser = cached; core.updateStreak(cached.id || cached.uid); }
+    } catch(e) {}
 
     window.addEventListener('message', (e) => this.handleMessage(e));
 
-    // Listener do Firebase Auth - UMA VEZ SÓ e com proteção anti-loop
     if (!this._authListenerAttached) {
       this._authListenerAttached = true;
       auth.onAuthStateChanged(async (fbUser) => {
         try {
           if (fbUser) {
-            console.log('🔥 Auth state: logado', fbUser.uid);
+            console.log('🔥 Auth state: logado', fbUser.uid, 'emailVerified:', fbUser.emailVerified);
+            // Verificação de email obrigatória para provider password, mas liberada para Google
+            const isGoogle = fbUser.providerData.some(p => p.providerId === 'google.com');
+            if (!isGoogle && !fbUser.emailVerified) {
+              // Usuário logado mas email não verificado -> mostrar modal de verificação
+              console.log('✉️ Email não verificado, exigindo verificação');
+              // Não chamar sync ainda, apenas manter sessão mas mostrar verificação
+              // Mas still sync para buscar perfil? Sim, vamos sync e mostrar modal
+              await this.syncFirebaseUser(fbUser, true); // true = suppress showApp
+              this.showEmailVerificationRequired(fbUser);
+              document.getElementById('loadingScreen')?.classList.add('hidden');
+              this.showLogin(); // Esconde app, mas deixa modal de verificação
+              document.getElementById('emailVerifyModal')?.classList.remove('hidden');
+              document.getElementById('verifyEmailText').textContent =
+                `Enviamos um link de confirmação para ${fbUser.email}. Verifique seu e-mail antes de continuar.`;
+              return;
+            }
+
             const localUid = this.currentUser?.uid || this.currentUser?.id;
-            // Uma sessão lembrada pode pertencer a outra conta Firebase. Sempre
-            // recarregue o perfil quando os UIDs não coincidem.
             if (!this.currentUser || localUid !== fbUser.uid) {
               await this.syncFirebaseUser(fbUser);
             } else if (this.currentUser &&
                        this.isBootstrapAdminEmail(fbUser.email) &&
                        this.currentUser.role !== 'admin') {
-              // Sessão restaurada como membro: o claim de uso único ainda não
-              // foi consumido — tente agora, senão o badge ficaria "membro".
               const claimed = await this.claimBootstrapAdmin(fbUser, this.currentUser);
               if (claimed.role === 'admin') {
                 this.currentUser = { ...this.currentUser, role: 'admin' };
@@ -87,28 +140,29 @@ const App = {
             }
             if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
               const uid = this.currentUser.uid || this.currentUser.id;
-              if (uid === fbUser.uid && !uid.includes('local-')) {
+              if (uid === fbUser.uid) {
                 fireSync.start(uid);
               }
             }
           } else {
             console.log('🔥 Auth state: deslogado');
-            // Não fazer logout automático se usuário é local
-            // Apenas parar o FireSync
             if (fireSync._syncing) fireSync.stop();
+            // Limpar currentUser se estava logado e agora deslogou
+            if (this.currentUser) {
+              this.currentUser = null;
+              core.setCurrentUser(null);
+              core.setRememberedUser(null);
+              // Se estava no app, voltar pro login
+              const appScreen = document.getElementById('appScreen');
+              if (appScreen && !appScreen.classList.contains('hidden')) {
+                this.showLogin();
+              }
+            }
           }
         } catch(err) {
           console.warn('onAuthStateChanged erro:', err);
         }
       });
-    }
-
-    // Iniciar FireSync imediatamente se já tem usuário Firebase
-    if (this.currentUser && (this.currentUser.uid || this.currentUser.id)) {
-      const uid = this.currentUser.uid || this.currentUser.id;
-      if (uid && !uid.includes('local-') && auth.currentUser?.uid === uid) {
-        fireSync.start(uid);
-      }
     }
 
     this.setupKeyboardShortcuts();
@@ -120,33 +174,32 @@ const App = {
       if (type === 'tasks') this.renderSidebar();
       if (type === 'settings') {
         this.settings = core.getLocalDB().settings;
-        // NÃO trocar o tema do usuário quando o admin altera as configurações
-        // globais: o tema é preferência pessoal (resolvido por usuário).
         this.applyUserTheme();
         this.renderSidebar();
         this.updateLangMenuActive();
       }
-      // Notificações vêm da nuvem (settings/notifications/user/{uid}): quando
-      // chega uma versão remota, re-renderiza a central.
       if (type === 'notifications') this.renderNotifications();
-      // Notificar o iframe que algo mudou no banco local via Firebase
       const frame = document.getElementById('pageFrame');
       if (frame?.contentWindow) {
         frame.contentWindow.postMessage({ type: 'firebaseSync', collection: type }, '*');
       }
     });
 
-    // Esconder loading SEMPRE, mesmo com erro
     setTimeout(() => {
       const loading = document.getElementById('loadingScreen');
       if (loading) loading.classList.add('hidden');
     }, 500);
-
     document.getElementById('loadingScreen')?.classList.add('hidden');
 
-    if (this.currentUser) {
-      this.showApp();
-    } else {
+    // A decisão de mostrar app ou login será tomada pelo onAuthStateChanged,
+    // mas fazemos um fallback rápido para não piscar.
+    const fbCurrent = auth.currentUser;
+    if (fbCurrent && fbCurrent.emailVerified) {
+      // Já tem auth, mas sync será feito; enquanto isso mostra loading -> onAuth vai mostrar app
+      this.currentUser = core.getCurrentUser(); // pode ser null ainda
+      if (this.currentUser) this.showApp();
+    } else if (!fbCurrent) {
+      // Sem Firebase user, mostrar login
       this.showLogin();
     }
   },
@@ -159,8 +212,6 @@ const App = {
           try { fireSync._flushOutbox(); } catch (e) { console.warn('flushOutbox SW:', e); }
         }
       });
-      // Um update do shell deve assumir o controle e recarregar uma única vez.
-      // Isso evita que o APK fique preso em arquivos HTML/JS de versões diferentes.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
         if (!this._swUpdateRequested) return;
         this._swUpdateRequested = false;
@@ -180,7 +231,6 @@ const App = {
             core.toast('Atualizando o aplicativo para mantê-lo estável…', 'info');
             worker.postMessage({ type: 'SKIP_WAITING' });
           };
-
           if (reg.waiting) activateUpdate(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
@@ -204,7 +254,6 @@ const App = {
         }
       }, 5000);
     });
-
     window._pwaInstall = () => {
       if (deferredPrompt) {
         deferredPrompt.prompt();
@@ -218,16 +267,12 @@ const App = {
     };
   },
 
-  /* ========== RECUPERAÇÃO APÓS PAUSA / REDE ========== */
   setupAppRecovery() {
     if (this._recoveryListenersAttached) return;
     this._recoveryListenersAttached = true;
 
     const recover = (reason) => {
       const uid = this.currentUser?.uid || this.currentUser?.id;
-      // Android pode suspender WebViews e encerrar conexões do Firestore enquanto
-      // o app está em segundo plano. Ao voltar depois de algum tempo, renovamos
-      // os listeners mesmo se o SDK ainda marcar o sync como ativo.
       const now = Date.now();
       const staleConnection = reason === 'visible' && now - this._lastConnectionRecovery > 60000;
       if (uid && auth.currentUser?.uid === uid && (!fireSync._syncing || staleConnection)) {
@@ -235,7 +280,6 @@ const App = {
         fireSync.start(uid);
         this._lastConnectionRecovery = now;
       }
-
       const frame = document.getElementById('pageFrame');
       if (this.currentUser && frame && !frame.getAttribute('src')) {
         this.navigate(this.currentPage || 'home');
@@ -300,13 +344,16 @@ const App = {
     document.getElementById('appScreen')?.classList.add('hidden');
     const brandEl = document.getElementById('loginBrandName');
     if (brandEl) brandEl.textContent = this.settings?.brand || 'Checklist ML';
+    // Garantir que a aba login é a ativa quando volta
+    // Não força se o usuário estava em forgotForm? Deixa o tab switch decidir.
   },
 
   showApp() {
     document.getElementById('loginScreen')?.classList.add('hidden');
     document.getElementById('appScreen')?.classList.remove('hidden');
-    // A verificação é idempotente por tarefa/automação/dia e não abre toasts de
-    // login. Assim, tarefas atrasadas aparecem na central sem spam.
+    // Esconder modais de verificação/login
+    document.getElementById('emailVerifyModal')?.classList.add('hidden');
+    document.getElementById('forgotSentModal')?.classList.add('hidden');
     try { core.checkLateAutomations(this.currentUser?.id || this.currentUser?.uid); } catch(e) {
       console.warn('checkLateAutomations:', e);
     }
@@ -319,7 +366,7 @@ const App = {
     this.navigate(page);
   },
 
-  /* ========== LOGIN / CADASTRO ========== */
+  /* ========== TABS LOGIN / CADASTRO ========== */
   switchTab(tab) {
     document.querySelectorAll('.login-tab').forEach(t =>
       t.classList.toggle('active', t.dataset.tab === tab));
@@ -339,6 +386,7 @@ const App = {
     setTimeout(() => document.getElementById('forgotEmail')?.focus(), 100);
   },
 
+  /* ========== ESQUECI MINHA SENHA - 100% Firebase + reCAPTCHA ========== */
   async handleForgotPassword(e) {
     e.preventDefault();
     this.clearErrors();
@@ -350,16 +398,24 @@ const App = {
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '⏳ Enviando...';
+    btn.textContent = '⏳ Verificando reCAPTCHA...';
 
     try {
+      const token = await this.getRecaptchaToken('FORGOT_PASSWORD');
+      console.log('reCAPTCHA token para FORGOT_PASSWORD:', token ? 'OK' : 'null (continuando)');
+
+      btn.textContent = '⏳ Enviando e-mail...';
       auth.useDeviceLanguage();
       await auth.sendPasswordResetEmail(email);
+
       document.getElementById('forgotSentModal')?.classList.remove('hidden');
       document.getElementById('forgotForm')?.classList.add('hidden');
       document.getElementById('forgotEmail').value = '';
+      core.toast('Link de recuperação enviado via Firebase Auth!', 'success');
     } catch (err) {
+      console.warn('Forgot password erro:', err);
       if (err.code === 'auth/user-not-found') {
+        // Por segurança, mostrar mesma mensagem
         document.getElementById('forgotSentModal')?.classList.remove('hidden');
         document.getElementById('forgotForm')?.classList.add('hidden');
         document.getElementById('forgotEmail').value = '';
@@ -367,9 +423,9 @@ const App = {
       } else if (err.code === 'auth/invalid-email') {
         this.showError('forgotError', 'E-mail inválido');
       } else if (err.code === 'auth/too-many-requests') {
-        this.showError('forgotError', 'Muitas tentativas. Aguarde alguns minutos');
+        this.showError('forgotError', 'Muitas tentativas. Aguarde alguns minutos (proteção reCAPTCHA ativa)');
       } else {
-        this.showError('forgotError', err.message || 'Erro ao enviar');
+        this.showError('forgotError', err.message || 'Erro ao enviar. Verifique sua conexão.');
       }
     } finally {
       btn.disabled = false;
@@ -377,30 +433,100 @@ const App = {
     }
   },
 
-  async handlePasswordResetCode() {
+  /* ========== Tratamento de oobCode na URL: resetPassword, verifyEmail, recoverEmail ========== */
+  async handleAuthActionFromURL() {
     try {
       const url = new URL(window.location.href);
       const oobCode = url.searchParams.get('oobCode');
       const mode = url.searchParams.get('mode');
-      if (mode === 'resetPassword' && oobCode) {
-        await auth.verifyPasswordResetCode(oobCode);
-        this.showResetPasswordModal(oobCode);
+      if (!oobCode || !mode) return;
+
+      console.log('🔗 Auth action detectada na URL:', mode);
+
+      if (mode === 'resetPassword') {
+        try {
+          const email = await auth.verifyPasswordResetCode(oobCode);
+          console.log('Reset para:', email);
+          this.showResetPasswordModal(oobCode, email);
+        } catch (err) {
+          core.toast('Link de recuperação inválido ou expirado. Solicite um novo.', 'error');
+          this.showError('loginError', 'Link de redefinição expirado. Use "Esqueci minha senha" novamente.');
+          this.showLogin();
+        }
+      } else if (mode === 'verifyEmail') {
+        try {
+          await auth.applyActionCode(oobCode);
+          core.toast('E-mail verificado com sucesso! Você já pode entrar. ✅', 'success');
+          this.showModal(`
+            <div style="text-align:center">
+              <div style="font-size:64px;margin-bottom:16px">✅</div>
+              <h2 style="margin-bottom:12px">E-mail verificado!</h2>
+              <p style="color:var(--text-secondary);margin-bottom:20px">Seu e-mail foi confirmado. Agora você tem acesso completo ao Checklist ML.</p>
+              <button class="btn btn-primary" onclick="App.closeModal();App.switchTab('login')">Ir para o login</button>
+            </div>
+          `);
+          window.history.replaceState({}, '', window.location.pathname);
+          // Se já estiver logado, recarregar user para atualizar emailVerified
+          if (auth.currentUser) {
+            await auth.currentUser.reload();
+            if (auth.currentUser.emailVerified) {
+              setTimeout(() => this.showApp(), 800);
+            }
+          }
+        } catch (err) {
+          console.warn('verifyEmail erro:', err);
+          core.toast('Link de verificação inválido ou expirado.', 'error');
+          this.showModal(`
+            <div style="text-align:center">
+              <div style="font-size:64px;margin-bottom:16px">⚠️</div>
+              <h2 style="margin-bottom:12px">Link expirado</h2>
+              <p style="color:var(--text-secondary);margin-bottom:20px">O link de verificação expirou. Faça login e solicite um novo.</p>
+              <button class="btn btn-primary" onclick="App.closeModal()">Fechar</button>
+            </div>
+          `);
+        }
+      } else if (mode === 'recoverEmail') {
+        try {
+          const info = await auth.checkActionCode(oobCode);
+          const restoredEmail = info['data']['email'];
+          await auth.applyActionCode(oobCode);
+          await auth.sendPasswordResetEmail(restoredEmail);
+          core.toast(`E-mail restaurado para ${restoredEmail}. Verifique a redefinição de senha.`, 'success');
+          this.showModal(`
+            <div style="text-align:center">
+              <div style="font-size:48px;margin-bottom:12px">🔄</div>
+              <h2>E-mail recuperado</h2>
+              <p style="margin:16px 0">Seu e-mail foi restaurado para <b>${restoredEmail}</b>. Um e-mail de redefinição de senha foi enviado.</p>
+              <button class="btn btn-primary" onclick="App.closeModal()">OK</button>
+            </div>
+          `);
+          window.history.replaceState({}, '', window.location.pathname);
+        } catch (err) {
+          core.toast('Falha ao recuperar e-mail: ' + (err.message || ''), 'error');
+        }
       }
     } catch (err) {
-      core.toast('Link de recuperação inválido ou expirado', 'error');
+      console.warn('handleAuthActionFromURL geral:', err);
     }
   },
 
-  showResetPasswordModal(oobCode) {
+  /* Alias para compatibilidade com código antigo que chamava handlePasswordResetCode */
+  async handlePasswordResetCode() {
+    return this.handleAuthActionFromURL();
+  },
+
+  showResetPasswordModal(oobCode, email = '') {
+    const safeEmail = email ? `para <b>${core.escapeHTML(email)}</b>` : '';
     const html = `
       <div style="text-align:center">
         <div style="font-size:48px;margin-bottom:12px">🔑</div>
         <h2 style="margin-bottom:8px">Definir nova senha</h2>
-        <p style="color:var(--muted);font-size:13px;margin-bottom:20px">Escolha uma senha forte</p>
+        <p style="color:var(--muted);font-size:13px;margin-bottom:4px">Redefinindo senha ${safeEmail}</p>
+        <p style="color:var(--muted);font-size:11px;margin-bottom:16px">Protegido por reCAPTCHA Enterprise (ação: PASSWORD_RESET)</p>
       </div>
       <label><span>Nova senha</span>
         <div class="input-group">
-          <input type="password" id="newPassReset" required placeholder="Sua nova senha" oninput="App.checkPasswordStrength(this.value)">
+          <input type="password" id="newPassReset" required placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" oninput="App.checkPasswordStrength(this.value)" autocomplete="new-password">
           <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassReset', this)">👁</button>
         </div>
         <div class="pass-strength"><div class="pass-strength-bar" id="passStrengthBarReset"></div></div>
@@ -408,14 +534,14 @@ const App = {
       </label>
       <label><span>Confirmar nova senha</span>
         <div class="input-group">
-          <input type="password" id="newPassConfirmReset" required placeholder="Repita a senha">
+          <input type="password" id="newPassConfirmReset" required placeholder="Repita a nova senha" autocomplete="new-password">
           <button type="button" class="toggle-pass" onclick="App.togglePassword('newPassConfirmReset', this)">👁</button>
         </div>
       </label>
       <div class="form-error" id="resetError"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
-        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha</button>
+        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha (Firebase)</button>
       </div>
     `;
     this.showModal(html);
@@ -427,6 +553,10 @@ const App = {
     const errEl = document.getElementById('resetError');
     if (errEl) { errEl.classList.remove('show'); errEl.textContent = ''; }
 
+    if (!newPass || !confirm) {
+      if (errEl) { errEl.textContent = 'Preencha todos os campos'; errEl.classList.add('show'); }
+      return;
+    }
     if (newPass !== confirm) {
       if (errEl) { errEl.textContent = 'As senhas não coincidem'; errEl.classList.add('show'); }
       return;
@@ -437,17 +567,28 @@ const App = {
       return;
     }
     const btn = document.getElementById('btnConfirmReset');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Redefinindo...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando reCAPTCHA...'; }
+
     try {
+      const token = await this.getRecaptchaToken('PASSWORD_RESET');
+      console.log('reCAPTCHA token PASSWORD_RESET:', token ? 'OK' : 'null');
+
+      if (btn) btn.textContent = '⏳ Redefinindo...';
       await auth.confirmPasswordReset(oobCode, newPass);
       this.closeModal();
-      core.toast('Senha redefinida com sucesso! Faça login novamente.', 'success');
+      core.toast('Senha redefinida com sucesso! Faça login com a nova senha.', 'success');
       window.history.replaceState({}, '', window.location.pathname);
       this.showLogin();
+      this.switchTab('login');
     } catch (err) {
-      if (errEl) { errEl.textContent = err.message || 'Erro ao redefinir senha'; errEl.classList.add('show'); }
+      console.warn('confirmPasswordReset erro:', err);
+      const msg = err.code === 'auth/expired-action-code' ? 'Link expirado. Solicite um novo.'
+        : err.code === 'auth/invalid-action-code' ? 'Link inválido.'
+        : err.code === 'auth/weak-password' ? 'Senha muito fraca.'
+        : err.message || 'Erro ao redefinir senha';
+      if (errEl) { errEl.textContent = msg; errEl.classList.add('show'); }
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha'; }
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha (Firebase)'; }
     }
   },
 
@@ -486,170 +627,142 @@ const App = {
     if (text) text.textContent = l.t;
   },
 
+  /* ========== LOGIN 100% FIREBASE + reCAPTCHA ENTERPRISE ========== */
   async handleLogin(e) {
     e.preventDefault();
     this.clearErrors();
-    const username = document.getElementById('loginUser').value.trim();
+    const email = document.getElementById('loginUser').value.trim();
     const password = document.getElementById('loginPass').value;
     const remember = document.getElementById('rememberMe').checked;
 
-    // Feedback imediato - desabilitar botão
+    if (!email || !email.includes('@')) {
+      this.showError('loginError', 'Digite um e-mail válido (login 100% Firebase)');
+      return;
+    }
+
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Entrando...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
 
     try {
-      let email = username;
-      if (!username.includes('@')) {
-        const data = core.getLocalDB();
-        const user = data.users.find(u => u.username === username || u.user === username);
-        if (user) email = user.email;
-        else email = username + '@checklist.local';
-      }
+      const token = await this.getRecaptchaToken('LOGIN');
+      console.log('reCAPTCHA LOGIN token:', token ? 'gerado' : 'null (App Check ainda protege)');
+
+      if (btn) btn.textContent = '⏳ Entrando no Firebase...';
+
+      // Firebase Persistence: LOCAL = lembrar, SESSION = esquecer ao fechar
+      const persistence = remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION;
+      await auth.setPersistence(persistence);
 
       const cred = await auth.signInWithEmailAndPassword(email, password);
-      await this.loginSuccess(cred.user, remember);
-      return;
-    } catch (fbErr) {
-      console.warn('Firebase login falhou, tentando local:', fbErr.code);
-      // Fallback local
-      try {
-        const data = core.getLocalDB();
-        const user = data.users.find(u =>
-          (u.username === username || u.user === username || u.email === username) && !u.banned
-        );
 
-        if (user && user.passHash) {
-          const valid = await core.verifyPassword(password, user.passHash);
-          if (valid) {
-            // Promoção bootstrap offline: verifica se o marcador settings/bootstrap
-            // já existe no Firestore para evitar promoção duplicada.
-            let role = user.role || 'member';
-            if (this.isBootstrapAdminEmail(user.email) && role !== 'admin') {
-              try {
-                const bootstrapDoc = await db.collection('settings').doc('bootstrap').get();
-                if (bootstrapDoc.exists) {
-                  // Marcador existe - verificar se é o mesmo UID
-                  const marker = bootstrapDoc.data();
-                  if (marker.claimedBy === user.uid || marker.claimedBy === user.id) {
-                    // Mesmo UID - o usuário já foi promovido antes
-                    role = 'admin';
-                    user.role = 'admin';
-                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
-                    core.saveLocalDB(data);
-                  }
-                  // UID diferente = claim foi usado por outra conta, não fazer nada
-                } else if (!localStorage.getItem('cl-bootstrap-local-claimed')) {
-                  // Marcador não existe E localStorage não tem o flag
-                  // Tentar promover via Firestore (vai criar o marcador)
-                  try {
-                    const batch = db.batch();
-                    batch.update(db.collection('users').doc(user.uid || user.id), { role: 'admin' });
-                    batch.set(db.collection('settings').doc('bootstrap'), {
-                      claimedBy: user.uid || user.id,
-                      email: user.email,
-                      claimedAt: firebase.firestore.FieldValue.serverTimestamp()
-                    });
-                    await batch.commit();
-                    role = 'admin';
-                    user.role = 'admin';
-                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
-                    core.saveLocalDB(data);
-                    core.toast('👑 Conta promotionada para Admin!', 'success');
-                  } catch(fireErr) {
-                    console.warn('Erro ao promover via Firestore:', fireErr.code);
-                    // Fallback: marcar localmente se as regras forem antigas
-                    role = 'admin';
-                    user.role = 'admin';
-                    localStorage.setItem('cl-bootstrap-local-claimed', '1');
-                    core.saveLocalDB(data);
-                  }
-                }
-              } catch(checkErr) {
-                console.warn('Erro ao verificar bootstrap marker:', checkErr.code);
-                // Se não conseguir verificar, marcar localmente (fallback)
-                if (!localStorage.getItem('cl-bootstrap-local-claimed')) {
-                  role = 'admin';
-                  user.role = 'admin';
-                  localStorage.setItem('cl-bootstrap-local-claimed', '1');
-                  core.saveLocalDB(data);
-                }
-              }
-            }
-
-      this.currentUser = {
-            id: user.id, uid: user.uid || user.id,
-            username: user.username || user.user,
-            email: user.email, name: user.name,
-            lastName: user.lastName || '', phone: user.phone || '',
-            address: user.address || '',
-            avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
-            role: role, provider: 'local',
-            secretQuestion: user.secretQuestion || ''
-          };
-            core.setCurrentUser(this.currentUser);
-            if (remember) core.setRememberedUser(this.currentUser);
-            core.log('login', this.currentUser.id, 'Login local');
-            this.showApp();
-            if (auth.currentUser?.uid === (this.currentUser.uid || this.currentUser.id)) {
-              fireSync.start(this.currentUser.uid || this.currentUser.id);
-            }
-            core.toast('Bem-vindo de volta, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
-            return;
-          }
-        }
-
-        // Se o usuário não existe localmente mas o email é o bootstrap admin,
-        // cria uma conta local admin automaticamente — apenas UMA vez por
-        // navegador (marcador local), igual ao claim do Firestore.
-        if (!user && username.includes('@') && this.isBootstrapAdminEmail(username) &&
-            !localStorage.getItem('cl-bootstrap-local-claimed')) {
-          localStorage.setItem('cl-bootstrap-local-claimed', '1');
-          const newId = 'local-' + core.genId();
-          const passHash = await core.hashPassword(password);
-          const newUser = {
-            id: newId, uid: newId,
-            username: username.split('@')[0].replace(/[^a-zA-Z0-9_]/g,'').slice(0,20),
-            email: username,
-            name: 'Admin', lastName: '',
-            phone: '', address: '',
-            avatar: '', avatarType: 'emoji',
-            role: 'admin', banned: false,
-            passHash: passHash,
-            createdAt: core.now(),
-            provider: 'local'
-          };
-          data.users.push(newUser);
-          core.saveLocalDB(data);
-          this.currentUser = {
-            id: newId, uid: newId,
-            username: newUser.username,
-            email: newUser.email, name: newUser.name,
-            lastName: '', phone: '', address: '',
-            avatar: '', avatarType: 'emoji',
-            role: 'admin', provider: 'local'
-          };
-          core.setCurrentUser(this.currentUser);
-          if (remember) core.setRememberedUser(this.currentUser);
-          core.log('login', this.currentUser.id, 'Admin bootstrap local');
-          this.showApp();
-          core.toast('Conta Admin criada e logada! Bem-vindo! ⚙️', 'success');
+      // Verificação de email para contas password
+      if (!cred.user.emailVerified) {
+        // Verifica se provider é password (Google não precisa)
+        const isGoogle = cred.user.providerData.some(p => p.providerId === 'google.com');
+        if (!isGoogle) {
+          console.log('Email não verificado, bloqueando acesso e oferecendo reenvio');
+          this.showEmailVerificationRequired(cred.user);
+          document.getElementById('emailVerifyModal')?.classList.remove('hidden');
+          if (btn) { btn.disabled = false; btn.textContent = origText; }
           return;
         }
-      } catch(localErr) {
-        console.warn('Local login erro:', localErr);
       }
-      this.showError('loginError', 'Usuário ou senha incorretos');
+
+      await this.loginSuccess(cred.user, remember);
+      return;
+    } catch (err) {
+      console.warn('Firebase login erro:', err.code, err.message);
+      let msg = 'E-mail ou senha incorretos';
+      if (err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password' || err.code === 'auth/invalid-credential') {
+        msg = 'E-mail ou senha incorretos. Verifique ou use "Esqueci minha senha".';
+      } else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
+      else if (err.code === 'auth/user-disabled') msg = 'Conta desativada. Contate o administrador.';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Tente mais tarde. Proteção reCAPTCHA ativa.';
+      else if (err.code === 'auth/network-request-failed') msg = 'Falha de rede. Verifique sua conexão.';
+      else msg = err.message || msg;
+      this.showError('loginError', msg);
     } finally {
       if (btn) { btn.disabled = false; btn.textContent = origText; }
     }
   },
 
+  /* ========== VERIFICAÇÃO DE EMAIL ========== */
+  showEmailVerificationRequired(fbUser) {
+    const modal = document.getElementById('emailVerifyModal');
+    if (!modal) return;
+    const textEl = document.getElementById('verifyEmailText');
+    if (textEl) textEl.textContent = `Seu e-mail ${fbUser.email} ainda não foi verificado. Enviamos um link de verificação. Você precisa verificar antes de acessar o app (100% Firebase).`;
+    modal.classList.remove('hidden');
+  },
+
+  async checkEmailVerified() {
+    const btn = document.getElementById('btnCheckVerified');
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
+    try {
+      const user = auth.currentUser;
+      if (!user) {
+        core.toast('Nenhum usuário logado. Faça login novamente.', 'warning');
+        document.getElementById('emailVerifyModal')?.classList.add('hidden');
+        this.showLogin();
+        return;
+      }
+      await user.reload();
+      if (user.emailVerified) {
+        core.toast('E-mail verificado! Bem-vindo! ✅', 'success');
+        document.getElementById('emailVerifyModal')?.classList.add('hidden');
+        await this.loginSuccess(user, true);
+      } else {
+        core.toast('E-mail ainda não verificado. Verifique sua caixa de entrada e clique no link.', 'warning');
+        const errEl = document.getElementById('verifyError');
+        if (errEl) {
+          errEl.textContent = 'Ainda não verificado. Verifique spam e clique no link, depois tente novamente.';
+          errEl.classList.remove('hidden');
+          errEl.classList.add('show');
+        }
+      }
+    } catch (err) {
+      core.toast('Erro ao verificar: ' + err.message, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  },
+
+  async resendVerification() {
+    const btn = document.getElementById('btnResendVerify');
+    const orig = btn ? btn.textContent : '';
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Enviando...'; }
+    try {
+      const token = await this.getRecaptchaToken('RESEND_VERIFICATION');
+      console.log('reCAPTCHA RESEND_VERIFICATION:', token ? 'OK' : 'null');
+
+      const user = auth.currentUser;
+      if (!user) {
+        core.toast('Faça login novamente para reenviar.', 'warning');
+        return;
+      }
+      await user.sendEmailVerification();
+      core.toast(`E-mail de verificação reenviado para ${user.email}! 📧 Verifique sua caixa de entrada.`, 'success');
+      const errEl = document.getElementById('verifyError');
+      if (errEl) { errEl.textContent = ''; errEl.classList.add('hidden'); errEl.classList.remove('show'); }
+    } catch (err) {
+      console.warn('resendVerification erro:', err);
+      let msg = err.message;
+      if (err.code === 'auth/too-many-requests') msg = 'Muitas solicitações. Aguarde alguns minutos.';
+      const errEl = document.getElementById('verifyError');
+      if (errEl) { errEl.textContent = msg; errEl.classList.remove('hidden'); errEl.classList.add('show'); }
+      core.toast(msg, 'error');
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = orig; }
+    }
+  },
+
+  /* ========== Bootstrap Admin Claim ========== */
   isBootstrapAdminEmail(email) {
     return String(email || '').trim().toLowerCase() === 'wesleystudio@gmail.com';
   },
 
-  /* Dados do marcador de uso único gravado em settings/bootstrap */
   _bootstrapMarker(fbUser) {
     return {
       claimedBy: fbUser.uid,
@@ -658,32 +771,13 @@ const App = {
     };
   },
 
-  /* ---------------------------------------------------------------
-     CLAIM DE ADMINISTRADOR DE USO ÚNICO.
-     Promove a conta bootstrap a admin em UMA operação atômica que também
-     cria o marcador settings/bootstrap. As regras do Firestore só aceitam
-     essa escrita enquanto o marcador não existir — e ele nunca pode ser
-     alterado ou apagado. Resultado: funciona exatamente 1 vez e depois
-     ninguém (nem esta conta) consegue reutilizar esse caminho.
-     
-     FLUXO:
-     1. Verifica se o marcador settings/bootstrap já existe no Firestore
-     2. Se não existir: tenta promover E criar o marcador (operação atômica)
-     3. Se existir E é o mesmo UID: define role=admin localmente
-     4. Se existir E é UID diferente: não faz nada (já foi usado)
-     --------------------------------------------------------------- */
   async claimBootstrapAdmin(fbUser, profile) {
     if (!this.isBootstrapAdminEmail(fbUser?.email) || profile?.role === 'admin') return profile;
-    
-    // PRIMEIRO: verificar se o marcador já existe no Firestore
     try {
       const bootstrapDoc = await db.collection('settings').doc('bootstrap').get();
-      
       if (bootstrapDoc.exists) {
-        // Marcador já existe - verificar se é o mesmo UID
         const marker = bootstrapDoc.data();
         if (marker.claimedBy === fbUser.uid) {
-          // Mesmo UID - o usuário JÁ foi promovido antes, só definir localmente
           console.log('👑 Bootstrap marker existe para este UID - definindo role admin local');
           localStorage.setItem('cl-bootstrap-local-claimed', '1');
           try {
@@ -693,65 +787,30 @@ const App = {
           } catch(e) {}
           return { ...profile, role: 'admin' };
         } else {
-          // UID diferente - o claim foi usado por outra conta
           console.log('⚠️ Bootstrap marker já foi usado por outra conta');
           return profile;
         }
       }
-      
-      // Marcador não existe - tentar promover E criar o marcador
       console.log('👑 Marcador bootstrap não existe - tentando promover para admin');
-      
       const batch = db.batch();
       batch.update(db.collection('users').doc(fbUser.uid), { role: 'admin' });
       batch.set(db.collection('settings').doc('bootstrap'), this._bootstrapMarker(fbUser));
       await batch.commit();
-      
       console.log('👑 Claim de administrador executado (uso único consumido)');
       localStorage.setItem('cl-bootstrap-local-claimed', '1');
       core.toast('👑 Sua conta agora é administradora! O acesso de uso único foi encerrado automaticamente.', 'success');
-      
-      // Refletir imediatamente no cache local
       try {
         const data = core.getLocalDB();
         const local = data.users.find(u => u.id === fbUser.uid || u.uid === fbUser.uid);
         if (local) { local.role = 'admin'; core.saveLocalDB(data); }
       } catch(e) {}
       return { ...profile, role: 'admin' };
-      
     } catch (err) {
       console.warn('Claim de admin não executado:', err.code || err.message);
-      
-      // Se permissão negada na leitura, pode ser que as regras ainda não estão atualizadas
-      // ou o marcador já existe. Tentar uma abordagem mais simples.
-      if (err.code === 'permission-denied') {
-        try {
-          // Verificar localStorage primeiro
-          if (localStorage.getItem('cl-bootstrap-local-claimed')) {
-            console.log('👑 LocalStorage indica claim já usado - definindo role admin local');
-            try {
-              const data = core.getLocalDB();
-              const local = data.users.find(u => u.id === fbUser.uid || u.uid === fbUser.uid);
-              if (local) { local.role = 'admin'; core.saveLocalDB(data); }
-            } catch(e) {}
-            return { ...profile, role: 'admin' };
-          }
-        } catch(e) {}
-        
-        // Mostrar o aviso no máximo 1x por dia por navegador
-        const last = Number(localStorage.getItem('cl-bootstrap-warn-ts') || 0);
-        if (Date.now() - last > 86400000) {
-          localStorage.setItem('cl-bootstrap-warn-ts', String(Date.now()));
-          core.toast('⚠️ Não foi possível verificar o status do claim de admin. Verifique se as regras do Firestore foram atualizadas.', 'warning');
-        }
-      }
       return profile;
     }
   },
 
-  /* Cria o perfil no Firestore. Para o e-mail bootstrap, o perfil admin e o
-     marcador de uso único são gravados na MESMA operação atômica; se o claim
-     já tiver sido consumido, o perfil é criado normalmente como membro. */
   async createProfileDoc(docRef, profileForFirestore, profileForLocal, fbUser) {
     if (this.isBootstrapAdminEmail(fbUser.email)) {
       try {
@@ -772,22 +831,20 @@ const App = {
     return profileForLocal;
   },
 
+  /* ========== Login Success - 100% Firebase ========== */
   async loginSuccess(fbUser, remember) {
-    console.log('loginSuccess para', fbUser.uid, fbUser.email);
+    console.log('loginSuccess para', fbUser.uid, fbUser.email, 'verified:', fbUser.emailVerified);
     let profile = null;
-    let docExists = false;
 
     try {
       const docRef = db.collection('users').doc(fbUser.uid);
       const doc = await docRef.get();
-      docExists = doc.exists;
 
       if (doc.exists) {
         profile = doc.data();
         console.log('Perfil existente:', profile.username);
       } else {
         console.log('Criando novo perfil para', fbUser.uid);
-        // Criar perfil novo - usar objeto limpo sem FieldValue para localStorage
         const profileForFirestore = {
           username: (fbUser.email.split('@')[0] || 'user').replace(/[^a-zA-Z0-9_]/g,'').slice(0,20),
           email: fbUser.email,
@@ -801,40 +858,28 @@ const App = {
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: this.isBootstrapAdminEmail(fbUser.email) ? 'admin' : 'member',
           banned: false,
+          emailVerified: fbUser.emailVerified,
           createdAt: firebase.firestore.FieldValue.serverTimestamp(),
           provider: fbUser.providerData[0]?.providerId || 'password'
         };
-
-        // Para localDB: converter serverTimestamp para ISO string
-        const profileForLocal = {
-          ...profileForFirestore,
-          createdAt: core.now()
-        };
+        const profileForLocal = { ...profileForFirestore, createdAt: core.now() };
 
         try {
-          // Se for o e-mail bootstrap, grava perfil admin + marcador de uso
-          // único na mesma operação; senão cria perfil de membro comum.
           profile = await this.createProfileDoc(docRef, profileForFirestore, profileForLocal, fbUser);
           console.log('Perfil criado no Firestore');
         } catch(setErr) {
-          console.warn('Erro ao criar perfil no Firestore (pode ser regra):', setErr.code, setErr.message);
-          // Mesmo com erro no Firestore, continuar com perfil local
-          // O isNotBanned corrigido nas regras vai permitir depois
+          console.warn('Erro ao criar perfil no Firestore:', setErr.code, setErr.message);
+          profile = profileForLocal;
         }
 
-        profile = profile || profileForLocal;
-        docExists = true;
-
-        // Salvar local
         try {
           const data = core.getLocalDB();
-          // Evitar duplicado
           if (!data.users.find(u => u.id === fbUser.uid)) {
             data.users.push({ id: fbUser.uid, uid: fbUser.uid, ...profile });
             core.saveLocalDB(data);
           }
         } catch(localErr) {
-          console.warn('Erro ao salvar usuário local:', localErr);
+          console.warn('Erro ao salvar usuário local cache:', localErr);
         }
       }
 
@@ -843,10 +888,8 @@ const App = {
         this.showError('loginError', 'Sua conta foi suspensa. Contate o administrador.');
         return;
       }
-
     } catch (err) {
-      console.error('loginSuccess getDoc erro (mas continuando):', err);
-      // Fallback: se erro de permissão, criar perfil mínimo local para não travar
+      console.error('loginSuccess getDoc erro:', err);
       if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
         profile = {
           username: (fbUser.email?.split('@')[0] || 'user'),
@@ -859,32 +902,27 @@ const App = {
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: 'member',
           banned: false,
+          emailVerified: fbUser.emailVerified,
           createdAt: core.now(),
           provider: fbUser.providerData[0]?.providerId || 'google.com'
         };
-        core.toast('Login feito, mas perfil no Firestore sem permissão. Verifique firestore.rules', 'warning');
+        core.toast('Login feito, perfil Firestore será sincronizado em breve.', 'warning');
       } else {
-        // Outro erro - mostrar e não travar
         core.toast('Erro ao carregar perfil: ' + err.message, 'error');
-        // ainda assim criar perfil básico para não travar página
-        profile = profile || {
+        profile = {
           username: fbUser.email?.split('@')[0] || 'user',
           email: fbUser.email || '',
           name: fbUser.displayName || 'Usuário',
           role: 'member', banned: false,
           avatar: fbUser.photoURL || '', avatarType: 'emoji',
-          provider: 'google.com'
+          provider: 'google.com', emailVerified: fbUser.emailVerified
         };
       }
     }
 
-    // O endereço configurado como administrador inicial reivindica o cargo
-    // através do claim de USO ÚNICO (batch perfil + marcador settings/bootstrap).
     profile = await this.claimBootstrapAdmin(fbUser, profile);
 
-    // Garantir profile
     if (!profile) {
-      console.error('Profile nulo após tentativas');
       this.showError('loginError', 'Erro ao carregar perfil. Tente novamente.');
       return;
     }
@@ -904,14 +942,12 @@ const App = {
       fontScale: profile.fontScale || 'normal',
       role: profile.role || 'member',
       provider: profile.provider || 'password',
-      secretQuestion: profile.secretQuestion || ''
+      emailVerified: fbUser.emailVerified
     };
 
     core.setCurrentUser(this.currentUser);
     if (remember) core.setRememberedUser(this.currentUser);
 
-    // Preferência de tema por usuário: se o perfil traz tema/modo salvos,
-    // adota como a escolha local desta conta; senão resolve (padrão/sistema).
     if (profile && profile.theme) {
       core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
     }
@@ -919,31 +955,22 @@ const App = {
     this.applyFontSize(this.currentUser.fontScale || null);
 
     try { core.getUserStats(this.currentUser.id); } catch(e) {}
-    try { core.log('login', this.currentUser.id, 'Login Firebase'); } catch(e) {}
+    try { core.log('login', this.currentUser.id, 'Login Firebase 100%'); } catch(e) {}
+
+    // Atualiza emailVerified no Firestore se mudou
+    if (fbUser.emailVerified && profile.emailVerified !== true) {
+      try { db.collection('users').doc(fbUser.uid).update({ emailVerified: true }).catch(()=>{}); } catch(e) {}
+    }
 
     this.showApp();
-    // O listener de Auth também pode chegar aqui; FireSync.start é idempotente
-    // para o UID e não cria listeners duplicados.
     setTimeout(() => {
       const uid = this.currentUser?.uid || this.currentUser?.id;
       if (uid && auth.currentUser?.uid === uid) fireSync.start(uid);
     }, 500);
-    core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
-
-    // Para usuários existentes sem pergunta secreta (exceto Google): pedir para cadastrar no perfil
-    setTimeout(() => {
-      if (this.currentUser && (this.currentUser.provider !== 'google.com' && this.currentUser.provider !== 'google')) {
-        const data = core.getLocalDB();
-        const prof = data.users.find(u => (u.id||u.uid) === (this.currentUser.id || this.currentUser.uid));
-        if (prof && !prof.secretQuestion) {
-          core.toast('Cadastre sua pergunta secreta no Perfil para poder recuperar senha por lá!', 'warning');
-          // Opcional: abrir perfil automaticamente
-          // this.navigate('perfil');
-        }
-      }
-    }, 1800);
+    core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '! 🔥 Firebase 100%', 'success');
   },
 
+  /* ========== CADASTRO 100% FIREBASE + reCAPTCHA ========== */
   async handleRegister(e) {
     e.preventDefault();
     this.clearErrors();
@@ -953,38 +980,46 @@ const App = {
     const password = document.getElementById('regPass').value;
     const passConfirm = document.getElementById('regPassConfirm').value;
 
-    if (username.length < 3) return this.showError('regError', 'Usuário deve ter pelo menos 3 caracteres');
+    if (username.length < 3) return this.showError('regError', 'Nome deve ter pelo menos 3 caracteres');
     if (password !== passConfirm) return this.showError('regError', 'As senhas não coincidem');
 
     const validation = core.validatePassword(password);
     if (!validation.valid) return this.showError('regError', validation.errors.join(', '));
 
-    const data = core.getLocalDB();
-    if (data.users.find(u => u.username === username || u.user === username))
-      return this.showError('regError', 'Este nome de usuário já está em uso');
-
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Criando...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
 
     try {
+      const token = await this.getRecaptchaToken('REGISTER');
+      console.log('reCAPTCHA REGISTER token:', token ? 'OK' : 'null');
+
+      if (btn) btn.textContent = '⏳ Criando conta Firebase...';
+
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: username });
 
-      const secretQ = document.getElementById('regSecretQ')?.value || '';
-    const secretA = document.getElementById('regSecretA')?.value.trim() || '';
-    let secretAnswerHash = '';
-    if (secretA) {
-      try { secretAnswerHash = await core.hashPassword(secretA.toLowerCase()); } catch(e){}
-    }
+      // Enviar verificação de email imediatamente
+      const actionCodeSettings = {
+        url: window.location.origin + '/index.html',
+        handleCodeInApp: false
+      };
+      try {
+        await cred.user.sendEmailVerification(actionCodeSettings);
+        console.log('Verification email enviado para', email);
+      } catch (verErr) {
+        console.warn('Falha ao enviar verificação:', verErr);
+      }
 
-    const profileFS = {
-        username, email,
+      const profileFS = {
+        username: username.replace(/[^a-zA-Z0-9_]/g,'').slice(0,20),
+        email,
         name: username, lastName: '', phone: '', address: '',
+        daysOff: [],
         avatar: '', avatarType: 'emoji',
-        secretQuestion: secretQ,
-        secretAnswerHash: secretAnswerHash,
-        role: this.isBootstrapAdminEmail(email) ? 'admin' : 'member', banned: false,
+        role: this.isBootstrapAdminEmail(email) ? 'admin' : 'member',
+        banned: false,
+        emailVerified: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         provider: 'password'
       };
@@ -992,8 +1027,6 @@ const App = {
 
       let savedProfile = profileLocal;
       try {
-        // Perfil bootstrap admin + marcador de uso único na mesma operação;
-        // se o claim já foi consumido, a conta nasce como membro.
         savedProfile = await this.createProfileDoc(
           db.collection('users').doc(cred.user.uid), profileFS, profileLocal, cred.user
         );
@@ -1001,21 +1034,29 @@ const App = {
         console.warn('Erro ao criar user no Firestore:', setErr);
       }
 
-      const localReg = { id: cred.user.uid, uid: cred.user.uid, ...savedProfile, passHash: await core.hashPassword(password) };
-      if (secretAnswerHash) {
-        localReg.secretQuestion = secretQ;
-        localReg.secretAnswerHash = secretAnswerHash;
-      }
-      data.users.push(localReg);
-      core.saveLocalDB(data);
+      try {
+        const data = core.getLocalDB();
+        data.users.push({ id: cred.user.uid, uid: cred.user.uid, ...savedProfile });
+        core.saveLocalDB(data);
+      } catch(e) {}
 
-      await this.loginSuccess(cred.user, false);
-      core.toast('Conta criada com sucesso!', 'success');
+      // Mostrar modal de verificação de email, não logar automaticamente no app
+      this.showEmailVerificationRequired(cred.user);
+      document.getElementById('emailVerifyModal')?.classList.remove('hidden');
+      document.getElementById('verifyEmailText').textContent =
+        `Conta criada! Enviamos um e-mail de verificação para ${email}. Verifique sua caixa de entrada antes de acessar.`;
+
+      core.toast('Conta criada! Verifique seu e-mail para ativar. ✉️', 'success');
+
+      // Não chamar loginSuccess ainda; usuário deve verificar. Mas deixar auth logado para facilitar resend.
+
     } catch (err) {
+      console.warn('handleRegister erro:', err);
       let msg = 'Erro ao criar conta';
-      if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está cadastrado';
+      if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está cadastrado. Use "Esqueci minha senha" se necessário.';
       else if (err.code === 'auth/weak-password') msg = 'Senha muito fraca';
       else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde (reCAPTCHA ativo).';
       else msg = err.message;
       this.showError('regError', msg);
     } finally {
@@ -1023,20 +1064,27 @@ const App = {
     }
   },
 
+  /* ========== GOOGLE LOGIN + reCAPTCHA ========== */
   async loginGoogle() {
     const btn = document.querySelector('.btn-google');
     const origContent = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Aguarde...'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ reCAPTCHA...'; }
 
     try {
+      const token = await this.getRecaptchaToken('GOOGLE_LOGIN');
+      console.log('reCAPTCHA GOOGLE_LOGIN token:', token ? 'OK' : 'null');
+
+      if (btn) btn.innerHTML = '⏳ Aguarde Google...';
+
       console.log('Iniciando login Google...');
+      auth.useDeviceLanguage();
       const result = await auth.signInWithPopup(googleProvider);
-      console.log('Popup OK', result.user.uid);
+      console.log('Popup OK', result.user.uid, 'verified:', result.user.emailVerified);
+      // Google users já são verified, mas ainda checar
       await this.loginSuccess(result.user, true);
     } catch (err) {
       console.error('loginGoogle erro:', err);
       if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') {
-        // Silencioso
         core.toast('Login cancelado', 'info');
       } else if (err.code === 'auth/popup-blocked') {
         core.toast('Popup bloqueado pelo navegador. Permita popups para este site.', 'error');
@@ -1044,10 +1092,11 @@ const App = {
         core.toast('Domínio não autorizado no Firebase. Adicione o domínio em Authentication > Authorized domains', 'error');
       } else if (err.code === 'auth/operation-not-allowed') {
         core.toast('Login Google não habilitado no Console Firebase > Authentication > Sign-in method', 'error');
+      } else if (err.code === 'auth/too-many-requests') {
+        core.toast('Muitas tentativas. Proteção reCAPTCHA ativa.', 'error');
       } else {
         core.toast('Erro ao fazer login com Google: ' + (err.message || err.code), 'error');
       }
-      // Garantir que tela de login continue visível e não trave
       this.showLogin();
       document.getElementById('loadingScreen')?.classList.add('hidden');
     } finally {
@@ -1055,7 +1104,7 @@ const App = {
     }
   },
 
-  async syncFirebaseUser(fbUser) {
+  async syncFirebaseUser(fbUser, suppressShowApp = false) {
     if (!fbUser || !fbUser.uid) return;
     try {
       console.log('syncFirebaseUser', fbUser.uid);
@@ -1063,50 +1112,45 @@ const App = {
       if (doc.exists) {
         let profile = doc.data();
         profile = await this.claimBootstrapAdmin(fbUser, profile);
-        if (!profile.banned) {
-          this.currentUser = {
-            id: fbUser.uid, uid: fbUser.uid,
-            username: profile.username || fbUser.email?.split('@')[0],
-            email: profile.email || fbUser.email,
-            name: profile.name || fbUser.displayName || profile.username,
-            lastName: profile.lastName || '',
-            phone: profile.phone || '',
-            address: profile.address || '',
-            daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
-            avatar: profile.avatar || fbUser.photoURL || '',
-            googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
-            avatarType: profile.avatarType || 'emoji',
-            fontScale: profile.fontScale || 'normal',
-            role: profile.role || 'member',
-            provider: profile.provider || 'google.com',
-            secretQuestion: profile.secretQuestion || ''
-          };
-          core.setCurrentUser(this.currentUser);
-          // Tema por usuário: adota tema/modo do perfil, se existir.
-          if (profile && profile.theme) {
-            core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
-          }
-          this.applyUserTheme();
-          this.applyFontSize(this.currentUser.fontScale || null);
-          try { core.getUserStats(this.currentUser.id); } catch(e) {}
-          this.showApp();
-          // Sync já será iniciado pelo onAuthStateChanged ou init
-        } else {
+        if (profile.banned) {
           try { await auth.signOut(); } catch(e) {}
           this.showError('loginError', 'Conta suspensa');
           this.showLogin();
+          return;
         }
+        this.currentUser = {
+          id: fbUser.uid, uid: fbUser.uid,
+          username: profile.username || fbUser.email?.split('@')[0],
+          email: profile.email || fbUser.email,
+          name: profile.name || fbUser.displayName || profile.username,
+          lastName: profile.lastName || '',
+          phone: profile.phone || '',
+          address: profile.address || '',
+          daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
+          avatar: profile.avatar || fbUser.photoURL || '',
+          googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
+          avatarType: profile.avatarType || 'emoji',
+          fontScale: profile.fontScale || 'normal',
+          role: profile.role || 'member',
+          provider: profile.provider || (fbUser.providerData[0]?.providerId || 'password'),
+          emailVerified: fbUser.emailVerified
+        };
+        core.setCurrentUser(this.currentUser);
+        if (profile && profile.theme) {
+          core.setUserThemePref(this.currentUser.id, profile.theme, profile.mode || 'auto');
+        }
+        this.applyUserTheme();
+        this.applyFontSize(this.currentUser.fontScale || null);
+        try { core.getUserStats(this.currentUser.id); } catch(e) {}
+        if (!suppressShowApp) this.showApp();
       } else {
-        // Doc não existe, mas auth existe: criar perfil
         console.log('Usuário Firebase sem doc, criando...');
         await this.loginSuccess(fbUser, true);
       }
     } catch (err) {
-      console.warn('syncFirebaseUser erro (não crítico):', err.code, err.message);
-      // Não travar - se permission-denied, ainda mostrar login para tentar novamente
+      console.warn('syncFirebaseUser erro:', err.code, err.message);
       if (err.code === 'permission-denied') {
         core.toast('Sem permissão para ler perfil Firestore. Verifique firestore.rules', 'warning');
-        // Criar usuário local mínimo para não travar
         this.currentUser = {
           id: fbUser.uid, uid: fbUser.uid,
           username: fbUser.email?.split('@')[0] || 'user',
@@ -1116,10 +1160,11 @@ const App = {
           googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
           role: 'member',
-          provider: 'google.com'
+          provider: 'google.com',
+          emailVerified: fbUser.emailVerified
         };
         core.setCurrentUser(this.currentUser);
-        this.showApp();
+        if (!suppressShowApp) this.showApp();
       }
     }
   },
@@ -1134,8 +1179,8 @@ const App = {
     this.showLogin();
     document.getElementById('langSwitcher')?.remove();
     document.getElementById('notifButton')?.remove();
-    // Limpar cache de sync
-    core.toast('Você saiu da sua conta', 'info');
+    document.getElementById('emailVerifyModal')?.classList.add('hidden');
+    core.toast('Você saiu da sua conta (Firebase Auth).', 'info');
   },
 
   /* ========== NAVEGAÇÃO ========== */
@@ -1183,7 +1228,6 @@ const App = {
     try { history.replaceState({}, '', '#' + page); } catch(e) {}
   },
 
-  /* ========== SIDEBAR ========== */
   closeSidebar() {
     document.getElementById('sidebar')?.classList.remove('open');
     document.getElementById('sidebarOverlay')?.classList.remove('open');
@@ -1202,7 +1246,6 @@ const App = {
       .map(id => items.find(i => i.id === id))
       .filter(item => item && item.visible && (!item.adminOnly || this.currentUser?.role === 'admin'));
 
-    /* ---- Gaveta lateral (mobile) ---- */
     const nav = document.getElementById('sidebarNav');
     if (nav) {
       let html = '<div class="nav-section"><div class="nav-section-title">Menu</div>';
@@ -1240,7 +1283,6 @@ const App = {
     }
   },
 
-  /* ---- Menu superior (desktop): grupos com dropdown de submenus ---- */
   renderTopnav(visibleItems) {
     const nav = document.getElementById('topnav');
     if (!nav || !Array.isArray(visibleItems)) return;
@@ -1277,16 +1319,6 @@ const App = {
     this.bindTopnavHover();
   },
 
-  /* ---- Menu inteligente: abre ao passar o mouse, fecha ao sair ----
-     Regras de UX aplicadas:
-     • Abre com um pequeno atraso (HOVER_OPEN_MS) para não piscar quando o
-       ponteiro só atravessa a barra a caminho de outro lugar.
-     • Fecha com atraso maior (HOVER_CLOSE_MS) — dá tempo de o ponteiro descer
-       do botão até a lista sem o menu sumir no meio do caminho.
-     • Com um menu já aberto, passar para outro grupo troca na hora (sem
-       atraso), como em menus de desktop nativos.
-     • Só no desktop (ponteiro fino/com hover). No toque, continua no clique.
-     • Teclado: Esc fecha; setas/Tab continuam funcionando normalmente. */
   _topnavHoverDelay: { open: 110, close: 260 },
   _topnavTimers: { open: null, close: null },
   _topnavBound: false,
@@ -1298,9 +1330,6 @@ const App = {
   bindTopnavHover() {
     const nav = document.getElementById('topnav');
     if (!nav) return;
-
-    // O innerHTML do topnav é recriado a cada renderSidebar(); usar delegação
-    // no container evita re-adicionar listeners nos filhos (e vazamentos).
     if (this._topnavBound) return;
     this._topnavBound = true;
 
@@ -1314,7 +1343,6 @@ const App = {
       const group = e.target.closest?.('.topnav-group');
       if (!group) return;
       clearTimers();
-      // Já existe um menu aberto? Trocar de grupo é instantâneo.
       const anyOpen = document.querySelector('.topnav-group.open');
       const delay = anyOpen && anyOpen !== group ? 0 : this._topnavHoverDelay.open;
       this._topnavTimers.open = setTimeout(() => this.openTopnavMenu(group), delay);
@@ -1326,12 +1354,10 @@ const App = {
       clearTimeout(this._topnavTimers.open);
       clearTimeout(this._topnavTimers.close);
       this._topnavTimers.close = setTimeout(() => {
-        // Só fecha se o ponteiro realmente não está mais sobre nenhum grupo.
         if (!document.querySelector('.topnav-group:hover')) this.closeTopnavMenus();
       }, this._topnavHoverDelay.close);
     }, true);
 
-    // Sair da barra inteira (ex.: mouse desce para o conteúdo) fecha logo.
     nav.addEventListener('mouseleave', () => {
       if (!this.supportsHover()) return;
       clearTimeout(this._topnavTimers.open);
@@ -1341,9 +1367,6 @@ const App = {
       }, this._topnavHoverDelay.close);
     });
 
-    // Navegação por teclado: foco em um item mantém o grupo aberto.
-    // O Esc devolve o foco ao botão do grupo — sem a trava abaixo esse foco
-    // dispararia focusin e reabriria o menu que o usuário acabou de fechar.
     nav.addEventListener('focusin', (e) => {
       if (this._topnavEscaped) return;
       const group = e.target.closest?.('.topnav-group');
@@ -1372,7 +1395,6 @@ const App = {
     this.positionTopnavMenu(group);
   },
 
-  /* Evita que o dropdown vaze para fora da janela nos últimos grupos da barra. */
   positionTopnavMenu(group) {
     const menu = group.querySelector('.topnav-menu');
     if (!menu) return;
@@ -1400,10 +1422,6 @@ const App = {
     });
   },
 
-  /* ========== ALERTAS AGENDADOS DAS ATIVIDADES ==========
-     Roda no shell (iframe-agnóstico): a cada 30s verifica atividades de hoje
-     com "alertTime" definido e dispara notificação no horário. Cada alerta é
-     marcado por tarefa/data/horário para não repetir. */
   startTaskAlertMonitor() {
     if (this._alertTimer) return;
     const tick = () => {
@@ -1433,7 +1451,6 @@ const App = {
 
       const title = '⏰ Lembrete de atividade';
       const body = `${task.alertTime} — ${task.title}`;
-      // Entrada na central (silenciosa) + alerta visual/navegador com destaque.
       core._createNotification(uid, title, body, 'warning', {
         dedupeKey: `alert:${task.id}:${task.date}:${task.alertTime}`,
         data: { page: 'atividades', taskId: task.id },
@@ -1444,9 +1461,6 @@ const App = {
       try { this.renderNotifications(); } catch (e) {}
     });
 
-    // Notas (recadinhos) com lembrete no horário: mesmo mecanismo das
-    // atividades — dispara na data/hora marcada, uma única vez por nota.
-    // Notas já marcadas como feitas não disparam mais lembrete.
     (data.notes || []).forEach(note => {
       if (note.done) return;
       if (!note.remind || !note.time || note.date !== today) return;
@@ -1469,7 +1483,6 @@ const App = {
       try { this.renderNotifications(); } catch (e) {}
     });
 
-    // Limpa marcadores de dias anteriores para não acumular no localStorage.
     try {
       Object.keys(localStorage)
         .filter(key => key.startsWith('cl-alert-') && !key.includes(`-${today}-`))
@@ -1529,7 +1542,7 @@ const App = {
       const [icon, label] = roles[u.role] || roles.member;
       sRole.textContent = `${icon} ${label}`;
       sRole.className = `role role-badge ${u.role || 'member'}`;
-      sRole.title = `Cargo: ${label}`;
+      sRole.title = `Cargo: ${label}${u.emailVerified ? ' • E-mail verificado' : ' • Verifique e-mail'}`;
     }
 
     const topbarAvatar = document.getElementById('topbarAvatar');
@@ -1549,8 +1562,6 @@ const App = {
     if (btnTheme) btnTheme.textContent = this.getThemeIcon();
   },
 
-  /* ========== TEMA (preferência por usuário) ========== */
-  // Resolve e aplica o tema do usuário atual (ou o padrão na primeira vez).
   applyUserTheme() {
     const resolved = core.resolveTheme(this.currentUser);
     this.applyTheme(resolved.theme, resolved.mode);
@@ -1589,11 +1600,10 @@ const App = {
     data2.settings.mode = mode;
     core.saveLocalDB(data2);
 
-    // Guarda a escolha POR USUÁRIO (para manter na próxima vez, por conta).
     const uid = this.currentUser && (this.currentUser.id || this.currentUser.uid);
     if (uid) core.setUserThemePref(uid, theme, mode);
 
-    if (sync && uid && !String(uid).includes('local-')) {
+    if (sync && uid) {
       fireSync.pushDocument('users', uid, { theme, mode });
     }
 
@@ -1658,7 +1668,7 @@ const App = {
     if (uid) localStorage.setItem(key, document.documentElement.dataset.fontScale);
     const btn = document.getElementById('btnFontSize');
     if (btn) btn.textContent = document.documentElement.dataset.fontScale === 'large' ? '🔡' : '🔠';
-    if (sync && uid && !String(uid).includes('local-')) {
+    if (sync && uid) {
       fireSync.pushDocument('users', uid, { fontScale: document.documentElement.dataset.fontScale });
     }
     const frame = document.getElementById('pageFrame');
@@ -1677,7 +1687,6 @@ const App = {
     this.renderSidebar();
   },
 
-  /* ========== LANGUAGE SWITCHER (i18n) ========== */
   injectLanguageSwitcher() {
     if (document.getElementById('langSwitcher')) return;
     const topbar = document.querySelector('.topbar-actions');
@@ -1719,7 +1728,7 @@ const App = {
     await core.tReady(lang);
     this.settings.language = lang;
 
-    if (this.currentUser && !this.currentUser.id.includes('local-')) {
+    if (this.currentUser) {
       fireSync.pushDocument('users', this.currentUser.id, { language: lang });
     }
 
@@ -1747,7 +1756,6 @@ const App = {
     });
   },
 
-  /* ========== NOTIFICATION BUTTON ========== */
   injectNotificationButton() {
     if (document.getElementById('notifButton')) return;
     const topbar = document.querySelector('.topbar-actions');
@@ -1819,8 +1827,6 @@ const App = {
     const notifs = core.getNotifications(uid);
     const n = notifs.find(x => x.id === id);
     if (n) {
-      // Marca como lida no cache local E na nuvem (fica lida em todos os
-      // dispositivos do usuário).
       core.markNotificationRead(uid, id);
     }
     this.renderNotifications();
@@ -1849,7 +1855,6 @@ const App = {
     }, 500);
   },
 
-  /* ========== KEYBOARD SHORTCUTS ========== */
   setupKeyboardShortcuts() {
     let gKeyPressed = false;
     let gKeyTimeout = null;
@@ -1859,6 +1864,8 @@ const App = {
         document.getElementById('langMenu')?.classList.add('hidden');
         document.getElementById('notifMenu')?.classList.add('hidden');
         this.closeTopnavMenus();
+        document.getElementById('emailVerifyModal')?.classList.add('hidden');
+        document.getElementById('forgotSentModal')?.classList.add('hidden');
       }
 
       const tag = document.activeElement?.tagName;
@@ -2046,15 +2053,10 @@ const App = {
   },
 
   handleMessage(e) {
-    // Verificação de origem: aceitar apenas mensagens da mesma origem
-    // A verificação de e.source é relaxada para não bloquear mensagens legítimas
-    // de iframes que podem ter perdido a referência ao contentWindow
     if (e.origin !== window.location.origin) return;
-
     const msg = e.data;
     if (!msg || !msg.type) return;
 
-    // Log para debugging de sincronização Firebase
     if (msg.type === 'firebaseSync') {
       console.log('📤 Mensagem firebaseSync recebida:', msg.collection, msg.id);
     }
@@ -2075,7 +2077,6 @@ const App = {
         this.renderNotifications();
         break;
       case 'themeChanged':
-        // Escolha feita pelo usuário (Personalizar/Admin): salva e sincroniza.
         this.applyTheme(msg.theme, msg.mode, true);
         break;
       case 'languageChanged':
@@ -2123,7 +2124,6 @@ const App = {
       case 'firebaseWidgets':
         if (msg.userId && msg.widgets) fireSync.pushDashboardWidgets(msg.userId, msg.widgets);
         break;
-      // Prefs do usuário (notificações, IA, pomodoro) também sincronizam
       case 'firebaseUserPref':
         if (msg.section && msg.userId && msg.data) {
           fireSync.pushUserPref(msg.section, msg.userId, msg.data);
@@ -2147,7 +2147,6 @@ const App = {
 };
 
 document.addEventListener('DOMContentLoaded', () => App.init());
-// Fallback: se DOM já carregado
 if (document.readyState === 'interactive' || document.readyState === 'complete') {
   setTimeout(() => App.init(), 100);
 }

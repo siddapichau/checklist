@@ -35,7 +35,9 @@
 //       para reenviar escritas pendentes mesmo após fechar o app offline.
 // v19 = ajustes integrados: avatar Google reversível, folgas por dia, IA D-1,
 //       Background Sync, exportação diária e acessibilidade.
-const CACHE_NAME = 'checklist-ml-v19-integrated-fixes';
+// v20 = 100% Firebase Auth + reCAPTCHA Enterprise (site key 6LfG1HIt...), fluxos completos
+//       de verificação de e-mail, reset de senha, troca de senha via reauth, App Check.
+const CACHE_NAME = 'checklist-ml-v20-firebase-recaptcha-enterprise';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -78,6 +80,8 @@ const ASSETS = [
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js',
   'https://www.gstatic.com/firebasejs/10.12.0/firebase-storage-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.0/firebase-app-check-compat.js',
+  'https://www.google.com/recaptcha/enterprise.js?render=6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js',
   'https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js'
 ];
@@ -130,7 +134,8 @@ self.addEventListener('sync', event => {
 function isApiRequest(request) {
   const url = request.url;
   return url.includes('firestore') || url.includes('googleapis') ||
-    url.includes('deepseek.com') || url.includes('api.groq.com') || url.includes('firebaseio.com');
+    url.includes('deepseek.com') || url.includes('api.groq.com') || url.includes('firebaseio.com') ||
+    url.includes('google.com/recaptcha') || url.includes('recaptcha');
 }
 
 async function fetchWithTimeout(request) {

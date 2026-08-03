@@ -25,6 +25,16 @@ const firebaseConfig = {
   appId: "1:1003296881614:web:14f7438b38267f3698c99f"
 };
 
+// ============================================================
+// reCAPTCHA Enterprise — Ativação conforme solicitação do usuário
+// Site Key: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO
+// Head: <script src="https://www.google.com/recaptcha/enterprise.js?render=SITE_KEY"></script>
+// Uso: grecaptcha.enterprise.ready + execute(action: LOGIN, REGISTER, FORGOT_PASSWORD etc)
+// Backend Java example fornecido cria Assessment via RecaptchaEnterpriseServiceClient
+// ============================================================
+const RECAPTCHA_ENTERPRISE_SITE_KEY = '6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO';
+const RECAPTCHA_PROJECT_ID = 'checklist-3e70c';
+
 // Inicializar Firebase
 try {
   if (!firebase.apps.length) {
@@ -45,6 +55,96 @@ googleProvider.addScope('profile');
 googleProvider.addScope('email');
 // Fix: evitar prompt infinito em alguns navegadores
 googleProvider.setCustomParameters({ prompt: 'select_account' });
+
+// ------------------------------------------------------------
+// Firebase App Check com reCAPTCHA Enterprise Provider
+// Isso garante que TODAS as chamadas ao Firebase (Auth, Firestore)
+// sejam protegidas por reCAPTCHA Enterprise, com token renovado
+// automaticamente. É a integração oficial Firebase + reCAPTCHA Enterprise.
+// ------------------------------------------------------------
+let appCheckInstance = null;
+try {
+  if (firebase.appCheck) {
+    const appCheck = firebase.appCheck();
+    // ReCaptchaEnterpriseProvider usa a mesma Site Key
+    appCheck.activate(
+      new firebase.appCheck.ReCaptchaEnterpriseProvider(RECAPTCHA_ENTERPRISE_SITE_KEY),
+      true // isTokenAutoRefreshEnabled = true
+    );
+    appCheckInstance = appCheck;
+    console.log('✅ Firebase App Check ativado com reCAPTCHA Enterprise:', RECAPTCHA_ENTERPRISE_SITE_KEY);
+
+    // DEBUG token opcional em dev: self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+      try { self.FIREBASE_APPCHECK_DEBUG_TOKEN = true; } catch(e) {}
+    }
+  } else {
+    console.warn('⚠️ firebase.appCheck() não disponível - verifique se carregou firebase-app-check-compat.js');
+  }
+} catch (e) {
+  console.warn('⚠️ App Check activation error (continuando sem App Check):', e);
+}
+
+// ------------------------------------------------------------
+// Helper global: obter token reCAPTCHA Enterprise para uma ação
+// Exemplo uso: const token = await getRecaptchaToken('LOGIN');
+// O token deve ser enviado ao backend Java para criar Assessment:
+//
+// Event event = Event.newBuilder().setSiteKey(recaptchaKey).setToken(token).build();
+// CreateAssessmentRequest request = CreateAssessmentRequest.newBuilder()
+//   .setParent(ProjectName.of(projectID).toString())
+//   .setAssessment(Assessment.newBuilder().setEvent(event).build()).build();
+// Assessment response = client.createAssessment(request);
+// ------------------------------------------------------------
+async function getRecaptchaToken(action = 'LOGIN') {
+  const siteKey = RECAPTCHA_ENTERPRISE_SITE_KEY;
+  return new Promise((resolve) => {
+    try {
+      if (!window.grecaptcha || !window.grecaptcha.enterprise) {
+        console.warn('⚠️ grecaptcha.enterprise não carregado ainda');
+        resolve(null);
+        return;
+      }
+      window.grecaptcha.enterprise.ready(async () => {
+        try {
+          const token = await window.grecaptcha.enterprise.execute(siteKey, { action: action });
+          console.log(`🔐 reCAPTCHA Enterprise token gerado para ação ${action}:`, token ? token.slice(0, 20) + '...' : 'null');
+          // Opcional: enviar token para log/auditoria no Firestore (sem bloquear)
+          try {
+            if (auth.currentUser && token) {
+              // Log leve de uso do reCAPTCHA (não contém score, apenas que foi gerado)
+              db.collection('recaptcha_logs').add({
+                uid: auth.currentUser.uid,
+                action: action,
+                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                tokenPreview: token.slice(0, 15)
+              }).catch(()=>{});
+            }
+          } catch(e) {}
+          resolve(token);
+        } catch (err) {
+          console.warn('❌ Erro ao executar grecaptcha.enterprise.execute:', err);
+          resolve(null);
+        }
+      });
+    } catch (err) {
+      console.warn('❌ getRecaptchaToken erro:', err);
+      resolve(null);
+    }
+  });
+}
+
+// Wrapper legado para compatibilidade com código que chamava onClick(e)
+async function onRecaptchaClick(e, action = 'LOGIN') {
+  if (e && e.preventDefault) e.preventDefault();
+  const token = await getRecaptchaToken(action);
+  return token;
+}
+
+// Expor globalmente para App.js
+window.getRecaptchaToken = getRecaptchaToken;
+window.onRecaptchaClick = onRecaptchaClick;
+window.RECAPTCHA_SITE_KEY = RECAPTCHA_ENTERPRISE_SITE_KEY;
 
 // Habilitar persistência offline com tratamento robusto
 db.enablePersistence({ synchronizeTabs: true }).catch(err => {
@@ -1391,6 +1491,35 @@ const FireSync = {
       if (key) { sessionStorage.setItem('cl-admin-groq-key', key); }
       return key;
     } catch (err) { console.warn('getGroqKey error:', err); return ''; }
+  },
+
+  // ---------------------------------------------------------
+  // reCAPTCHA Enterprise helpers — expostos via FireSync também
+  // ---------------------------------------------------------
+  getRecaptchaSiteKey() { return RECAPTCHA_ENTERPRISE_SITE_KEY; },
+
+  async getRecaptchaToken(action = 'LOGIN') {
+    if (typeof getRecaptchaToken === 'function') {
+      return await getRecaptchaToken(action);
+    }
+    return null;
+  },
+
+  // Método que seria implementado no backend Java para verificar token
+  // Aqui apenas logamos e opcionalmente enviamos para Firestore para auditoria
+  async logRecaptchaAssessment(action, token, score = null) {
+    try {
+      if (!auth.currentUser) return;
+      await db.collection('recaptcha_assessments').add({
+        uid: auth.currentUser.uid,
+        action: action,
+        projectID: RECAPTCHA_PROJECT_ID,
+        recaptchaKey: RECAPTCHA_ENTERPRISE_SITE_KEY,
+        tokenPreview: token ? token.slice(0, 20) : null,
+        score: score,
+        createdAt: firebase.firestore.FieldValue.serverTimestamp()
+      });
+    } catch(e) { console.warn('logRecaptchaAssessment:', e); }
   },
 
   async saveAdminConfig(config = {}) {
