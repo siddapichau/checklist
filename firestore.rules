@@ -88,7 +88,7 @@ service cloud.firestore {
     // Usuário só pode alterar seus próprios campos básicos.
     function validOwnProfileUpdate() {
       return request.resource.data.diff(resource.data).affectedKeys()
-             .hasOnly(['username','name','lastName','phone','address',
+             .hasOnly(['username','name','lastName','phone','address','daysOff',
                        'avatar','avatarType','googlePhoto','language',
                        'theme','mode','provider','updatedAt'])
              // não pode mudar role ou banned
@@ -98,8 +98,8 @@ service cloud.firestore {
 
     // ---------- USERS ----------
     match /users/{userId} {
-      // Qualquer logado pode ler (necessário para isAdmin/isEditor checks)
-      allow read: if isSignedIn();
+      // Perfis contêm dados pessoais; somente o próprio usuário ou administradores podem lê-los.
+      allow read: if isOwner(userId) || isAdmin();
       // Criar próprio perfil no primeiro login
       allow create: if isOwner(userId) && validNewUserProfile();
       // Atualizar: admin pode tudo, dono só campos permitidos.
@@ -214,13 +214,10 @@ service cloud.firestore {
     // O campo deepseekKey e groqKey devem ser protegidos.
     // Para que a IA funcione para todos, o proxy deve ser usado ou o administrador deve 
     // prover acesso à chave de forma controlada.
-    // ATENÇÃO: a leitura foi liberada para qualquer usuário autenticado para
-    // que a IA funcione para todos os membros do app. Em produção, prefira
-    // guardar a chave como variável secreta DEEPSEEK_API_KEY no proxy
-    // (proxy/cloudflare-worker.js): assim o navegador nunca precisa da chave
-    // e esta regra pode voltar a "allow read: if isAdmin()".
+    // Chaves e integrações são dados sensíveis: nunca devem ser enviados aos
+    // demais usuários. A IA deve usar o proxy com segredo no servidor.
     match /settings/admin {
-      allow read: if isSignedIn();
+      allow read: if isAdmin();
       allow write: if isAdmin();
     }
 

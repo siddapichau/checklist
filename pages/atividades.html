@@ -544,59 +544,45 @@ function deleteTask(id) {
   const data = page.getDB();
   const task = findTask(data, id);
   if (!task) return;
-  // Modal próprio de confirmação (mais seguro que o confirm() do navegador,
-  // mostra o NOME da atividade e exige digitar "excluir" para confirmar).
+
+  // Uma única confirmação é suficiente: o usuário escolhe "Excluir" e a
+  // atividade é removida imediatamente, sem exigir que digite uma palavra.
   const html = `
     <div style="text-align:center;margin-bottom:10px">
       <div style="font-size:54px">🗑️</div>
-      <h2 style="margin:6px 0 4px">Excluir atividade?</h2>
-      <p style="color:var(--text-secondary);font-size:13.5px;margin:0">Esta ação é <b>definitiva</b> — a atividade sairá do app e do banco na nuvem.</p>
+      <h2 style="margin:6px 0 4px">Deseja mesmo excluir?</h2>
+      <p style="color:var(--text-secondary);font-size:13.5px;margin:0">Esta ação não pode ser desfeita.</p>
     </div>
     <div style="background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:12px 14px;margin:14px 0">
-      <b>${page.esc(task.title)}</b><br>
-      <small style="color:var(--muted)">${page.esc(task.category || 'Geral')} · ${page.esc(task.date || 'sem data')} · status: ${statusLabel(task.status)}</small>
+      <b>${page.esc(task.title)}</b>
     </div>
-    <label style="display:block;margin-top:6px"><span style="font-size:13px">Para confirmar, digite <b>excluir</b> abaixo:</span>
-      <input type="text" id="confirmDeleteInput" placeholder="excluir" autocomplete="off">
-    </label>
-    <div class="form-error" id="confirmDeleteError" style="display:none"></div>
     <div class="modal-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
       <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmDelete" style="background:var(--danger,#EF4444);border-color:var(--danger,#EF4444)" onclick="confirmDeleteTask('${page.esc(String(id))}')">🗑️ Excluir definitivamente</button>
+      <button class="btn btn-primary" id="btnConfirmDelete" style="background:var(--danger,#EF4444);border-color:var(--danger,#EF4444)" onclick="confirmDeleteTask('${page.esc(String(id))}')">🗑️ Excluir</button>
     </div>
   `;
   page.openModal(html);
-  setTimeout(() => document.getElementById('confirmDeleteInput')?.focus(), 120);
 }
 
 function confirmDeleteTask(id) {
-  const input = document.getElementById('confirmDeleteInput');
-  const err = document.getElementById('confirmDeleteError');
-  if (err) err.style.display = 'none';
-  if (!input || String(input.value || '').trim().toLowerCase() !== 'excluir') {
-    if (err) { err.textContent = 'Digite exatamente "excluir" para confirmar.'; err.style.display = 'block'; }
-    return;
-  }
   const btn = document.getElementById('btnConfirmDelete');
   if (btn) { btn.disabled = true; btn.textContent = '⏳ Excluindo...'; }
   try {
     const data = page.getDB();
     const task = findTask(data, id);
+    if (!task) { page.closeModal(); return; }
     data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
-    core.log('task_delete', user?.id, task?.title || '');
+    core.log('task_delete', user?.id, task.title || '');
     preserveCoreSideEffects(data);
     page.saveDB(data);
-    // Exclui do Firestore em background — o Firestore replica a exclusão
-    // local, então a atividade some em todos os dispositivos do usuário.
-    if (task) page.deleteDocument('tasks', task.id);
-    try { page.closeModal(); } catch(e){}
-    page.toast('Atividade excluída definitivamente 🗑️', 'info');
+    page.deleteDocument('tasks', task.id);
+    page.closeModal();
+    page.toast('Atividade excluída 🗑️', 'info');
     render();
     window.parent.postMessage({ type: 'updateBadge' }, '*');
   } catch (e) {
-    const errEl = document.getElementById('confirmDeleteError');
-    if (errEl) { errEl.textContent = 'Erro ao excluir: ' + (e.message || e); errEl.style.display = 'block'; }
-    if (btn) { btn.disabled = false; btn.textContent = '🗑️ Excluir definitivamente'; }
+    page.toast('Erro ao excluir: ' + (e.message || e), 'error');
+    if (btn) { btn.disabled = false; btn.textContent = '🗑️ Excluir'; }
   }
 }
 

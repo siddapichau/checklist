@@ -62,13 +62,13 @@
       <div class="profile-section-label">📅 Dias de folga</div>
       <p class="text-muted" style="font-size:12px;margin:0 0 8px">Escolha os dias da semana em que você não trabalha.</p>
       <div id="daysOffChoices" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <label><input type="checkbox" value="mon"> Seg</label>
-        <label><input type="checkbox" value="tue"> Ter</label>
-        <label><input type="checkbox" value="wed"> Qua</label>
-        <label><input type="checkbox" value="thu"> Qui</label>
-        <label><input type="checkbox" value="fri"> Sex</label>
-        <label><input type="checkbox" value="sat"> Sáb</label>
-        <label><input type="checkbox" value="sun"> Dom</label>
+        <label><input type="checkbox" value="mon"> <span>Segunda-feira<small data-dayoff-date="mon"></small></span></label>
+        <label><input type="checkbox" value="tue"> <span>Terça-feira<small data-dayoff-date="tue"></small></span></label>
+        <label><input type="checkbox" value="wed"> <span>Quarta-feira<small data-dayoff-date="wed"></small></span></label>
+        <label><input type="checkbox" value="thu"> <span>Quinta-feira<small data-dayoff-date="thu"></small></span></label>
+        <label><input type="checkbox" value="fri"> <span>Sexta-feira<small data-dayoff-date="fri"></small></span></label>
+        <label><input type="checkbox" value="sat"> <span>Sábado<small data-dayoff-date="sat"></small></span></label>
+        <label><input type="checkbox" value="sun"> <span>Domingo<small data-dayoff-date="sun"></small></span></label>
       </div>
       <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil (Firestore)</button>
     </form>
@@ -218,6 +218,22 @@ document.getElementById('pAddress').value = user?.address || '';
 (document.querySelectorAll('#daysOffChoices input') || []).forEach(cb => {
   cb.checked = Array.isArray(user?.daysOff) && user.daysOff.includes(cb.value);
 });
+
+// Mostra a próxima ocorrência de cada dia. A data é calculada pela mesma
+// data operacional usada pelo app, evitando divergências de fuso horário.
+function updateDaysOffDates() {
+  const today = core.today();
+  const todayIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(core.weekdayKeyFromDateKey(today));
+  document.querySelectorAll('[data-dayoff-date]').forEach(el => {
+    const targetIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(el.dataset.dayoffDate);
+    const offset = (targetIndex - todayIndex + 7) % 7;
+    const date = core.addDays(today, offset);
+    const parts = date.split('-');
+    el.textContent = `${parts[2]}/${parts[1]}/${parts[0]}`;
+    el.style.cssText = 'display:block;color:var(--muted);font-size:11px;line-height:1.2;margin-top:2px';
+  });
+}
+updateDaysOffDates();
 
 function updateDisplayName() {
   const displayName = document.getElementById('displayName');
