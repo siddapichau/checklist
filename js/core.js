@@ -1253,8 +1253,13 @@ const Core = {
    */
   checkLateAutomations(userId) {
     if (!userId) return;
-    const data = this.getLocalDB();
     const today = this.today();
+    // Evitar spam: mandar notificações de atraso/resumo APENAS UMA VEZ por dia por usuário
+    const marker = `cl-notif-late-${userId}-${today}`;
+    try { if (localStorage.getItem(marker)) return; } catch(e){}
+    try { localStorage.setItem(marker, '1'); } catch(e){}
+
+    const data = this.getLocalDB();
     const late = data.tasks.filter(task =>
       task.owner === userId && task.date && task.date < today &&
       task.status !== 'finished' && task.status !== 'notdone'

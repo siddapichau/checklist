@@ -130,6 +130,20 @@ document.addEventListener('keydown', function(e){
         <input type="email" id="regEmail" placeholder="seu@email.com" required>
       </div>
       <div class="form-group">
+        <label>Pergunta secreta (para recuperação de senha no perfil)</label>
+        <select id="regSecretQ" required>
+          <option value="">Selecione uma pergunta...</option>
+          <option value="cidade de nascimento da mãe">Cidade de nascimento da mãe</option>
+          <option value="Primeiro animal de estimação">Primeiro animal de estimação</option>
+          <option value="Comida favorita">Comida favorita</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Resposta secreta</label>
+        <input type="text" id="regSecretA" placeholder="Digite sua resposta secreta" required>
+        <small class="text-muted">Guarde bem! Usada só no perfil para trocar senha.</small>
+      </div>
+      <div class="form-group">
         <label>Senha</label>
         <div class="input-group">
           <input type="password" id="regPass" placeholder="Mín. 8 chars, maiúsc, minúsc, 2 núm, especial" required oninput="App.checkPasswordStrength(this.value)">
