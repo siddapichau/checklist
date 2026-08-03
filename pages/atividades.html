@@ -544,45 +544,19 @@ function deleteTask(id) {
   const data = page.getDB();
   const task = findTask(data, id);
   if (!task) return;
+  if (!confirm(`Excluir definitivamente a atividade "${task.title}"?`)) return;
 
-  // Uma única confirmação é suficiente: o usuário escolhe "Excluir" e a
-  // atividade é removida imediatamente, sem exigir que digite uma palavra.
-  const html = `
-    <div style="text-align:center;margin-bottom:10px">
-      <div style="font-size:54px">🗑️</div>
-      <h2 style="margin:6px 0 4px">Deseja mesmo excluir?</h2>
-      <p style="color:var(--text-secondary);font-size:13.5px;margin:0">Esta ação não pode ser desfeita.</p>
-    </div>
-    <div style="background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:12px 14px;margin:14px 0">
-      <b>${page.esc(task.title)}</b>
-    </div>
-    <div class="modal-actions" style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px">
-      <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
-      <button class="btn btn-primary" id="btnConfirmDelete" style="background:var(--danger,#EF4444);border-color:var(--danger,#EF4444)" onclick="confirmDeleteTask('${page.esc(String(id))}')">🗑️ Excluir</button>
-    </div>
-  `;
-  page.openModal(html);
-}
-
-function confirmDeleteTask(id) {
-  const btn = document.getElementById('btnConfirmDelete');
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Excluindo...'; }
   try {
-    const data = page.getDB();
-    const task = findTask(data, id);
-    if (!task) { page.closeModal(); return; }
     data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
     core.log('task_delete', user?.id, task.title || '');
     preserveCoreSideEffects(data);
     page.saveDB(data);
     page.deleteDocument('tasks', task.id);
-    page.closeModal();
     page.toast('Atividade excluída 🗑️', 'info');
     render();
     window.parent.postMessage({ type: 'updateBadge' }, '*');
   } catch (e) {
     page.toast('Erro ao excluir: ' + (e.message || e), 'error');
-    if (btn) { btn.disabled = false; btn.textContent = '🗑️ Excluir'; }
   }
 }
 

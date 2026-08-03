@@ -142,6 +142,10 @@ const App = {
               const uid = this.currentUser.uid || this.currentUser.id;
               if (uid === fbUser.uid) {
                 fireSync.start(uid);
+                // Em atualizações de página o Firebase pode restaurar a sessão
+                // depois do fallback que mostra o login. Se já temos o usuário
+                // em cache e ele é o mesmo do Auth, garanta a volta ao app.
+                this.showApp();
               }
             }
           } else {
@@ -398,7 +402,7 @@ const App = {
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn.textContent;
     btn.disabled = true;
-    btn.textContent = '⏳ Verificando reCAPTCHA...';
+    btn.textContent = '⏳ Verificando...';
 
     try {
       const token = await this.getRecaptchaToken('FORGOT_PASSWORD');
@@ -411,7 +415,7 @@ const App = {
       document.getElementById('forgotSentModal')?.classList.remove('hidden');
       document.getElementById('forgotForm')?.classList.add('hidden');
       document.getElementById('forgotEmail').value = '';
-      core.toast('Link de recuperação enviado via Firebase Auth!', 'success');
+      core.toast('Link de recuperação enviado!', 'success');
     } catch (err) {
       console.warn('Forgot password erro:', err);
       if (err.code === 'auth/user-not-found') {
@@ -423,7 +427,7 @@ const App = {
       } else if (err.code === 'auth/invalid-email') {
         this.showError('forgotError', 'E-mail inválido');
       } else if (err.code === 'auth/too-many-requests') {
-        this.showError('forgotError', 'Muitas tentativas. Aguarde alguns minutos (proteção reCAPTCHA ativa)');
+        this.showError('forgotError', 'Muitas tentativas. Aguarde alguns minutos.');
       } else {
         this.showError('forgotError', err.message || 'Erro ao enviar. Verifique sua conexão.');
       }
@@ -522,7 +526,7 @@ const App = {
         <div style="font-size:48px;margin-bottom:12px">🔑</div>
         <h2 style="margin-bottom:8px">Definir nova senha</h2>
         <p style="color:var(--muted);font-size:13px;margin-bottom:4px">Redefinindo senha ${safeEmail}</p>
-        <p style="color:var(--muted);font-size:11px;margin-bottom:16px">Protegido por reCAPTCHA Enterprise (ação: PASSWORD_RESET)</p>
+        
       </div>
       <label><span>Nova senha</span>
         <div class="input-group">
@@ -541,7 +545,7 @@ const App = {
       <div class="form-error" id="resetError"></div>
       <div class="modal-actions">
         <button class="btn btn-secondary" onclick="App.closeModal()">Cancelar</button>
-        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha (Firebase)</button>
+        <button class="btn btn-primary" id="btnConfirmReset" onclick="App.confirmPasswordReset('${oobCode}')">💾 Redefinir senha</button>
       </div>
     `;
     this.showModal(html);
@@ -567,7 +571,7 @@ const App = {
       return;
     }
     const btn = document.getElementById('btnConfirmReset');
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando reCAPTCHA...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Verificando...'; }
 
     try {
       const token = await this.getRecaptchaToken('PASSWORD_RESET');
@@ -588,7 +592,7 @@ const App = {
         : err.message || 'Erro ao redefinir senha';
       if (errEl) { errEl.textContent = msg; errEl.classList.add('show'); }
     } finally {
-      if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha (Firebase)'; }
+      if (btn) { btn.disabled = false; btn.textContent = '💾 Redefinir senha'; }
     }
   },
 
@@ -636,19 +640,19 @@ const App = {
     const remember = document.getElementById('rememberMe').checked;
 
     if (!email || !email.includes('@')) {
-      this.showError('loginError', 'Digite um e-mail válido (login 100% Firebase)');
+      this.showError('loginError', 'Digite um e-mail válido');
       return;
     }
 
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Aguarde...'; }
 
     try {
       const token = await this.getRecaptchaToken('LOGIN');
       console.log('reCAPTCHA LOGIN token:', token ? 'gerado' : 'null (App Check ainda protege)');
 
-      if (btn) btn.textContent = '⏳ Entrando no Firebase...';
+      if (btn) btn.textContent = '⏳ Entrando...';
 
       // Firebase Persistence: LOCAL = lembrar, SESSION = esquecer ao fechar
       const persistence = remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION;
@@ -678,7 +682,7 @@ const App = {
         msg = 'E-mail ou senha incorretos. Verifique ou use "Esqueci minha senha".';
       } else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
       else if (err.code === 'auth/user-disabled') msg = 'Conta desativada. Contate o administrador.';
-      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Tente mais tarde. Proteção reCAPTCHA ativa.';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Tente mais tarde.';
       else if (err.code === 'auth/network-request-failed') msg = 'Falha de rede. Verifique sua conexão.';
       else msg = err.message || msg;
       this.showError('loginError', msg);
@@ -692,7 +696,7 @@ const App = {
     const modal = document.getElementById('emailVerifyModal');
     if (!modal) return;
     const textEl = document.getElementById('verifyEmailText');
-    if (textEl) textEl.textContent = `Seu e-mail ${fbUser.email} ainda não foi verificado. Enviamos um link de verificação. Você precisa verificar antes de acessar o app (100% Firebase).`;
+    if (textEl) textEl.textContent = `Seu e-mail ${fbUser.email} ainda não foi verificado. Enviamos um link de verificação. Você precisa verificar antes de acessar o app.`;
     modal.classList.remove('hidden');
   },
 
@@ -853,6 +857,7 @@ const App = {
           phone: '',
           address: '',
           daysOff: [],
+          dayOffDates: [],
           avatar: fbUser.photoURL || '',
           googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
@@ -897,6 +902,7 @@ const App = {
           name: fbUser.displayName || fbUser.email?.split('@')[0] || 'Usuário',
           lastName: '', phone: '', address: '',
           daysOff: [],
+          dayOffDates: [],
           avatar: fbUser.photoURL || '',
           googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
@@ -906,7 +912,7 @@ const App = {
           createdAt: core.now(),
           provider: fbUser.providerData[0]?.providerId || 'google.com'
         };
-        core.toast('Login feito, perfil Firestore será sincronizado em breve.', 'warning');
+        core.toast('Login feito. Seus dados serão sincronizados em breve.', 'warning');
       } else {
         core.toast('Erro ao carregar perfil: ' + err.message, 'error');
         profile = {
@@ -936,6 +942,7 @@ const App = {
       phone: profile.phone || '',
       address: profile.address || '',
       daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
+      dayOffDates: Array.isArray(profile.dayOffDates) ? profile.dayOffDates : (Array.isArray(profile.daysOffDates) ? profile.daysOffDates : []),
       avatar: profile.avatar || fbUser.photoURL || '',
       googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
       avatarType: profile.avatarType || (fbUser.photoURL ? 'google' : 'emoji'),
@@ -955,7 +962,7 @@ const App = {
     this.applyFontSize(this.currentUser.fontScale || null);
 
     try { core.getUserStats(this.currentUser.id); } catch(e) {}
-    try { core.log('login', this.currentUser.id, 'Login Firebase 100%'); } catch(e) {}
+    try { core.log('login', this.currentUser.id, 'Login'); } catch(e) {}
 
     // Atualiza emailVerified no Firestore se mudou
     if (fbUser.emailVerified && profile.emailVerified !== true) {
@@ -967,7 +974,7 @@ const App = {
       const uid = this.currentUser?.uid || this.currentUser?.id;
       if (uid && auth.currentUser?.uid === uid) fireSync.start(uid);
     }, 500);
-    core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '! 🔥 Firebase 100%', 'success');
+    core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
   },
 
   /* ========== CADASTRO 100% FIREBASE + reCAPTCHA ========== */
@@ -988,13 +995,13 @@ const App = {
 
     const btn = e.target.querySelector('button[type="submit"]');
     const origText = btn ? btn.textContent : '';
-    if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Aguarde...'; }
 
     try {
       const token = await this.getRecaptchaToken('REGISTER');
       console.log('reCAPTCHA REGISTER token:', token ? 'OK' : 'null');
 
-      if (btn) btn.textContent = '⏳ Criando conta Firebase...';
+      if (btn) btn.textContent = '⏳ Criando conta...';
 
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: username });
@@ -1016,6 +1023,7 @@ const App = {
         email,
         name: username, lastName: '', phone: '', address: '',
         daysOff: [],
+        dayOffDates: [],
         avatar: '', avatarType: 'emoji',
         role: this.isBootstrapAdminEmail(email) ? 'admin' : 'member',
         banned: false,
@@ -1056,7 +1064,7 @@ const App = {
       if (err.code === 'auth/email-already-in-use') msg = 'Este e-mail já está cadastrado. Use "Esqueci minha senha" se necessário.';
       else if (err.code === 'auth/weak-password') msg = 'Senha muito fraca';
       else if (err.code === 'auth/invalid-email') msg = 'E-mail inválido';
-      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde (reCAPTCHA ativo).';
+      else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde um pouco.';
       else msg = err.message;
       this.showError('regError', msg);
     } finally {
@@ -1068,7 +1076,7 @@ const App = {
   async loginGoogle() {
     const btn = document.querySelector('.btn-google');
     const origContent = btn ? btn.innerHTML : '';
-    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ reCAPTCHA...'; }
+    if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Aguarde...'; }
 
     try {
       const token = await this.getRecaptchaToken('GOOGLE_LOGIN');
@@ -1093,7 +1101,7 @@ const App = {
       } else if (err.code === 'auth/operation-not-allowed') {
         core.toast('Login Google não habilitado no Console Firebase > Authentication > Sign-in method', 'error');
       } else if (err.code === 'auth/too-many-requests') {
-        core.toast('Muitas tentativas. Proteção reCAPTCHA ativa.', 'error');
+        core.toast('Muitas tentativas. Aguarde um pouco.', 'error');
       } else {
         core.toast('Erro ao fazer login com Google: ' + (err.message || err.code), 'error');
       }
@@ -1127,6 +1135,7 @@ const App = {
           phone: profile.phone || '',
           address: profile.address || '',
           daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : [],
+          dayOffDates: Array.isArray(profile.dayOffDates) ? profile.dayOffDates : (Array.isArray(profile.daysOffDates) ? profile.daysOffDates : []),
           avatar: profile.avatar || fbUser.photoURL || '',
           googlePhoto: profile.googlePhoto || fbUser.photoURL || '',
           avatarType: profile.avatarType || 'emoji',
@@ -1150,12 +1159,14 @@ const App = {
     } catch (err) {
       console.warn('syncFirebaseUser erro:', err.code, err.message);
       if (err.code === 'permission-denied') {
-        core.toast('Sem permissão para ler perfil Firestore. Verifique firestore.rules', 'warning');
+        core.toast('Sem permissão para carregar o perfil. Tente novamente.', 'warning');
         this.currentUser = {
           id: fbUser.uid, uid: fbUser.uid,
           username: fbUser.email?.split('@')[0] || 'user',
           email: fbUser.email,
           name: fbUser.displayName || fbUser.email?.split('@')[0],
+          daysOff: [],
+          dayOffDates: [],
           avatar: fbUser.photoURL || '',
           googlePhoto: fbUser.photoURL || '',
           avatarType: fbUser.photoURL ? 'google' : 'emoji',
@@ -1180,7 +1191,7 @@ const App = {
     document.getElementById('langSwitcher')?.remove();
     document.getElementById('notifButton')?.remove();
     document.getElementById('emailVerifyModal')?.classList.add('hidden');
-    core.toast('Você saiu da sua conta (Firebase Auth).', 'info');
+    core.toast('Você saiu da sua conta.', 'info');
   },
 
   /* ========== NAVEGAÇÃO ========== */
@@ -1495,7 +1506,7 @@ const App = {
     try {
       const data = core.getLocalDB();
       const today = core.today();
-      const late = data.tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+      const late = data.tasks.filter(t => t.date && t.date < today && !core.isDayOff(t.date, this.currentUser) && t.status !== 'finished' && t.status !== 'notdone');
       return late.length > 0 ? late.length : '';
     } catch { return ''; }
   },
@@ -1511,6 +1522,7 @@ const App = {
       id: uid,
       uid,
       daysOff: Array.isArray(profile.daysOff) ? profile.daysOff : (this.currentUser.daysOff || []),
+      dayOffDates: Array.isArray(profile.dayOffDates) ? profile.dayOffDates : (Array.isArray(profile.daysOffDates) ? profile.daysOffDates : (this.currentUser.dayOffDates || [])),
       googlePhoto: profile.googlePhoto || this.currentUser.googlePhoto || '',
       fontScale: profile.fontScale || this.currentUser.fontScale || 'normal',
     };

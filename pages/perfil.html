@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
-  <title>Meu Perfil - Firebase 100%</title>
+  <title>Meu Perfil</title>
   <style>
     .firebase-badge {
       background: #FFCA28; color: #000; padding: 4px 8px; border-radius: 6px; font-size: 11px; font-weight: 700;
@@ -16,14 +16,11 @@
 
 <div class="page-header">
   <div class="info">
-    <small>CONTA • 100% FIREBASE + reCAPTCHA Enterprise</small>
+    <small>CONTA</small>
     <h1>Meu Perfil</h1>
-    <p>Gerencie suas informações pessoais — tudo salvo no Firestore (sem fallback local de senhas)</p>
+    <p>Gerencie suas informações pessoais e preferências</p>
   </div>
-  <div style="display:flex;gap:8px">
-    <span class="firebase-badge">🔥 Firebase Auth</span>
-    <span class="firebase-badge" style="background:#DBEAFE;color:#1E40AF">🛡️ reCAPTCHA 6LfG1HIt...</span>
-  </div>
+
 </div>
 
 <div class="cols">
@@ -48,8 +45,8 @@
           <input type="text" id="pLastName" placeholder="Seu sobrenome">
         </label>
       </div>
-      <div class="profile-section-label">Contato (Firebase)</div>
-      <label><span>E-mail (Firebase Auth - não editável aqui)</span>
+      <div class="profile-section-label">Contato</div>
+      <label><span>E-mail</span>
         <input type="email" id="pEmail" disabled>
         <small class="text-muted" id="emailVerifyStatus"></small>
       </label>
@@ -59,18 +56,16 @@
       <label><span>Endereço</span>
         <input type="text" id="pAddress" placeholder="Rua, número, bairro, cidade">
       </label>
-      <div class="profile-section-label">📅 Dias de folga</div>
-      <p class="text-muted" style="font-size:12px;margin:0 0 8px">Escolha os dias da semana em que você não trabalha.</p>
-      <div id="daysOffChoices" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-        <label><input type="checkbox" value="mon"> <span>Segunda-feira<small data-dayoff-date="mon"></small></span></label>
-        <label><input type="checkbox" value="tue"> <span>Terça-feira<small data-dayoff-date="tue"></small></span></label>
-        <label><input type="checkbox" value="wed"> <span>Quarta-feira<small data-dayoff-date="wed"></small></span></label>
-        <label><input type="checkbox" value="thu"> <span>Quinta-feira<small data-dayoff-date="thu"></small></span></label>
-        <label><input type="checkbox" value="fri"> <span>Sexta-feira<small data-dayoff-date="fri"></small></span></label>
-        <label><input type="checkbox" value="sat"> <span>Sábado<small data-dayoff-date="sat"></small></span></label>
-        <label><input type="checkbox" value="sun"> <span>Domingo<small data-dayoff-date="sun"></small></span></label>
+      <div class="profile-section-label">📅 Folgas</div>
+      <p class="text-muted" style="font-size:12px;margin:0 0 8px">Marque suas folgas por semana. Use as setas para voltar ou avançar e alterar semanas anteriores ou futuras.</p>
+      <div class="week-pager" style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+        <button type="button" class="btn btn-secondary btn-sm" onclick="changeDayOffWeek(-1)">← Semana anterior</button>
+        <strong id="dayOffWeekLabel" style="font-size:13px;text-align:center"></strong>
+        <button type="button" class="btn btn-secondary btn-sm" onclick="changeDayOffWeek(1)">Próxima semana →</button>
       </div>
-      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil (Firestore)</button>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="goCurrentDayOffWeek()" style="margin-bottom:10px">Semana atual</button>
+      <div id="daysOffChoices" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(118px,1fr));gap:8px;margin-bottom:8px"></div>
+      <button type="submit" class="btn btn-primary" style="width:100%;margin-top:8px" id="btnSaveProfile">💾 Salvar perfil</button>
     </form>
   </div>
 
@@ -102,9 +97,9 @@
       <div class="avatar-grid" id="avatarGrid"></div>
     </div>
 
-    <!-- SENHA & SEGURANÇA - 100% FIREBASE -->
+    <!-- SENHA & SEGURANÇA -->
     <div class="card" id="passwordCard">
-      <h2>🔒 Senha & Segurança (100% Firebase)</h2>
+      <h2>🔒 Senha & Segurança</h2>
 
       <div id="providerInfo" style="background:var(--bg-secondary);padding:10px 14px;border-radius:8px;margin-bottom:14px;font-size:13px">
         <b>Conta via:</b> <span id="providerType">carregando...</span><br>
@@ -116,15 +111,15 @@
         <h3 style="font-size:13px;margin-bottom:8px">✉️ Verificação de e-mail</h3>
         <p style="font-size:12px;color:#1E40AF;margin-bottom:10px" id="verifyBlockText">Carregando status...</p>
         <button class="btn btn-secondary" style="width:100%" onclick="sendVerificationEmail()" id="btnSendVerify">📧 Reenviar e-mail de verificação</button>
-        <small class="text-muted" style="display:block;margin-top:8px">Protegido por reCAPTCHA Enterprise (VERIFY_EMAIL)</small>
+        <small class="text-muted" style="display:block;margin-top:8px"></small>
       </div>
 
       <!-- TROCA DE SENHA - FIREBASE REAUTH -->
       <div id="firebasePasswordForm">
-        <h3 style="font-size:14px;margin-bottom:8px">🔑 Trocar senha (Firebase Auth)</h3>
-        <p style="font-size:11px;color:var(--muted);margin-bottom:10px">Você precisará confirmar sua senha atual (reauth Firebase + reCAPTCHA CHANGE_PASSWORD). A nova senha será validada e aplicada ao Firebase Auth.</p>
+        <h3 style="font-size:14px;margin-bottom:8px">🔑 Trocar senha</h3>
+        <p style="font-size:11px;color:var(--muted);margin-bottom:10px">Você precisará confirmar sua senha atual. A nova senha será validada e aplicada à sua conta.</p>
         <form onsubmit="changePasswordFirebase(event)">
-          <label><span>Senha atual (para confirmar identidade Firebase)</span>
+          <label><span>Senha atual</span>
             <input type="password" id="oldPass" required placeholder="Sua senha atual" autocomplete="current-password">
           </label>
           <label><span>Nova senha</span>
@@ -133,27 +128,17 @@
           <label><span>Confirmar nova senha</span>
             <input type="password" id="confirmPass" required placeholder="Repita a nova senha" autocomplete="new-password">
           </label>
-          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px" id="btnChangePass">💾 Alterar senha no Firebase</button>
+          <button type="submit" class="btn btn-primary" style="width:100%;margin-top:4px" id="btnChangePass">💾 Alterar senha</button>
         </form>
-        <div class="recaptcha-mini">Protegido por reCAPTCHA Enterprise (ação: CHANGE_PASSWORD). Site key: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO</div>
+        <div class="recaptcha-mini"></div>
       </div>
 
       <div id="forgotPasswordBlock" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
         <h3 style="font-size:14px;margin-bottom:8px">🔑 Esqueceu sua senha?</h3>
         <p style="font-size:12px;color:var(--muted);margin-bottom:10px">
-          Enviaremos um link de redefinição via Firebase Auth (100% Firebase, com reCAPTCHA FORGOT_PASSWORD).
+          Enviaremos um link de redefinição de senha para seu e-mail.
         </p>
-        <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()" id="btnResetEmail">📧 Enviar link de redefinição (Firebase)</button>
-      </div>
-
-      <div style="margin-top:16px;padding:12px;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:8px;font-size:12px">
-        <b>✅ 100% Firebase Auth — o que foi ajustado:</b><br>
-        • Login apenas por Firebase (sem localStorage de senhas)<br>
-        • Troca de senha via <code>reauthenticateWithCredential</code> + <code>updatePassword</code><br>
-        • Recuperação via <code>sendPasswordResetEmail</code> (link expira em 1h)<br>
-        • Verificação de e-mail via <code>sendEmailVerification</code><br>
-        • Tudo protegido por reCAPTCHA Enterprise (App Check + actions)<br>
-        • Backend Java pode validar token: <code>RecaptchaEnterpriseServiceClient.create().createAssessment()</code>
+        <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()" id="btnResetEmail">📧 Enviar link de redefinição</button>
       </div>
     </div>
   </div>
@@ -215,25 +200,47 @@ document.getElementById('pLastName').value = user?.lastName || '';
 document.getElementById('pEmail').value = user?.email || '';
 document.getElementById('pPhone').value = user?.phone || '';
 document.getElementById('pAddress').value = user?.address || '';
-(document.querySelectorAll('#daysOffChoices input') || []).forEach(cb => {
-  cb.checked = Array.isArray(user?.daysOff) && user.daysOff.includes(cb.value);
-});
+const WEEKDAY_LABELS = { sun:'Dom', mon:'Seg', tue:'Ter', wed:'Qua', thu:'Qui', fri:'Sex', sat:'Sáb' };
+let dayOffWeekStart = core.startOfWeek(core.today());
 
-// Mostra a próxima ocorrência de cada dia. A data é calculada pela mesma
-// data operacional usada pelo app, evitando divergências de fuso horário.
-function updateDaysOffDates() {
-  const today = core.today();
-  const todayIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(core.weekdayKeyFromDateKey(today));
-  document.querySelectorAll('[data-dayoff-date]').forEach(el => {
-    const targetIndex = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'].indexOf(el.dataset.dayoffDate);
-    const offset = (targetIndex - todayIndex + 7) % 7;
-    const date = core.addDays(today, offset);
-    const parts = date.split('-');
-    el.textContent = `${parts[2]}/${parts[1]}/${parts[0]}`;
-    el.style.cssText = 'display:block;color:var(--muted);font-size:11px;line-height:1.2;margin-top:2px';
-  });
+function getUserDayOffDates() {
+  const values = user?.dayOffDates || user?.daysOffDates || [];
+  return Array.isArray(values) ? values.map(v => String(v).slice(0, 10)).filter(Boolean) : [];
 }
-updateDaysOffDates();
+
+function renderDayOffWeek() {
+  const box = document.getElementById('daysOffChoices');
+  const label = document.getElementById('dayOffWeekLabel');
+  if (!box) return;
+  const selectedDates = new Set(getUserDayOffDates());
+  const recurringDays = Array.isArray(user?.daysOff) ? user.daysOff : [];
+  const weekEnd = core.addDays(dayOffWeekStart, 6);
+  if (label) label.textContent = `${core.formatDate(dayOffWeekStart)} a ${core.formatDate(weekEnd)}`;
+  box.innerHTML = Array.from({ length: 7 }, (_, i) => {
+    const date = core.addDays(dayOffWeekStart, i);
+    const dayKey = core.weekdayKeyFromDateKey(date);
+    const checked = selectedDates.has(date) || recurringDays.includes(dayKey);
+    const isToday = date === core.today();
+    const [year, month, day] = date.split('-');
+    return `
+      <label style="border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:10px;display:flex;gap:8px;align-items:flex-start;background:${checked ? 'var(--primary-light,#DBEAFE)' : 'var(--card,#fff)'}">
+        <input type="checkbox" value="${date}" ${checked ? 'checked' : ''}>
+        <span><b>${WEEKDAY_LABELS[dayKey] || dayKey}${isToday ? ' • hoje' : ''}</b><small style="display:block;color:var(--muted);font-size:11px;margin-top:2px">${day}/${month}/${year}</small></span>
+      </label>`;
+  }).join('');
+}
+
+function changeDayOffWeek(delta) {
+  dayOffWeekStart = core.addDays(dayOffWeekStart, Number(delta || 0) * 7);
+  renderDayOffWeek();
+}
+
+function goCurrentDayOffWeek() {
+  dayOffWeekStart = core.startOfWeek(core.today());
+  renderDayOffWeek();
+}
+
+renderDayOffWeek();
 
 function updateDisplayName() {
   const displayName = document.getElementById('displayName');
@@ -285,7 +292,7 @@ function updateProviderInfo() {
     document.getElementById('firebasePasswordForm').style.display = 'none';
     document.getElementById('forgotPasswordBlock').style.display = 'none';
   } else {
-    providerEl.innerHTML = '📧 E-mail e senha (Firebase Auth • 100% nuvem)';
+    providerEl.innerHTML = '📧 E-mail e senha (conta)';
   }
 
   if (verifiedEl) {
@@ -295,7 +302,7 @@ function updateProviderInfo() {
   }
 
   if (emailStatus) {
-    emailStatus.textContent = emailVerified ? '✅ Verificado via Firebase' : '⚠️ Não verificado — reenvie acima';
+    emailStatus.textContent = emailVerified ? '✅ Verificado' : '⚠️ Não verificado — reenvie acima';
     emailStatus.style.color = emailVerified ? '#059669' : '#D97706';
   }
 
@@ -304,12 +311,12 @@ function updateProviderInfo() {
     if (emailVerified) {
       verifyBlock.style.background = '#F0FDF4';
       verifyBlock.style.borderColor = '#BBF7D0';
-      if (verifyText) verifyText.textContent = `✅ Seu e-mail ${user?.email} já está verificado no Firebase Auth.`;
+      if (verifyText) verifyText.textContent = `✅ Seu e-mail ${user?.email} já está verificado Auth.`;
       document.getElementById('btnSendVerify').style.display = 'none';
     } else {
       verifyBlock.style.background = '#FEF3C7';
       verifyBlock.style.borderColor = '#F59E0B';
-      if (verifyText) verifyText.textContent = `Seu e-mail ${user?.email} ainda NÃO foi verificado. Clique para receber o link de verificação (válido por 1h, com reCAPTCHA).`;
+      if (verifyText) verifyText.textContent = `Seu e-mail ${user?.email} ainda NÃO foi verificado. Clique para receber o link de verificação.`;
       document.getElementById('btnSendVerify').style.display = 'block';
     }
   }
@@ -434,7 +441,7 @@ function saveProfile(e) {
   const btnSave = document.getElementById('btnSaveProfile');
   const origText = btnSave.textContent;
   btnSave.disabled = true;
-  btnSave.textContent = '⏳ Salvando no Firestore...';
+  btnSave.textContent = '⏳ Salvando...';
   if (newUsername && newUsername !== u.username) {
     const exists = data.users.find(usr => usr.username === newUsername && String(usr.id || usr.uid) !== String(u.id || u.uid));
     if (exists) {
@@ -447,7 +454,20 @@ function saveProfile(e) {
   u.lastName = document.getElementById('pLastName').value.trim();
   u.phone = document.getElementById('pPhone').value.trim();
   u.address = document.getElementById('pAddress').value.trim();
-  u.daysOff = Array.from(document.querySelectorAll('#daysOffChoices input:checked')).map(cb => cb.value);
+  const visibleInputs = Array.from(document.querySelectorAll('#daysOffChoices input'));
+  const visibleDates = visibleInputs.map(cb => cb.value);
+  const checkedDates = visibleInputs.filter(cb => cb.checked).map(cb => cb.value);
+  const uncheckedWeekDays = new Set(visibleInputs.filter(cb => !cb.checked).map(cb => core.weekdayKeyFromDateKey(cb.value)));
+  const previousDates = Array.isArray(u.dayOffDates) ? u.dayOffDates : (Array.isArray(u.daysOffDates) ? u.daysOffDates : []);
+  // Mantém as folgas avulsas de outras semanas e atualiza somente a semana aberta.
+  u.dayOffDates = Array.from(new Set([
+    ...previousDates.filter(date => !visibleDates.includes(String(date).slice(0, 10))),
+    ...checkedDates
+  ])).sort();
+  // `daysOff` antigo continua existindo para compatibilidade. Ao desmarcar
+  // um dia nesta semana, removemos a recorrência antiga daquele weekday para
+  // que uma folga alterada não continue escondendo atividades indevidamente.
+  u.daysOff = (Array.isArray(u.daysOff) ? u.daysOff : []).filter(day => !uncheckedWeekDays.has(day));
   page.saveDB(data);
   const sessionUser = {
     ...user,
@@ -457,6 +477,7 @@ function saveProfile(e) {
     phone: u.phone,
     address: u.address,
     daysOff: u.daysOff,
+    dayOffDates: u.dayOffDates,
     googlePhoto: u.googlePhoto || user.googlePhoto || ''
   };
   if (typeof core !== 'undefined' && core.setCurrentUser) core.setCurrentUser(sessionUser);
@@ -468,7 +489,7 @@ function saveProfile(e) {
   } catch(e) { console.warn('Firebase sync warning:', e); }
   updateDisplayName();
   if (typeof core !== 'undefined' && core.log) core.log('profile_update', user.id, `${u.name} ${u.lastName} (@${u.username})`);
-  page.toast('Perfil atualizado com sucesso no Firestore! ✅', 'success');
+  page.toast('Perfil atualizado com sucesso! ✅', 'success');
   if (core.isDayOff(core.today(), sessionUser)) {
     core.chromeNotification('📅 Dia de folga configurado', 'As atividades de hoje ficam ocultas e não contam como pendentes.', 'info');
   }
@@ -481,10 +502,10 @@ function saveProfile(e) {
 // ========== FIREBASE AUTH FLOWS ==========
 async function sendVerificationEmail() {
   const fbUser = getFirebaseCurrentUser();
-  if (!fbUser) { page.toast('Sessão Firebase não encontrada. Faça login novamente.', 'error'); return; }
+  if (!fbUser) { page.toast('Sessão não encontrada. Faça login novamente.', 'error'); return; }
   const btn = document.getElementById('btnSendVerify');
   const orig = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Aguarde...'; }
   try {
     const token = await getRecaptchaTokenPerfil('VERIFY_EMAIL');
     console.log('reCAPTCHA VERIFY_EMAIL token:', token ? 'OK' : 'null');
@@ -506,10 +527,10 @@ async function sendResetEmail() {
   const email = user?.email;
   if (!email) { page.toast('Sua conta não tem e-mail cadastrado', 'error'); return; }
   const auth = getFirebaseAuth();
-  if (!auth) { page.toast('Firebase Auth indisponível', 'error'); return; }
+  if (!auth) { page.toast('Login indisponível', 'error'); return; }
   const btn = document.getElementById('btnResetEmail');
   const orig = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Aguarde...'; }
   try {
     const token = await getRecaptchaTokenPerfil('FORGOT_PASSWORD');
     console.log('reCAPTCHA FORGOT_PASSWORD token:', token ? 'OK' : 'null');
@@ -530,7 +551,7 @@ async function changePasswordFirebase(e) {
   const oldP = document.getElementById('oldPass').value;
   const newP = document.getElementById('newPass').value;
   const confP = document.getElementById('confirmPass').value;
-  if (!oldP) return page.toast('Digite a senha atual (reauth Firebase)', 'warning');
+  if (!oldP) return page.toast('Digite a senha atual', 'warning');
   if (!newP) return page.toast('Digite a nova senha', 'warning');
   if (newP !== confP) return page.toast('As senhas não coincidem', 'error');
   const v = core.validatePassword(newP);
@@ -538,12 +559,12 @@ async function changePasswordFirebase(e) {
 
   const auth = getFirebaseAuth();
   const fbUser = getFirebaseCurrentUser();
-  if (!auth || !fbUser) { page.toast('Sessão Firebase não encontrada. Faça login novamente.', 'error'); return; }
+  if (!auth || !fbUser) { page.toast('Sessão não encontrada. Faça login novamente.', 'error'); return; }
   if (!fbUser.email) { page.toast('E-mail não disponível para reautenticação', 'error'); return; }
 
   const btn = document.getElementById('btnChangePass');
   const orig = btn ? btn.textContent : '';
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ reCAPTCHA...'; }
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Aguarde...'; }
 
   try {
     const token = await getRecaptchaTokenPerfil('CHANGE_PASSWORD');
@@ -561,10 +582,10 @@ async function changePasswordFirebase(e) {
       await fbUser.reauthenticateWithCredential(credential);
     }
 
-    if (btn) btn.textContent = '⏳ Alterando senha no Firebase...';
+    if (btn) btn.textContent = '⏳ Alterando senha...';
     await fbUser.updatePassword(newP);
 
-    page.toast('Senha alterada com sucesso no Firebase Auth! 🔒 Você precisará usar a nova senha no próximo login.', 'success');
+    page.toast('Senha alterada com sucesso Auth! 🔒 Você precisará usar a nova senha no próximo login.', 'success');
     document.getElementById('oldPass').value = '';
     document.getElementById('newPass').value = '';
     document.getElementById('confirmPass').value = '';
@@ -575,7 +596,7 @@ async function changePasswordFirebase(e) {
     console.warn('changePasswordFirebase erro:', err);
     let msg = err.message;
     if (err.code === 'auth/wrong-password') msg = 'Senha atual incorreta. Verifique.';
-    else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde (reCAPTCHA ativo).';
+    else if (err.code === 'auth/too-many-requests') msg = 'Muitas tentativas. Aguarde um pouco.';
     else if (err.code === 'auth/requires-recent-login') msg = 'Sessão expirada. Faça logout e login novamente, depois tente trocar a senha.';
     else if (err.code === 'auth/weak-password') msg = 'Nova senha muito fraca.';
     page.toast('Erro ao trocar senha: ' + msg, 'error');
@@ -590,21 +611,21 @@ async function changePasswordFirebase(e) {
 <script>
 PageHelpAI.mount({
   pageId: 'perfil',
-  title: 'Meu Perfil - Firebase 100%',
-  intro: 'Seus dados pessoais e de segurança com Firebase Auth + reCAPTCHA Enterprise.',
+  title: 'Meu Perfil',
+  intro: 'Seus dados pessoais e de segurança.',
   sections: [
-    { icon: '👤', title: 'Dados pessoais', body: 'Nome, sobrenome, telefone, endereço e dias de folga. Tudo sincronizado no Firestore.' },
+    { icon: '👤', title: 'Dados pessoais', body: 'Nome, sobrenome, telefone, endereço e dias de folga.' },
     { icon: '🖼️', title: 'Avatar', body: 'Escolha entre emoji, upload ou foto do Google.' },
-    { icon: '🔒', title: 'Senha e verificação', body: 'Troque sua senha via Firebase reauth, verifique seu e-mail e recupere a senha via link seguro. Tudo com reCAPTCHA Enterprise.' },
+    { icon: '🔒', title: 'Senha e verificação', body: 'Troque sua senha, verifique seu e-mail e recupere a senha via link seguro.' },
   ],
   tips: [
-    'Verifique seu e-mail para ativar proteções extras do Firebase.',
+    'Verifique seu e-mail para manter a conta protegida.',
     'Use senha forte: 8+ chars, maiúscula, minúscula, 2 números e caractere especial.',
     'Se entrou com Google, a senha é gerenciada por myaccount.google.com.',
   ],
   quickQuestions: [
     'Como funciona esta página?',
-    'Como troco minha senha no Firebase?',
+    'Como troco minha senha?',
     'Como verificar meu e-mail?',
   ],
 });

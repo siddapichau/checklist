@@ -39,9 +39,10 @@ const Core = {
       // Categorias próprias da página de Notas (recadinhos/lembretes) — editáveis
       // no Painel Admin, aba "📝 Notas", sem interferir nas categorias das atividades.
       notesCategories: ['Lembrete','Pessoal','Trabalho','Ideias','Importante','Geral'],
-      // Dias de folga semanais do usuário: mon, tue, wed, thu, fri, sat, sun.
+      // Folgas recorrentes por dia da semana e folgas avulsas por data.
       // A preferência é individual e não altera o histórico salvo.
       daysOff: [],
+      dayOffDates: [],
     },
     customThemes: [
       // { id, name, primary, secondary, accent, bg, mode, createdBy, createdAt }
@@ -167,6 +168,13 @@ const Core = {
     if (!data.settings.language) data.settings.language = 'pt-BR';
     // Preferências antigas podem não ter a configuração de folga.
     if (!Array.isArray(data.settings.daysOff)) data.settings.daysOff = [...defaults.settings.daysOff];
+    if (!Array.isArray(data.settings.dayOffDates)) data.settings.dayOffDates = [...defaults.settings.dayOffDates];
+    if (Array.isArray(data.users)) {
+      data.users.forEach(u => {
+        if (u && !Array.isArray(u.daysOff)) u.daysOff = [];
+        if (u && !Array.isArray(u.dayOffDates)) u.dayOffDates = [];
+      });
+    }
     return data;
   },
 
@@ -377,7 +385,9 @@ const Core = {
   },
 
   isDayOff(dateOrKey = this.today(), user = this.getCurrentUser()) {
-    const dateKey = typeof dateOrKey === 'string' ? dateOrKey : this.today(dateOrKey);
+    const dateKey = typeof dateOrKey === 'string' ? String(dateOrKey).slice(0, 10) : this.today(dateOrKey);
+    const exactDates = user?.dayOffDates || user?.daysOffDates;
+    if (Array.isArray(exactDates) && exactDates.includes(dateKey)) return true;
     const days = user?.daysOff;
     return Array.isArray(days) && days.includes(this.weekdayKeyFromDateKey(dateKey));
   },
