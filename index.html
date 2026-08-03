@@ -58,12 +58,10 @@
   <div id="loadingRecovery" class="hidden" style="margin-top:20px;text-align:center;max-width:300px">
     <p style="font-size:13px;color:var(--muted);margin-bottom:12px">Parece que o carregamento está demorando...</p>
     <button onclick="
-      const dbStatus = (localStorage.getItem('checklist-ml-local')) ? 'Cache local presente (espelho)' : 'Cache local vazio';
-      const apiMsg = 'Chave da IA fica no Firestore (settings/admin) — nunca em localStorage ✅';
-      alert('🧹 Cache limpo!\n\n📊 Relatório detalhado:\n• Cache local: ' + dbStatus + '\n• API DeepSeek: ' + apiMsg + '\n• FireSync: ' + (window.fireSync ? 'Ativo' : 'Inativo') + '\n• Cache: Limpo e recarregado\n\nAção: os dados são puxados do Firestore após o login — aguarde a sincronização.');
+      alert('Cache limpo. A página será recarregada.');
       localStorage.clear(); sessionStorage.clear(); indexedDB.deleteDatabase('firebaseLocalStorageDb'); navigator.serviceWorker.getRegistrations().then(r=>r.forEach(reg=>reg.unregister())); setTimeout(()=>location.reload(),500)
     " style="background:#EF4444;color:white;border:0;padding:10px 16px;border-radius:8px;cursor:pointer;font-weight:600">🧹 Limpar cache e recarregar</button>
-    <p style="font-size:11px;color:var(--muted);margin-top:8px">Use se a página travou no login Google</p>
+    <p style="font-size:11px;color:var(--muted);margin-top:8px">Use se a página travou no login</p>
   </div>
 </div>
 <script>
@@ -118,9 +116,9 @@ document.addEventListener('keydown', function(e){
       </div>
       <div class="form-error" id="loginError"></div>
       <label class="form-check">
-        <input type="checkbox" id="rememberMe" checked> Lembrar meu login (Firebase Persistence)
+        <input type="checkbox" id="rememberMe" checked> Lembrar meu login
       </label>
-      <button type="submit" class="btn-primary" id="btnLogin">Entrar com Firebase</button>
+      <button type="submit" class="btn-primary" id="btnLogin">Entrar</button>
       <button type="button" class="btn-google" onclick="App.loginGoogle()">
         <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Continuar com Google
@@ -131,30 +129,26 @@ document.addEventListener('keydown', function(e){
         <a href="#" onclick="App.switchTab('register')">Criar conta</a>
       </div>
       <div class="recaptcha-terms">
-        Protegido por reCAPTCHA Enterprise.<br>
+        Protegido contra abusos.<br>
         <a href="https://policies.google.com/privacy" target="_blank">Privacidade</a> •
-        <a href="https://policies.google.com/terms" target="_blank">Termos</a> •
-        Site key: 6LfG1HItAAAAAMsM6taC9G7A0q-z9f842uHZxueO
-      </div>
-      <div style="text-align:center;margin-top:8px;font-size:11px;color:#64748B">
-        🔥 Login 100% Firebase Auth — sem armazenamento local de senhas
+        <a href="https://policies.google.com/terms" target="_blank">Termos</a>
       </div>
     </form>
 
     <!-- FORM RECUPERAÇÃO DE SENHA - Firebase sendPasswordResetEmail -->
     <form class="login-form hidden" id="forgotForm" onsubmit="App.handleForgotPassword(event)">
       <div class="form-group">
-        <label>E-mail cadastrado (Firebase)</label>
+        <label>E-mail cadastrado</label>
         <input type="email" id="forgotEmail" placeholder="seu@email.com" required autocomplete="email">
-        <small class="text-muted">Enviaremos um link de redefinição via Firebase Auth para seu e-mail</small>
+        <small class="text-muted">Enviaremos um link de redefinição para seu e-mail</small>
       </div>
       <div class="form-error" id="forgotError"></div>
       <div class="form-success hidden" id="forgotSuccess"></div>
-      <button type="submit" class="btn-primary">📧 Enviar link de recuperação (Firebase)</button>
+      <button type="submit" class="btn-primary">📧 Enviar link de recuperação</button>
       <div class="login-links">
         <a href="#" onclick="App.switchTab('login')">← Voltar para o login</a>
       </div>
-      <div class="recaptcha-terms">Protegido por reCAPTCHA Enterprise (ação: FORGOT_PASSWORD)</div>
+      <div class="recaptcha-terms">Protegido contra abusos</div>
     </form>
 
     <!-- FORM CADASTRO - 100% Firebase -->
@@ -166,7 +160,7 @@ document.addEventListener('keydown', function(e){
       <div class="form-group">
         <label>E-mail</label>
         <input type="email" id="regEmail" placeholder="seu@email.com" required autocomplete="email">
-        <small class="text-muted">Será necessário verificar seu e-mail (Firebase Email Verification)</small>
+        <small class="text-muted">Será necessário verificar seu e-mail</small>
       </div>
       <div class="form-group">
         <label>Senha</label>
@@ -185,7 +179,7 @@ document.addEventListener('keydown', function(e){
         </div>
       </div>
       <div class="form-error" id="regError"></div>
-      <button type="submit" class="btn-primary" id="btnRegister">Criar conta Firebase</button>
+      <button type="submit" class="btn-primary" id="btnRegister">Criar conta</button>
       <button type="button" class="btn-google" onclick="App.loginGoogle()">
         <svg width="20" height="20" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
         Cadastrar com Google
@@ -193,7 +187,7 @@ document.addEventListener('keydown', function(e){
       <div class="login-footer">
         <a href="#" onclick="App.switchTab('login')">Já tem conta? Faça login</a>
       </div>
-      <div class="recaptcha-terms">Protegido por reCAPTCHA Enterprise (ação: REGISTER) • 100% Firebase Auth</div>
+      <div class="recaptcha-terms">Protegido contra abusos</div>
     </form>
   </div>
 </div>
@@ -204,11 +198,11 @@ document.addEventListener('keydown', function(e){
     <div style="font-size:64px;margin-bottom:16px">📬</div>
     <h2 style="margin-bottom:12px">E-mail enviado!</h2>
     <p style="color:var(--text-secondary);margin-bottom:20px">
-      Se o e-mail informado está cadastrado no Firebase Auth, você receberá um link para redefinir sua senha em alguns minutos.
+      Se o e-mail informado está cadastrado, você receberá um link para redefinir sua senha em alguns minutos.
     </p>
     <p style="font-size:13px;color:var(--muted);margin-bottom:20px">
       💡 Não esqueça de checar a caixa de spam e promoções<br>
-      O link é válido por 1 hora e usa verificação reCAPTCHA Enterprise
+      O link é válido por tempo limitado.
     </p>
     <button class="btn btn-primary" onclick="document.getElementById('forgotSentModal').classList.add('hidden');App.switchTab('login')">Voltar para o login</button>
   </div>
@@ -235,7 +229,7 @@ document.addEventListener('keydown', function(e){
       <button class="btn btn-secondary" onclick="document.getElementById('emailVerifyModal').classList.add('hidden');App.handleLogout()">🚪 Sair e usar outra conta</button>
     </div>
     <p style="font-size:11px;color:var(--muted);margin-top:12px">
-      Proteção reCAPTCHA Enterprise ativa (CHECK_EMAIL_VERIFICATION).<br>
+      
       Se não chegar em 2 min, verifique spam.
     </p>
   </div>

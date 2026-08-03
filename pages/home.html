@@ -162,13 +162,14 @@ function renderWidgets() {
   const notSkippedToday = t => !skippedToday(t);
 
   // Métricas do PERÍODO selecionado (do dia atual para trás).
-  const periodTasks = (dayOffToday ? [] : tasksInPeriod(tasks)).filter(notSkippedToday);
+  const notDayOffTask = t => !t.date || !core.isDayOff(t.date, user);
+  const periodTasks = (dayOffToday ? [] : tasksInPeriod(tasks)).filter(notSkippedToday).filter(notDayOffTask);
   const total = periodTasks.length;
   const finished = periodTasks.filter(t => t.status === 'finished').length;
   const pending = periodTasks.filter(t => t.status === 'pending').length;
   // Atrasadas = vencidas até hoje e não concluídas (backlog, sempre para trás).
-  const late = dayOffToday ? [] : tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
-  const todayTasks = (dayOffToday ? [] : tasks.filter(t => t.date === today)).filter(notSkippedToday);
+  const late = dayOffToday ? [] : tasks.filter(t => t.date && t.date < today && !core.isDayOff(t.date, user) && t.status !== 'finished' && t.status !== 'notdone');
+  const todayTasks = (dayOffToday ? [] : tasks.filter(t => t.date === today && !core.isDayOff(t.date, user))).filter(notSkippedToday);
   const todayDone = todayTasks.filter(t => t.status === 'finished').length;
   const pct = total > 0 ? Math.round(finished / total * 100) : 0;
   const points = user ? (core.getUserStats(user.id || user.uid).points || 0) : 0;
