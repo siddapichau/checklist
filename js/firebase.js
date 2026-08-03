@@ -1585,4 +1585,32 @@ window.addEventListener('online', () => {
   try { FireSync._flushOutbox(); } catch (e) {}
 });
 
+/* =========================================================
+   HEARTBEAT DE AUTENTICAÇÃO — lembra por tempo que está logado
+   A cada 60 minutos força refresh do token Firebase (getIdToken true)
+   Se falhar, faz signOut e limpa sessão.
+   ========================================================= */
+let firebaseHeartbeatInterval = null;
+function startFirebaseAuthHeartbeat() {
+  if (firebaseHeartbeatInterval) clearInterval(firebaseHeartbeatInterval);
+  console.log('⏱️ Heartbeat de auth iniciado (a cada 60 min)');
+  firebaseHeartbeatInterval = setInterval(async () => {
+    try {
+      if (!auth || !auth.currentUser) {
+        console.log('⏹️ Sem usuário Firebase — parando heartbeat');
+        clearInterval(firebaseHeartbeatInterval); firebaseHeartbeatInterval = null; return;
+      }
+      // Força renovação do token (verifica se ainda é válido)
+      const token = await auth.currentUser.getIdToken(true);
+      console.log('✅ Auth heartbeat OK — token renovado (últimos 5 chars:', token.slice(-5), ')');
+    } catch (err) {
+      console.warn('❌ Auth heartbeat falhou — sessão expirada?', err);
+      try { await auth.signOut(); } catch {}
+      if (typeof App !== 'undefined' && App.showLogin) App.showLogin();
+      clearInterval(firebaseHeartbeatInterval); firebaseHeartbeatInterval = null;
+    }
+  }, 60 * 60 * 1000); // 60 minutos
+}
+window.startFirebaseAuthHeartbeat = startFirebaseAuthHeartbeat;
+
 console.log('🔥 Firebase inicializado — projeto:', firebaseConfig.projectId);

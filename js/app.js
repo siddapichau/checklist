@@ -146,6 +146,8 @@ const App = {
                 // depois do fallback que mostra o login. Se já temos o usuário
                 // em cache e ele é o mesmo do Auth, garanta a volta ao app.
                 this.showApp();
+                // Garante que o Firebase lembra que está logado a cada hora
+                if (typeof startFirebaseAuthHeartbeat === 'function') startFirebaseAuthHeartbeat();
               }
             }
           } else {
@@ -202,6 +204,7 @@ const App = {
       // Já tem auth, mas sync será feito; enquanto isso mostra loading -> onAuth vai mostrar app
       this.currentUser = core.getCurrentUser(); // pode ser null ainda
       if (this.currentUser) this.showApp();
+      if (typeof startFirebaseAuthHeartbeat === 'function') startFirebaseAuthHeartbeat();
     } else if (!fbCurrent) {
       // Sem Firebase user, mostrar login
       this.showLogin();
