@@ -111,6 +111,35 @@ const Core = {
       delete data.settings.deepseekKey;
     }
 
+    // v19: Login 100% Firebase — remover qualquer passHash local legacy que possa
+    // ter ficado em versões anteriores. Senhas NÃO devem mais viver em localStorage.
+    if (Array.isArray(data.users)) {
+      let cleaned = false;
+      data.users.forEach(u => {
+        if (u && (u.passHash || u.pass || u.secretAnswerHash || u.secretQuestion)) {
+          delete u.passHash;
+          delete u.pass;
+          delete u.secretAnswerHash;
+          delete u.secretQuestion;
+          cleaned = true;
+        }
+        // Remover usuários legacy que nunca foram Firebase (admin-001, checklist.local)
+        if (u && (String(u.id) === 'admin-001' || String(u.email || '').endsWith('@checklist.local') || String(u.id || '').startsWith('local-'))) {
+          // Marcar para remoção abaixo
+        }
+      });
+      const before = data.users.length;
+      data.users = data.users.filter(u => {
+        const id = String(u.id || u.uid || '');
+        const email = String(u.email || '');
+        if (id === 'admin-001') return false;
+        if (email.endsWith('@checklist.local')) return false;
+        if (id.startsWith('local-')) return false;
+        return true;
+      });
+      if (data.users.length !== before) cleaned = true;
+    }
+
     // Migração de menu. Remove uma entrada inválida de versões antigas e inclui
     // páginas novas sem apagar a ordem definida pelo administrador.
     const validMenuIds = new Set(defaults.settings.menuItems.map(item => item.id));
