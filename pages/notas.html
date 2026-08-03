@@ -125,8 +125,9 @@
 </div>
 
 <!-- MODAL: NOTAS DO DIA (visão calendário) -->
-<div class="modal-overlay hidden" id="dayModal" onclick="if(event.target===this)closeDayModal()">
+<div class="modal-overlay hidden" id="dayModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeDayModal()" title="Fechar">✕</button>
     <h2 id="dayModalTitle">Recadinhos do dia</h2>
     <div id="dayModalList"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
@@ -137,8 +138,9 @@
 </div>
 
 <!-- MODAL: CRIAR/EDITAR RECADINHO -->
-<div class="modal-overlay hidden" id="noteModal" onclick="if(event.target===this)closeNoteModal()">
+<div class="modal-overlay hidden" id="noteModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeNoteModal()" title="Fechar">✕</button>
     <h2 id="noteModalTitle">📝 Novo recadinho</h2>
     <form onsubmit="saveNote(event)">
       <input type="hidden" id="noteId">
@@ -207,8 +209,9 @@
 </div>
 
 <!-- MODAL: VER RECADINHO (blog) -->
-<div class="modal-overlay hidden" id="viewModal" onclick="if(event.target===this)closeViewModal()">
+<div class="modal-overlay hidden" id="viewModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeViewModal()" title="Fechar">✕</button>
     <div id="viewContent"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px;flex-wrap:wrap">
       <button class="btn btn-secondary" onclick="toggleDoneFromView()" id="viewDoneBtn">✅ Marcar como feita</button>

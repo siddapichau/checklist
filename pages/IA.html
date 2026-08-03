@@ -19,6 +19,26 @@
     .ai-diag-item b{display:block;color:var(--text,#1E293B)}
     .ai-diag-item small{color:var(--muted,#94A3B8)}
     .ai-channel{font-size:11.5px;color:var(--muted,#94A3B8);margin-bottom:8px;display:block}
+    /* ---------- RESPOSTA DA IA (markdown renderizado) ---------- */
+    #answer .ai-md{font-size:14px;line-height:1.65;color:var(--text,#1E293B)}
+    #answer .ai-md p{margin:10px 0}
+    #answer .ai-md p:first-child{margin-top:0}
+    #answer .ai-md .ai-md-title{
+      font-size:15px;font-weight:800;color:var(--primary,#2563EB);margin:18px 0 8px;
+      padding-bottom:6px;border-bottom:2px solid var(--primary-light,#DBEAFE);
+      display:flex;align-items:center;gap:6px}
+    #answer .ai-md .ai-md-title:first-child{margin-top:2px}
+    #answer .ai-md .ai-md-list{margin:6px 0 12px;padding-left:6px;display:flex;flex-direction:column;gap:6px;list-style:none}
+    #answer .ai-md .ai-md-list li{
+      position:relative;padding:7px 10px 7px 26px;background:var(--bg-secondary,#F8FAFC);
+      border:1px solid var(--line,#E2E8F0);border-radius:8px;line-height:1.5}
+    #answer .ai-md ul.ai-md-list>li::before{content:'•';position:absolute;left:11px;top:7px;font-weight:800;color:var(--primary,#2563EB)}
+    #answer .ai-md ol.ai-md-list{list-style:decimal;padding-left:26px}
+    #answer .ai-md ol.ai-md-list>li{padding-left:8px}
+    #answer .ai-md ol.ai-md-list>li::marker{color:var(--primary,#2563EB);font-weight:800}
+    #answer .ai-md .ai-md-hr{border:0;border-top:1px dashed var(--line,#CBD5E1);margin:16px 0}
+    #answer .ai-md code{background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:5px;padding:1px 6px;font-size:12.5px}
+    #answer .ai-md b{color:var(--text,#0F172A)}
     .ai-learning-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin:12px 0}
     .ai-learning-stat{padding:12px;border:1px solid var(--line,#E2E8F0);border-radius:12px;background:var(--bg-secondary,#F1F5F9)}
     .ai-learning-stat small{display:block;color:var(--muted,#94A3B8);font-size:11.5px;margin-bottom:4px}
@@ -563,8 +583,17 @@ Use essa memória para adaptar tom, foco e recomendações; nunca use a memória
 2) Respeite exatamente o período solicitado. Se o usuário pedir datas futuras sem dados fornecidos, informe que não há dados disponíveis.
 3) "Atrasadas" = datas anteriores a ${today} ainda não concluídas; "Dia de referência" = tudo com data = ${referenceDate}. Separe claramente REALIZADAS (finished) vs PENDENTES/EM ANÁLISE/ATRASADAS. Em intervalos, analise todos os dias do intervalo.
 4) Se o usuário fizer MAIS DE UM PEDIDO na mesma pergunta (ex.: "resumo do dia e atrasadas e futuras e mais detalhes da 2ª atividade"), entregue TODOS, em SEÇÕES SEPARADAS e com títulos. Não ignore nenhum pedido.
-5) Se o usuário pedir "detalhes da N-ésima atividade" ou "mais detalhe da atividade X", use o campo "id" e "title" das listas abaixo para localizar e trazer o que sabe: status, prioridade, categoria, data, horário de alerta, descrição.
-6) Linguagem: português, clara, prática, com emojis e marcadores (• / 1./ 2.) para legibilidade.
+5) Se o usuário pedir "detalhes da N-ésima atividade" ou "mais detalhe da atividade X", use o campo "id" e "title" das listas abaixo APENAS para localizar a atividade internamente.
+6) NUNCA mostre IDs numéricos na resposta (nada de [1722123456789], "id: 123", "ID da atividade"). O ID é um dado técnico interno: na resposta visível, identifique cada atividade SOMENTE pelo TÍTULO.
+7) Linguagem: português, clara, prática, com emojis e marcadores (• / 1./ 2.) para legibilidade.
+
+FORMATAÇÃO DA RESPOSTA (obrigatória — o app renderiza markdown):
+- Cada bloco de assunto começa com um título de seção no formato "## emoji Título" (ex.: "## 📋 Resumo do dia").
+- Deixe UMA LINHA EM BRANCO entre o título e o conteúdo, e entre seções diferentes.
+- Listas de atividades: uma por linha começando com "- " e o TÍTULO em negrito (ex.: "- **Conferir pallets** — prioridade alta, vence hoje"). Nunca coloque ID nem colchetes com números.
+- Passos ou ordens sugeridas: lista numerada "1. ", "2. ", "3. ".
+- Separe grandes blocos (ex.: resumo vs detalhes vs sugestão de ordem) com uma linha "---".
+- Frases curtas e diretas; evite parágrafos longos.
 
 === DADOS DO PERÍODO SOLICITADO (${rangeLabel}: ${rangeStart} a ${rangeEnd}) ===
 ${rangeTasks.length ? rangeTasks.map(fmtTask).join('\n') : '(nenhuma atividade no período solicitado)'}
@@ -581,7 +610,7 @@ ${todayOpen.length ? todayOpen.map(fmtTask).join('\n') : '(nenhuma pendente/em a
 === PENDENTES (status pendente, não futuras) ===
 ${pendingAll.length ? pendingAll.map(fmtTask).join('\n') : '(nenhuma pendente)'}
 
-Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura quando o usuário pedir várias coisas: **📋 Resumo do dia** … **✅ Realizadas** … **⏳ Pendentes** … **⚠️ Atrasadas** … **🔍 Detalhes da atividade X** …`;
+Estruture SEMPRE em seções "## emoji Título". Exemplo quando o usuário pedir várias coisas: "## 📋 Resumo do dia" … "---" … "## ✅ Realizadas" … "---" … "## ⏳ Pendentes" … "---" … "## ⚠️ Atrasadas" … "---" … "## 🔍 Detalhes da atividade" … Lembre-se: títulos de atividades em negrito, sem IDs numéricos em nenhuma parte da resposta.`;
 
   const cfg = await aiConfig();
 
@@ -674,7 +703,7 @@ function showAnswer(text, question, channel, context = {}, ok = true) {
   } else {
     channelEl.style.display = 'none';
   }
-  document.getElementById('answer').innerHTML = formatAnswer(text);
+  document.getElementById('answer').innerHTML = '<div class="ai-md">' + formatAnswer(text) + '</div>';
 
   // Salvar no histórico (cache local + NUVEM — aparece em todos os aparelhos)
   aiHistory.unshift({
@@ -698,14 +727,16 @@ function showAnswer(text, question, channel, context = {}, ok = true) {
   core.log(ok ? 'ai_query' : 'ai_query_fallback', user?.id, question.slice(0, 50));
 }
 
+/* O renderizador mora em js/ai.js (AIClient.formatAnswer): converte o markdown
+   da IA em seções com títulos, listas espaçadas e separadores — e remove IDs
+   técnicos de atividades que não devem aparecer para o usuário. */
 function formatAnswer(text) {
-  let html = page.esc(String(text || ''));
-  html = html
+  if (window.AIClient && typeof AIClient.formatAnswer === 'function') return AIClient.formatAnswer(text);
+  // Fallback simples caso ai.js não tenha carregado
+  return page.esc(String(text || ''))
     .replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>')
     .replace(/\*([^*]+?)\*/g, '<i>$1</i>')
-    .replace(/\n/g, '<br>')
-    .replace(/- (.*?)(<br>|$)/g, '• $1$2');
-  return html;
+    .replace(/\n/g, '<br>');
 }
 
 function generateLocalResponse(question, ctx) {
@@ -714,9 +745,9 @@ function generateLocalResponse(question, ctx) {
   if (ctx.rangeStart && (ctx.rangeStart !== ctx.today || ctx.rangeEnd !== ctx.today)) {
     const byDay = {};
     (ctx.rangeTasks || []).forEach(t => { byDay[t.date] = (byDay[t.date] || 0) + 1; });
-    resp += `📅 **Período analisado: ${ctx.rangeLabel}** (${ctx.rangeStart} a ${ctx.rangeEnd})\n`;
-    resp += `Total de atividades: **${ctx.rangeTasks.length}**\n`;
-    resp += Object.keys(byDay).sort().map(d => `- ${d}: ${byDay[d]} atividade(s)`).join('\\n') + '\\n\\n';
+    resp += `## 📅 Período analisado: ${ctx.rangeLabel} (${ctx.rangeStart} a ${ctx.rangeEnd})\n\n`;
+    resp += `Total de atividades: **${ctx.rangeTasks.length}**\n\n`;
+    resp += Object.keys(byDay).sort().map(d => `- **${d}**: ${byDay[d]} atividade(s)`).join('\n') + '\n\n---\n\n';
   }
 
   // Detecta os pedidos do usuário (multi-pergunta)
@@ -732,71 +763,71 @@ function generateLocalResponse(question, ctx) {
   };
   const any = Object.values(wants).some(Boolean);
 
-  // =============== SEÇÕES ===============
+  // =============== SEÇÕES (títulos "## " — o formatador da resposta os renderiza) ===============
   if (wants.resumo || (!any)) {
-    resp += `📋 **Resumo do dia ${ctx.referenceDate} (${ctx.dayOfWeek}):**\n\n`;
+    resp += `## 📋 Resumo do dia ${ctx.referenceDate} (${ctx.dayOfWeek})\n\n`;
     if (ctx.isReferenceDayOff) resp += '- 🌴 Dia de folga: sem pendências operacionais para cobrar nesta data.\n';
     resp += `- Atividades da data: **${ctx.todayTasks.length}** (✅ ${ctx.todayDone.length} realizadas, ⏳ ${ctx.todayOpen.length} pendentes/em aberto, 🔍 ${ctx.todayAnalyzing.length} em análise)\n`;
     resp += `- Atrasadas: **${ctx.late.length}**\n`;
     resp += `- Pendentes: **${ctx.pending.length}**\n`;
-    resp += `- Progresso: **${ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0}%**\n\n`;
+    resp += `- Progresso: **${ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0}%**\n\n---\n\n`;
   }
   if (wants.atrasadas) {
-    resp += `⚠️ **Atrasadas (${ctx.late.length}):**\n`;
-    if (ctx.late.length === 0) resp += 'Nenhuma atrasada — parabéns! 🎉\n';
-    else ctx.late.slice(0, 10).forEach(t => { resp += `- ${t.title} (desde ${t.date})\n`; });
-    resp += '\n';
+    resp += `## ⚠️ Atrasadas (${ctx.late.length})\n\n`;
+    if (ctx.late.length === 0) resp += 'Nenhuma atrasada — parabéns! 🎉\n\n';
+    else ctx.late.slice(0, 10).forEach(t => { resp += `- **${t.title}** — atrasada desde ${t.date}\n`; });
+    resp += '\n---\n\n';
   }
   if (wants.urgentes) {
-    resp += `🚨 **Mais urgentes:**\n`;
+    resp += `## 🚨 Mais urgentes\n\n`;
     const urgentes = [...ctx.late, ...ctx.todayOpen]
       .filter(t => t.priority === 'urgent' || t.priority === 'high')
       .slice(0, 10);
-    if (!urgentes.length) resp += 'Nenhuma marcada como urgente/alta.\n';
-    else urgentes.forEach(t => { resp += `- ${t.title} (pri: ${t.priority}, ${t.date || 'sem data'})\n`; });
-    resp += '\n';
+    if (!urgentes.length) resp += 'Nenhuma marcada como urgente/alta.\n\n';
+    else urgentes.forEach(t => { resp += `- **${t.title}** — prioridade ${t.priority}, ${t.date || 'sem data'}\n`; });
+    resp += '\n---\n\n';
   }
   if (wants.futuras) {
-    resp += `🗓️ **Futuras:** a análise operacional deste app considera apenas HOJE, ATRASADAS e PENDENTES — datas futuras ficam para o dia marcado.\n\n`;
+    resp += `## 🗓️ Futuras\n\nA análise operacional deste app considera apenas HOJE, ATRASADAS e PENDENTES — datas futuras ficam para o dia marcado.\n\n---\n\n`;
   }
   if (wants.proximas) {
-    resp += `⏭️ **Pendentes/em aberto (${ctx.referenceDate}):**\n`;
-    if (!ctx.todayOpen.length) resp += 'Nenhuma atividade em aberto nesta data. ✅\n';
-    else ctx.todayOpen.slice(0, 10).forEach(t => { resp += `- ${t.title} (pri: ${t.priority || 'média'})\n`; });
-    resp += '\n';
+    resp += `## ⏭️ Pendentes/em aberto (${ctx.referenceDate})\n\n`;
+    if (!ctx.todayOpen.length) resp += 'Nenhuma atividade em aberto nesta data. ✅\n\n';
+    else ctx.todayOpen.slice(0, 10).forEach(t => { resp += `- **${t.title}** — prioridade ${t.priority || 'média'}\n`; });
+    resp += '\n---\n\n';
   }
   if (wants.ordem) {
-    resp += `📊 **Ordem sugerida:**\n`;
+    resp += `## 📊 Ordem sugerida\n\n`;
     resp += `1. 🔴 Atrasadas (${ctx.late.length})\n`;
     resp += `2. 🟡 Data de referência em aberto (${ctx.todayOpen.length})\n`;
-    resp += `3. 🟢 Pendentes por prioridade\n\n`;
+    resp += `3. 🟢 Pendentes por prioridade\n\n---\n\n`;
   }
   if (wants.detalhes) {
     // pega a primeira atividade HOJE como exemplo de "detalhe"
     const ex = ctx.todayTasks[0] || ctx.late[0] || ctx.pending[0];
     if (ex) {
-      resp += `🔍 **Detalhes da atividade (exemplo):**\n`;
-      resp += `- Título: ${ex.title}\n`;
-      resp += `- Status: ${ex.status}\n`;
-      resp += `- Prioridade: ${ex.priority || 'média'}\n`;
-      resp += `- Categoria: ${ex.category || 'Geral'}\n`;
-      resp += `- Data: ${ex.date || 'sem data'}\n`;
-      if (ex.alertTime) resp += `- Alerta: ${ex.alertTime}\n`;
-      if (ex.description) resp += `- Descrição: ${ex.description}\n`;
-      resp += '\n';
+      resp += `## 🔍 Detalhes da atividade (exemplo)\n\n`;
+      resp += `- **Título:** ${ex.title}\n`;
+      resp += `- **Status:** ${ex.status}\n`;
+      resp += `- **Prioridade:** ${ex.priority || 'média'}\n`;
+      resp += `- **Categoria:** ${ex.category || 'Geral'}\n`;
+      resp += `- **Data:** ${ex.date || 'sem data'}\n`;
+      if (ex.alertTime) resp += `- **Alerta:** ${ex.alertTime}\n`;
+      if (ex.description) resp += `- **Descrição:** ${ex.description}\n`;
+      resp += '\n---\n\n';
     }
   }
   if (wants.progresso) {
     const pct = ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0;
-    resp += `📈 **Progresso geral:** ${ctx.finished.length}/${ctx.totalTasks} concluídas (${pct}%).\n\n`;
+    resp += `## 📈 Progresso geral\n\n${ctx.finished.length}/${ctx.totalTasks} concluídas (**${pct}%**).\n\n`;
   }
 
   if (any) {
-    resp += `💡 Para uma análise mais detalhada, configure a API Key do DeepSeek em Administração → API / IA.`;
+    resp += `---\n\n💡 Para uma análise mais detalhada, configure a API Key do DeepSeek em Administração → API / IA.`;
   } else {
     // Fallback: visão geral curta
-    resp += `📊 **Visão geral:**\n`;
-    resp += `Total: ${ctx.totalTasks} | Pendentes: ${ctx.pending.length} | Atrasadas: ${ctx.late.length} | Feitas: ${ctx.finished.length}\n`;
+    resp += `## 📊 Visão geral\n\n`;
+    resp += `Total: **${ctx.totalTasks}** | Pendentes: **${ctx.pending.length}** | Atrasadas: **${ctx.late.length}** | Feitas: **${ctx.finished.length}**\n`;
   }
 
   return resp;

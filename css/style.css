@@ -442,6 +442,16 @@ input,select,textarea{font:inherit}
 }
 .modal h2{font-size:20px;margin-bottom:16px;color:var(--text)}
 .modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:20px}
+/* ---------- MODAL: fecha SOMENTE no botão X ----------
+   Clicar fora (no overlay escuro) não fecha mais o pop-up, evitando
+   perder uma edição por um toque acidental. */
+.modal{position:relative}
+.modal-close-x{
+  position:absolute;top:12px;right:12px;width:32px;height:32px;border:0;border-radius:50%;
+  background:var(--bg-secondary,#F1F5F9);color:var(--muted,#94A3B8);font-size:14px;font-weight:700;
+  cursor:pointer;display:flex;align-items:center;justify-content:center;transition:.15s;z-index:2;line-height:1;
+}
+.modal-close-x:hover{background:var(--danger,#EF4444);color:#fff;transform:scale(1.08)}
 .btn{
   border:0;border-radius:var(--radius);padding:10px 20px;font-weight:600;font-size:14px;
   transition:.15s;display:inline-flex;align-items:center;gap:6px;

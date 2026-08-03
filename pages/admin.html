@@ -4,6 +4,32 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="../css/page.css">
+  <style>
+    /* ---------- FUTUROS UPDATES ---------- */
+    .fu-hero{background:linear-gradient(135deg,var(--primary,#2563EB),var(--accent,#06B6D4));color:#fff;border-radius:16px;padding:22px 24px;margin-bottom:16px;box-shadow:0 10px 26px rgba(15,23,42,.16)}
+    .fu-hero h2{color:#fff;font-size:19px;margin-bottom:6px}
+    .fu-hero p{font-size:13.5px;opacity:.94;line-height:1.55;max-width:760px}
+    .fu-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:18px}
+    .fu-stat{background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:12px;padding:12px 14px;text-align:center}
+    .fu-stat b{display:block;font-size:22px;color:var(--text,#1E293B)}
+    .fu-stat small{font-size:11px;color:var(--muted,#94A3B8);font-weight:700;text-transform:uppercase;letter-spacing:.4px}
+    .fu-cat{font-size:15px;font-weight:800;color:var(--text,#1E293B);margin:20px 0 10px;display:flex;align-items:center;gap:8px;border-bottom:2px solid var(--primary-light,#DBEAFE);padding-bottom:6px}
+    .fu-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:12px;margin-bottom:8px}
+    .fu-card{background:var(--card,#fff);border:1px solid var(--line,#E2E8F0);border-radius:14px;padding:15px 16px;display:flex;flex-direction:column;gap:8px;transition:.18s}
+    .fu-card:hover{transform:translateY(-2px);box-shadow:0 8px 20px rgba(15,23,42,.09);border-color:var(--primary,#2563EB)}
+    .fu-card-head{display:flex;align-items:center;gap:9px}
+    .fu-card-ico{font-size:20px;width:38px;height:38px;border-radius:10px;background:var(--bg-secondary,#F1F5F9);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+    .fu-card-title{font-size:14px;font-weight:700;color:var(--text,#1E293B);line-height:1.35}
+    .fu-card-desc{font-size:12.5px;color:var(--text-secondary,#64748B);line-height:1.5;flex:1}
+    .fu-badges{display:flex;gap:6px;flex-wrap:wrap;margin-top:2px}
+    .fu-badge{font-size:10.5px;font-weight:700;padding:3px 9px;border-radius:20px;border:1px solid var(--line,#E2E8F0);color:var(--text-secondary,#64748B);background:var(--bg-secondary,#F8FAFC)}
+    .fu-badge.impact-high{background:var(--success-light,#D1FAE5);color:var(--success,#10B981);border-color:transparent}
+    .fu-badge.impact-med{background:var(--warning-light,#FEF3C7);color:var(--warning,#F59E0B);border-color:transparent}
+    .fu-badge.effort{background:var(--bg-secondary,#F1F5F9)}
+    .fu-badge.status{background:var(--primary-light,#DBEAFE);color:var(--primary,#2563EB);border-color:transparent}
+    .fu-note{font-size:12.5px;color:var(--muted,#94A3B8);margin-top:16px;line-height:1.55}
+    @media (max-width:600px){.fu-grid{grid-template-columns:1fr}}
+  </style>
   <title>Administração</title>
 </head>
 <body>
@@ -28,6 +54,7 @@
   <button class="tab" onclick="switchTab('api',this)">🔑 API / IA</button>
   <button class="tab" onclick="switchTab('backup',this)">💾 Backup</button>
   <button class="tab" onclick="switchTab('logs',this)">📜 Logs</button>
+  <button class="tab" onclick="switchTab('updates',this)">🚀 Futuros Updates</button>
 </div>
 
 <!-- TAB: APARÊNCIA -->
@@ -334,6 +361,23 @@
   </div>
 </div>
 
+<!-- TAB: FUTUROS UPDATES -->
+<div class="tab-content" id="tab-updates">
+  <div class="fu-hero">
+    <h2>🚀 Futuros Updates — roadmap de ideias</h2>
+    <p>Ideias de novas funções, páginas e mecanismos para as próximas versões do app.
+    Esta aba é o nosso quadro de planejamento: aqui o admin acompanha o que pode entrar
+    nas próximas sprints, com impacto e esforço estimados de cada item. O mesmo conteúdo
+    está documentado no arquivo <b>FUTUROS_UPDATES.md</b> do projeto.</p>
+  </div>
+  <div class="fu-stats" id="fuStats"></div>
+  <div id="fuBoard"></div>
+  <p class="fu-note">💡 <b>Como usar:</b> escolha os itens de maior impacto e menor esforço primeiro
+  (vitórias rápidas), valide com a equipe do turno e leve para a próxima sprint. Tem uma ideia nova?
+  Anote no arquivo <code>FUTUROS_UPDATES.md</code> ou peça para incluir aqui no próximo update — a aba aceita
+  status como <b>💡 Ideia</b>, <b>🧪 Em estudo</b>, <b>🗳️ Votação</b>, <b>🚧 Em desenvolvimento</b> e <b>✅ Entregue</b>.</p>
+</div>
+
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script src="../js/ai.js"></script>
@@ -378,6 +422,7 @@ renderNoteCategories();
 renderNotesAdmin();
 renderLogs();
 renderCustomThemes();
+renderFutureUpdates();
 loadAPIStatus();
 
 /* ========== TABS ========== */
@@ -1056,6 +1101,129 @@ async function clearAPI() {
   }
 }
 
+/* ========== FUTUROS UPDATES (roadmap de ideias) ========== */
+/* Catálogo das ideias para próximas versões. Para propor algo novo, basta
+   acrescentar um item aqui (mesma estrutura do arquivo FUTUROS_UPDATES.md).
+   status: '💡 Ideia' | '🧪 Em estudo' | '🗳️ Votação' | '🚧 Em desenvolvimento' | '✅ Entregue' */
+const FUTURE_UPDATE_GROUPS = [
+  { id: 'funcoes', label: '⚡ Novas funções' },
+  { id: 'paginas', label: '📄 Novas páginas' },
+  { id: 'mecanismos', label: '⚙️ Mecanismos & integrações' },
+  { id: 'ia', label: '🤖 IA & automação' },
+];
+
+const FUTURE_UPDATES = [
+  // ---- Novas funções ----
+  { group: 'funcoes', icon: '🎙️', title: 'Criar atividade por voz',
+    desc: 'Ditar a atividade pelo microfone (Web Speech API): o app transcreve e já sugere título, data e prioridade.',
+    impact: 'Alto', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '📸', title: 'Foto de evidência na atividade',
+    desc: 'Anexar foto do pallet, etiqueta ou avaria direto na atividade (Firebase Storage), servindo de prova na conferência.',
+    impact: 'Alto', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '🔔', title: 'Notificações push nativas',
+    desc: 'Alertas reais no celular (FCM) para horário de alerta da atividade, lembretes de notas e avisos do admin — mesmo com o app fechado.',
+    impact: 'Alto', effort: 'Alto', status: '🧪 Em estudo' },
+  { group: 'funcoes', icon: '🔁', title: 'Atividades recorrentes',
+    desc: 'Repetição diária/semanal/mensal: o sistema gera a cópia automaticamente na virada do dia operacional.',
+    impact: 'Alto', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '✅', title: 'Sub-itens dentro da atividade',
+    desc: 'Checklist interno com passos marcáveis e % de progresso, para atividades grandes (ex.: "auditar doca 4").',
+    impact: 'Médio', effort: 'Baixo', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '⏱️', title: 'Cronômetro por atividade (time tracking)',
+    desc: 'Botão iniciar/pausar medindo o tempo real de execução; totais alimentam os relatórios de produtividade.',
+    impact: 'Médio', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '✍️', title: 'Assinatura digital de turno',
+    desc: 'Conferente assina na tela ao fechar o checklist do turno; registro com nome, data e hora fica salvo no histórico.',
+    impact: 'Médio', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'funcoes', icon: '🖨️', title: 'Imprimir / PDF do checklist do dia',
+    desc: 'Gera um PDF limpo das atividades do dia para porta-prancheta ou crachá — útil onde o celular fica no armário.',
+    impact: 'Médio', effort: 'Baixo', status: '💡 Ideia' },
+
+  // ---- Novas páginas ----
+  { group: 'paginas', icon: '📺', title: 'Mural TV (modo telão)',
+    desc: 'Página para a TV do centro logístico: KPIs ao vivo, atrasadas em destaque, ranking do dia e clima do turno, com tela cheia e atualização automática.',
+    impact: 'Alto', effort: 'Médio', status: '🧪 Em estudo' },
+  { group: 'paginas', icon: '🗓️', title: 'Timeline / Gantt do turno',
+    desc: 'Barras por data e prioridade mostrando a carga da semana inteira, para enxergar gargalos antes de estourarem.',
+    impact: 'Médio', effort: 'Alto', status: '💡 Ideia' },
+  { group: 'paginas', icon: '🗺️', title: 'Mapa de calor de produtividade',
+    desc: 'Grade hora × dia com os picos de conclusão e os horários mortos — base para remanejar escala.',
+    impact: 'Médio', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'paginas', icon: '🏆', title: 'Loja de recompensas',
+    desc: 'Trocar os pontos da gamificação por prêmios configurados pelo admin (folga extra, destaque no mural, brindes).',
+    impact: 'Médio', effort: 'Médio', status: '💡 Ideia' },
+
+  // ---- Mecanismos & integrações ----
+  { group: 'mecanismos', icon: '📥', title: 'Importar atividades via CSV/Excel',
+    desc: 'Colar a planilha do WMS/Google Sheets e criar atividades em lote, com pré-visualização e validação antes de gravar.',
+    impact: 'Alto', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'mecanismos', icon: '👥', title: 'Atribuição para membros e equipes',
+    desc: 'Admin atribui atividades a pessoas específicas; o usuário aceita/recusa e acompanha o painel "minhas designações".',
+    impact: 'Alto', effort: 'Alto', status: '💡 Ideia' },
+  { group: 'mecanismos', icon: '🌐', title: 'Webhooks / API de entrada',
+    desc: 'Sistemas externos criam atividades automaticamente (ex.: caminhão chegou no pátio → cria "Conferir carga" para a equipe).',
+    impact: 'Médio', effort: 'Alto', status: '🧪 Em estudo' },
+  { group: 'mecanismos', icon: '🔐', title: 'Login com biometria no APK',
+    desc: 'Abrir o app com digital ou reconhecimento facial (WebAuthn), sem digitar senha no turno corrido.',
+    impact: 'Médio', effort: 'Alto', status: '💡 Ideia' },
+  { group: 'mecanismos', icon: '💬', title: 'Chat rápido por equipe',
+    desc: 'Mural de mensagens do turno com menções (@nome) e vínculo direto a uma atividade — fim dos bilhetes no WhatsApp.',
+    impact: 'Médio', effort: 'Alto', status: '💡 Ideia' },
+
+  // ---- IA & automação ----
+  { group: 'ia', icon: '🤖', title: 'Relatório automático de fim de turno',
+    desc: 'Todo dia no horário marcado, a IA gera o resumo do turno (feitas, atrasadas, pendências) e o admin recebe por e-mail ou WhatsApp.',
+    impact: 'Alto', effort: 'Médio', status: '💡 Ideia' },
+  { group: 'ia', icon: '🔮', title: 'Previsão de atraso',
+    desc: 'A IA analisa o histórico e avisa cedo quais atividades têm risco de estourar o prazo, sugerindo replanejamento.',
+    impact: 'Médio', effort: 'Alto', status: '🧪 Em estudo' },
+  { group: 'ia', icon: '🪄', title: 'Macro criada por IA',
+    desc: 'Descreva a mensagem em uma frase e a IA monta a macro completa — texto, variáveis {{...}} e campos c1–c10 — pronta para salvar.',
+    impact: 'Médio', effort: 'Baixo', status: '💡 Ideia' },
+  { group: 'ia', icon: '🗣️', title: 'Perguntar à IA por voz',
+    desc: 'Falar a pergunta na página IA Assistente (microfone) e ouvir a resposta em voz alta — operação 100% mãos livres.',
+    impact: 'Médio', effort: 'Médio', status: '💡 Ideia' },
+];
+
+function renderFutureUpdates() {
+  const statsEl = document.getElementById('fuStats');
+  const boardEl = document.getElementById('fuBoard');
+  if (!statsEl || !boardEl) return;
+
+  const byGroup = FUTURE_UPDATE_GROUPS.map(g => ({
+    ...g,
+    items: FUTURE_UPDATES.filter(i => i.group === g.id),
+  }));
+  const highImpact = FUTURE_UPDATES.filter(i => i.impact === 'Alto').length;
+
+  statsEl.innerHTML = `
+    <div class="fu-stat"><b>${FUTURE_UPDATES.length}</b><small>Ideias mapeadas</small></div>
+    <div class="fu-stat"><b>${FUTURE_UPDATE_GROUPS.length}</b><small>Frentes</small></div>
+    <div class="fu-stat"><b>${highImpact}</b><small>Impacto alto</small></div>
+    <div class="fu-stat"><b>${FUTURE_UPDATES.filter(i => i.status === '🧪 Em estudo').length}</b><small>Em estudo</small></div>
+    <div class="fu-stat"><b>${FUTURE_UPDATES.filter(i => i.effort === 'Baixo').length}</b><small>Vitórias rápidas</small></div>
+  `;
+
+  boardEl.innerHTML = byGroup.map(g => `
+    <h3 class="fu-cat">${g.label} <span class="badge member" style="font-size:11px">${g.items.length}</span></h3>
+    <div class="fu-grid">
+      ${g.items.map(i => `
+        <div class="fu-card">
+          <div class="fu-card-head">
+            <span class="fu-card-ico">${i.icon}</span>
+            <span class="fu-card-title">${page.esc(i.title)}</span>
+          </div>
+          <div class="fu-card-desc">${page.esc(i.desc)}</div>
+          <div class="fu-badges">
+            <span class="fu-badge ${i.impact === 'Alto' ? 'impact-high' : 'impact-med'}">🎯 Impacto ${i.impact}</span>
+            <span class="fu-badge effort">🛠️ Esforço ${i.effort}</span>
+            <span class="fu-badge status">${i.status}</span>
+          </div>
+        </div>`).join('')}
+    </div>
+  `).join('');
+}
+
 /* ========== LOGS ========== */
 function renderLogs() {
   data = page.getDB();
@@ -1370,6 +1538,7 @@ PageHelpAI.mount({
     { icon: '📝', title: 'Notas', body: 'Categorias dos recadinhos, estatísticas e remoção manual de qualquer nota. As notas nunca são apagadas automaticamente.' },
     { icon: '🔑', title: 'API / IA', body: 'Chave da IA (DeepSeek/Groq), modo de conexão e URL do proxy. Também tem teste de conexão com diagnóstico completo.' },
     { icon: '💾📜', title: 'Backup e Logs', body: 'Exportar/importar o banco completo e acompanhar o histórico de ações do sistema.' },
+    { icon: '🚀', title: 'Futuros Updates', body: 'Roadmap de ideias para as próximas versões: novas funções, páginas, mecanismos e automações com IA, com impacto e esforço estimados de cada item.' },
   ],
   tips: [
     'Depois de publicar o firestore.rules no Console do Firebase, use "Sincronizar agora" para propagar.',

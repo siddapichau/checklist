@@ -69,6 +69,20 @@
 .pha-status{font-size:12px;color:var(--muted,#94A3B8);margin-top:8px;display:none;line-height:1.45}
 .pha-answer{margin-top:12px;font-size:13.5px;line-height:1.65;color:var(--text,#1E293B)}
 .pha-answer .pha-channel{display:block;font-size:11.5px;color:var(--muted,#94A3B8);margin-bottom:6px}
+/* resposta da IA formatada (mesmo visual da página IA Assistente) */
+.pha-answer .ai-md p{margin:8px 0}
+.pha-answer .ai-md .ai-md-title{font-size:13.5px;font-weight:800;color:var(--primary,#2563EB);
+  margin:14px 0 6px;padding-bottom:4px;border-bottom:2px solid var(--primary-light,#DBEAFE)}
+.pha-answer .ai-md .ai-md-title:first-child{margin-top:0}
+.pha-answer .ai-md .ai-md-list{margin:4px 0 10px;padding-left:6px;display:flex;flex-direction:column;gap:5px;list-style:none}
+.pha-answer .ai-md .ai-md-list li{position:relative;padding:6px 9px 6px 24px;background:var(--bg-secondary,#F8FAFC);
+  border:1px solid var(--line,#E2E8F0);border-radius:8px;line-height:1.5}
+.pha-answer .ai-md ul.ai-md-list>li::before{content:'•';position:absolute;left:10px;top:6px;font-weight:800;color:var(--primary,#2563EB)}
+.pha-answer .ai-md ol.ai-md-list{list-style:decimal;padding-left:24px}
+.pha-answer .ai-md ol.ai-md-list>li{padding-left:6px}
+.pha-answer .ai-md ol.ai-md-list>li::marker{color:var(--primary,#2563EB);font-weight:800}
+.pha-answer .ai-md .ai-md-hr{border:0;border-top:1px dashed var(--line,#CBD5E1);margin:12px 0}
+.pha-answer .ai-md code{background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:5px;padding:1px 5px;font-size:12px}
 .pha-note{display:block;font-size:11.5px;color:var(--muted,#94A3B8);margin-top:10px;line-height:1.5}
 `;
 
@@ -114,7 +128,8 @@
     const overlay = document.createElement('div');
     overlay.className = 'modal-overlay hidden';
     overlay.id = 'phaOverlay';
-    overlay.onclick = (e) => { if (e.target === overlay) close(); };
+    // O pop-up NÃO fecha ao clicar fora (overlay): evita perder a digitação
+    // por um toque acidental — só fecha no botão ✕.
     overlay.innerHTML = `
       <div class="modal pha-modal" role="dialog" aria-label="Ajuda desta página">
         <div class="pha-head">
@@ -212,6 +227,8 @@
     }
     lines.push('',
       'Responda em português, de forma clara, prática e objetiva. Use emojis e passos numerados quando fizer sentido.',
+      'Formatação obrigatória: seções com título "## emoji Título", uma linha em branco entre seções, itens de lista começando com "- ", passos numerados "1. 2. 3." e frases curtas. Separe blocos grandes com uma linha "---".',
+      'Nunca mostre IDs numéricos internos (ex.: [1722123456789]); cite registros sempre pelo nome/título.',
       'Se a pergunta for sobre outra página ou sobre o sistema em geral, responda brevemente e direcione para a página certa.');
     return lines.join('\n');
   }
@@ -235,12 +252,14 @@
     return `🤖 **Sobre "${c.title}":**\n\n${c.intro || ''}\n\n${list((c.tips || []).slice(0, 3))}\n\nPara uma resposta mais específica, configure a chave da IA (Administração → API / IA) — assim a IA analisa seus dados reais.`;
   }
 
+  /* O renderizador completo mora em js/ai.js (AIClient.formatAnswer): títulos
+     de seção, listas espaçadas, separadores e remoção de IDs técnicos. */
   function formatAnswer(text) {
-    return String(text || '')
+    if (window.AIClient && typeof AIClient.formatAnswer === 'function') return AIClient.formatAnswer(text);
+    return esc(String(text || ''))
       .replace(/\n/g, '<br>')
       .replace(/\*\*(.*?)\*\*/g, '<b>$1</b>')
-      .replace(/\*(.*?)\*/g, '<i>$1</i>')
-      .replace(/- (.*?)(<br>|$)/g, '• $1$2');
+      .replace(/\*(.*?)\*/g, '<i>$1</i>');
   }
 
   /* ---------- perguntar ---------- */
@@ -299,7 +318,7 @@
     if (!el) return;
     el.innerHTML = `
       ${channel ? `<span class="pha-channel">Respondido via ${esc(channel)}</span>` : ''}
-      <div>${formatAnswer(text)}</div>
+      <div class="ai-md">${formatAnswer(text)}</div>
       ${isLocal ? '<span class="pha-note">ℹ️ Resposta local da página (a IA real está disponível quando a API Key estiver configurada).</span>' : ''}`;
   }
 

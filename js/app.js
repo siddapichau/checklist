@@ -2147,8 +2147,10 @@ const App = {
   showModal(html) {
     const container = document.getElementById('modalContainer');
     if (!container) return;
-    container.innerHTML = `<div class="modal-overlay" onclick="if(event.target===this)App.closeModal()">
-      <div class="modal">${html}</div>
+    // O pop-up só fecha no botão X (ou nas ações do próprio conteúdo):
+    // clicar fora não fecha, para ninguém perder uma edição por acidente.
+    container.innerHTML = `<div class="modal-overlay">
+      <div class="modal"><button type="button" class="modal-close-x" onclick="App.closeModal()" title="Fechar">✕</button>${html}</div>
     </div>`;
   },
 

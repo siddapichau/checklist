@@ -37,7 +37,10 @@
 //       Background Sync, exportação diária e acessibilidade.
 // v20 = 100% Firebase Auth + reCAPTCHA Enterprise (site key 6LfG1HIt...), fluxos completos
 //       de verificação de e-mail, reset de senha, troca de senha via reauth, App Check.
-const CACHE_NAME = 'checklist-ml-v20-firebase-recaptcha-enterprise';
+// v21 = Macros com datas relativas ({{data-1}}, {{data+1}}, {{data±N}}), modais que
+//       só fecham no botão X (clique fora não fecha mais), visual da resposta da IA
+//       reformulado (sem IDs, seções separadas) e aba "Futuros Updates" no Admin.
+const CACHE_NAME = 'checklist-ml-v21-macros-datas-modais-x-ia-visual';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',

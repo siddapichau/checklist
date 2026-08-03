@@ -52,8 +52,9 @@
 </div>
 
 <!-- MODAL: Detalhes do dia -->
-<div class="modal-overlay hidden" id="dayModal" onclick="if(event.target===this)closeDayModal()">
+<div class="modal-overlay hidden" id="dayModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeDayModal()" title="Fechar">✕</button>
     <h2 id="dayModalTitle">Atividades do dia</h2>
     <div id="dayModalList"></div>
     <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:16px">
@@ -66,8 +67,9 @@
 <!-- MODAL: DETALHE DA ATIVIDADE (local — page.openModal renderizaria no
      documento pai e os botões submitComment/page.closeModal nunca existiam
      lá; por isso comentários e "Fechar" não faziam nada) -->
-<div class="modal-overlay hidden" id="taskViewModal" onclick="if(event.target===this)closeTaskModal()">
+<div class="modal-overlay hidden" id="taskViewModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeTaskModal()" title="Fechar">✕</button>
     <div id="taskViewBody"></div>
     <div class="comments-section" style="margin-top:14px">
       <h3>💬 Comentários (<span id="taskViewCommentCount">0</span>)</h3>

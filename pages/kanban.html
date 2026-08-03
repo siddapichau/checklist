@@ -31,8 +31,9 @@
 <div class="kanban-board" id="kanbanBoard"></div>
 
 <!-- MODAL: Adicionar/editar cartão -->
-<div class="modal-overlay hidden" id="cardModal" onclick="if(event.target===this)closeCardModal()">
+<div class="modal-overlay hidden" id="cardModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeCardModal()" title="Fechar">✕</button>
     <h2 id="cardModalTitle">Novo cartão</h2>
     <form onsubmit="saveCard(event)">
       <input type="hidden" id="cardId">
@@ -87,8 +88,9 @@
 
 <!-- MODAL: COMENTÁRIOS (local — handlers desta página; o modal do shell
      roda no documento pai e por isso nunca encontrava submitComment/page) -->
-<div class="modal-overlay hidden" id="commentsModal" onclick="if(event.target===this)closeCommentsModal()">
+<div class="modal-overlay hidden" id="commentsModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeCommentsModal()" title="Fechar">✕</button>
     <h2 id="commentsTitle">💬 Comentários</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
     <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>
