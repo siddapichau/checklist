@@ -289,8 +289,84 @@
     return rows;
   }
 
+  /* ============ FORMATADOR DA RESPOSTA DA IA ============
+   Converte o markdown simples devolvido pela IA em HTML seguro e bem
+   distribuído visualmente: títulos de seção, listas com espaçamento,
+   negrito/itálico, separadores e parágrafos. Também remove IDs técnicos
+   de atividades (ex.: [1722123456789], id: 123...) que a IA possa ecoar
+   do contexto — eles são internos e nunca devem aparecer para o usuário. */
+  function stripActivityIds(text) {
+    return String(text || '')
+      .replace(/\[\s*\d{5,}\s*\]/g, '')                                    // [1722123456789]
+      .replace(/\(\s*id\s*[:#]?\s*\d+\s*\)/gi, '')                         // (id: 123)
+      .replace(/\bid\s*[:#]\s*\d{5,}\b/gi, '')                             // id: 1722123456789
+      .replace(/\bID\s+(?:da\s+atividade\s+)?(?:n[º°.]?\s*)?\d{5,}\b/g, '') // "ID da atividade 1722..."
+      .replace(/[ \t]{2,}/g, ' ');
+  }
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function formatInline(escapedText) {
+    return escapedText
+      .replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>')
+      .replace(/(^|[^*])\*([^*\n]+?)\*/g, '$1<i>$2</i>')
+      .replace(/`([^`]+)`/g, '<code>$1</code>');
+  }
+
+  /* Renderiza markdown básico em blocos: ##/### títulos, --- divisor,
+     listas "- "/"• " e "1. ", parágrafos separados por linha em branco. */
+  function formatAnswer(raw) {
+    // Alguns canais/modelos devolvem "\n" literal (barra + n) em vez de
+    // quebra de linha real — normaliza antes de processar.
+    const text = stripActivityIds(raw).replace(/\\n/g, '\n');
+    const lines = escapeHtml(text).split(/\r?\n/);
+    const out = [];
+    let listType = null;   // 'ul' | 'ol' | null
+    let para = [];
+
+    const closeList = () => {
+      if (listType) { out.push(`</${listType}>`); listType = null; }
+    };
+    const closePara = () => {
+      if (para.length) { out.push(`<p>${para.join('<br>')}</p>`); para = []; }
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine;
+      const trimmed = line.trim();
+
+      let m;
+      if ((m = trimmed.match(/^(#{1,4})\s+(.+)$/))) {
+        closeList(); closePara();
+        out.push(`<h3 class="ai-md-title">${formatInline(m[2])}</h3>`);
+      } else if (/^(-{3,}|\*{3,}|_{3,})$/.test(trimmed)) {
+        closeList(); closePara();
+        out.push('<hr class="ai-md-hr">');
+      } else if ((m = trimmed.match(/^[-•*]\s+(.+)$/))) {
+        closePara();
+        if (listType !== 'ul') { closeList(); out.push('<ul class="ai-md-list">'); listType = 'ul'; }
+        out.push(`<li>${formatInline(m[1])}</li>`);
+      } else if ((m = trimmed.match(/^\d+[.)]\s+(.+)$/))) {
+        closePara();
+        if (listType !== 'ol') { closeList(); out.push('<ol class="ai-md-list">'); listType = 'ol'; }
+        out.push(`<li>${formatInline(m[1])}</li>`);
+      } else if (trimmed === '') {
+        closeList(); closePara();
+      } else {
+        para.push(formatInline(trimmed));
+      }
+    }
+    closeList(); closePara();
+    return out.join('');
+  }
+
   window.AIClient = {
     chat, probe, diagnose, checkAdminDocAccess, buildAttempts, fetchWithTimeout, normalizeBase,
+    formatAnswer, stripActivityIds,
     PUBLIC_PROXIES, DEEPSEEK_HOST, GROQ_HOST, CHAT_PATH, MODELS_PATH,
   };
 })();

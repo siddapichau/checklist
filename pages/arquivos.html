@@ -48,8 +48,9 @@
 </div>
 
 <!-- MODAL ADICIONAR ARQUIVO -->
-<div class="modal-overlay hidden" id="fileModal" onclick="if(event.target===this)closeFileModal()">
+<div class="modal-overlay hidden" id="fileModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeFileModal()" title="Fechar">✕</button>
     <h2>📁 Adicionar arquivo / link</h2>
     <p class="text-muted" style="font-size:12px;margin:-8px 0 14px">A thumbnail é gerada automaticamente conforme o tipo se não for informada.</p>
     <form onsubmit="saveFile(event)">

@@ -45,8 +45,9 @@
 <div id="taskList"></div>
 
 <!-- MODAL NOVA/EDITAR ATIVIDADE -->
-<div class="modal-overlay hidden" id="taskModal" onclick="if(event.target===this)closeModal()">
+<div class="modal-overlay hidden" id="taskModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeModal()" title="Fechar">✕</button>
     <h2 id="modalTitle">Nova atividade</h2>
     <form onsubmit="saveTask(event)">
       <input type="hidden" id="taskId">
@@ -117,8 +118,9 @@
 </div>
 
 <!-- MODAL: COMPARTILHAR ATIVIDADE (local — execute handlers desta página) -->
-<div class="modal-overlay hidden" id="shareModal" onclick="if(event.target===this)closeShareModal()">
+<div class="modal-overlay hidden" id="shareModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeShareModal()" title="Fechar">✕</button>
     <h2>🔗 Compartilhar atividade</h2>
     <div id="shareSummary" style="margin-bottom:16px;padding:12px;background:var(--bg-secondary,#F1F5F9);border-radius:8px"></div>
     <label><span>Link para compartilhar</span>
@@ -143,8 +145,9 @@
 </div>
 
 <!-- MODAL: COMENTÁRIOS (local) -->
-<div class="modal-overlay hidden" id="commentsModal" onclick="if(event.target===this)closeCommentsModal()">
+<div class="modal-overlay hidden" id="commentsModal">
   <div class="modal">
+    <button type="button" class="modal-close-x" onclick="closeCommentsModal()" title="Fechar">✕</button>
     <h2 id="commentsTitle">💬 Comentários</h2>
     <p style="color:var(--muted);font-size:13px;margin-bottom:16px">Comentários da atividade</p>
     <div class="comments-list" id="commentsList" style="max-height:300px;overflow-y:auto;margin-bottom:12px"></div>

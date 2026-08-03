@@ -75,13 +75,14 @@
 <div id="macroEmpty" class="empty" style="display:none">
   <div class="icon">💬</div>
   <h2>Nenhuma macro por aqui</h2>
-  <p>Crie modelos de mensagens (respostas rápidas, avisos, comunicados) e reutilize com variáveis como <code>{{nome}}</code> e <code>{{data}}</code></p>
+  <p>Crie modelos de mensagens (respostas rápidas, avisos, comunicados) e reutilize com variáveis como <code>{{nome}}</code>, <code>{{data}}</code> e datas relativas <code>{{data-1}}</code> / <code>{{data+1}}</code></p>
   <button class="btn btn-primary" onclick="openEditor()" style="margin-top:14px">＋ Criar minha primeira macro</button>
 </div>
 
 <!-- MODAL EDITOR -->
-<div class="modal-overlay hidden" id="editorModal" onclick="if(event.target===this)closeEditor()">
+<div class="modal-overlay hidden" id="editorModal">
   <div class="modal" style="width:min(680px,100%)">
+    <button type="button" class="modal-close-x" onclick="closeEditor()" title="Fechar">✕</button>
     <h2 id="editorTitle">✨ Nova macro</h2>
     <form onsubmit="saveMacro(event)">
       <input type="hidden" id="macroId">
@@ -148,7 +149,7 @@
         <span class="tb-sep"></span>
         <button type="button" title="Emojis" onclick="toggleEmoji()">😀</button>
       </div>
-      <div class="editor-area" id="macroContent" contenteditable="true" data-placeholder="Escreva o modelo da mensagem... Use variáveis como {{nome}}, {{data}}, {{hora}}, {{usuario}}, {{saldação}}" oninput="updateStats();updatePreview()"></div>
+      <div class="editor-area" id="macroContent" contenteditable="true" data-placeholder="Escreva o modelo da mensagem... Use variáveis como {{nome}}, {{data}}, {{data-1}} (ontem), {{data+1}} (amanhã), {{hora}}, {{usuario}}, {{saldação}}" oninput="updateStats();updatePreview()"></div>
       <div class="emoji-row chip-row hidden" id="emojiRow"></div>
       <div class="editor-stats">
         <span id="charCount">0 caracteres · 0 palavras</span>
@@ -170,8 +171,9 @@
 </div>
 
 <!-- MODAL USAR / COPIAR -->
-<div class="modal-overlay hidden" id="useModal" onclick="if(event.target===this)closeUseModal()">
+<div class="modal-overlay hidden" id="useModal">
   <div class="modal" style="width:min(560px,100%)">
+    <button type="button" class="modal-close-x" onclick="closeUseModal()" title="Fechar">✕</button>
     <h2>📋 Usar macro</h2>
     <div id="useEmailBox" style="display:none">
       <label><span>📧 E-mails de destino</span>
@@ -239,7 +241,9 @@ const EMOJIS = ['😀','😊','👍','🙏','✅','⚠️','🚨','📦','🚚',
     catSel.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
   });
   document.getElementById('varChips').innerHTML =
-    VAR_CHIPS.map(v => `<button type="button" onclick="insertVar('${v}')">{{${v}}}</button>`).join('');
+    VAR_CHIPS.map(v => `<button type="button" onclick="insertVar('${v}')">{{${v}}}</button>`).join('')
+    + `<button type="button" onclick="insertVar('data-1')" title="Ontem (hoje − 1 dia)">{{data-1}}</button>`
+    + `<button type="button" onclick="insertVar('data+1')" title="Amanhã (hoje + 1 dia)">{{data+1}}</button>`;
   document.getElementById('emojiRow').innerHTML =
     EMOJIS.map(e => `<button type="button" onclick="insertAtCaret('${e}')">${e}</button>`).join('');
   render();
@@ -518,18 +522,28 @@ function extractVars(html) {
   return [...found];
 }
 
+/* Datas relativas: {{data-1}} = ontem, {{data+1}} = amanhã, {{data±N}} =
+   N dias antes/depois de hoje — sempre no horário oficial de São Paulo. */
+function relativeDateValue(sign, days) {
+  const delta = (sign === '-' ? -1 : 1) * parseInt(days, 10);
+  return core.formatDate(core.addDays(core.today(), delta));
+}
+
 function substituteVars(html, values, highlightEmpty) {
   // Chips do editor voltam a ser texto puro antes da substituição
   const normalized = html
-    .replace(/<span class="var-chip">\s*\{\{\s*([\wÀ-ÿ]+)\s*\}\}\s*<\/span>/g, '{{$1}}')
+    .replace(/<span class="var-chip">\s*\{\{\s*([\wÀ-ÿ][\wÀ-ÿ+\-]*)\s*\}\}\s*<\/span>/g, '{{$1}}')
     .replace(/<span class="var-chip">\s*(\{\s*c(?:[1-9]|10)\s*\})\s*<\/span>/gi, '$1');
-  // 1º: variáveis {{...}} (nome, data, hora, usuário...)
-  let out = normalized.replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (all, name) => {
+  // 1º: datas relativas {{data-N}} / {{data+N}} — calculadas automaticamente
+  let out = normalized.replace(/\{\{\s*data\s*([+-])\s*(\d+)\s*\}\}/gi,
+    (all, sign, n) => page.esc(relativeDateValue(sign, n)));
+  // 2º: variáveis {{...}} (nome, data, hora, usuário...)
+  out = out.replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (all, name) => {
     const v = values[name];
     if (v !== undefined && v !== '') return page.esc(v);
     return highlightEmpty ? `<span class="var-chip">{{${name}}}</span>` : `{{${name}}}`;
   });
-  // 2º: campos c1–c10 — {c1}…{c10} preenchidos com o valor do campo
+  // 3º: campos c1–c10 — {c1}…{c10} preenchidos com o valor do campo
   out = out.replace(/\{\s*(c(?:[1-9]|10))\s*\}/gi, (all, name) => {
     const key = name.toLowerCase();
     const v = values[key];
@@ -714,7 +728,7 @@ PageHelpAI.mount({
   sections: [
     { icon: '📄', title: 'Tipos: Mensagem ou E-mail', body: 'Ao criar, escolha o tipo. No tipo E-mail aparecem os campos de destinatários e assunto, e o botão "Mandar e-mail" abre o Gmail já preenchido.' },
     { icon: '⚙️', title: 'Campos c1–c10', body: 'Cada macro tem 10 campos (c1 a c10). Escreva {c1}, {c2} … {c10} no texto; ao usar a macro, preencha os campos e a informação entra no texto final.' },
-    { icon: '{{}}', title: 'Variáveis dinâmicas', body: 'Use {{nome}}, {{cliente}}, {{data}}, {{hora}}, {{usuario}} e {{saudação}} — preenchidas automaticamente na hora de usar.' },
+    { icon: '{{}}', title: 'Variáveis dinâmicas', body: 'Use {{nome}}, {{cliente}}, {{data}}, {{hora}}, {{usuario}} e {{saudação}} — preenchidas automaticamente na hora de usar. Datas relativas: {{data-1}} traz ontem, {{data+1}} traz amanhã, e dá para variar ({{data-7}}, {{data+30}}).' },
     { icon: '📋', title: 'Copiar', body: 'Ao usar a macro, copie como texto puro ou com formatação. Para e-mail, o corpo é copiado automaticamente para colar com Ctrl+V no Gmail.' },
   ],
   tips: [
@@ -722,6 +736,7 @@ PageHelpAI.mount({
     'No tipo E-mail, defina os destinatários uma vez na macro — na hora de enviar é só conferir.',
     'Gatilhos (/boasvindas) ajudam a achar a macro rápido pela busca.',
     'Use {{saudação}} para cumprimentar conforme o horário automaticamente.',
+    'Datas vivas: {{data-1}} vira ontem e {{data+1}} vira amanhã na hora de copiar — ótimo para relatórios de turno ("segue o fechamento de {{data-1}}").',
   ],
   quickQuestions: [
     'Como funciona esta página?',
