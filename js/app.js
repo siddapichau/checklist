@@ -577,15 +577,16 @@ const App = {
               }
             }
 
-            this.currentUser = {
-              id: user.id, uid: user.uid || user.id,
-              username: user.username || user.user,
-              email: user.email, name: user.name,
-              lastName: user.lastName || '', phone: user.phone || '',
-              address: user.address || '',
-              avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
-              role: role, provider: 'local'
-            };
+      this.currentUser = {
+            id: user.id, uid: user.uid || user.id,
+            username: user.username || user.user,
+            email: user.email, name: user.name,
+            lastName: user.lastName || '', phone: user.phone || '',
+            address: user.address || '',
+            avatar: user.avatar || '', avatarType: user.avatarType || 'emoji',
+            role: role, provider: 'local',
+            secretQuestion: user.secretQuestion || ''
+          };
             core.setCurrentUser(this.currentUser);
             if (remember) core.setRememberedUser(this.currentUser);
             core.log('login', this.currentUser.id, 'Login local');
@@ -902,7 +903,8 @@ const App = {
       avatarType: profile.avatarType || (fbUser.photoURL ? 'google' : 'emoji'),
       fontScale: profile.fontScale || 'normal',
       role: profile.role || 'member',
-      provider: profile.provider || 'password'
+      provider: profile.provider || 'password',
+      secretQuestion: profile.secretQuestion || ''
     };
 
     core.setCurrentUser(this.currentUser);
@@ -927,6 +929,19 @@ const App = {
       if (uid && auth.currentUser?.uid === uid) fireSync.start(uid);
     }, 500);
     core.toast('Bem-vindo, ' + (this.currentUser.name || this.currentUser.username) + '!', 'success');
+
+    // Para usuários existentes sem pergunta secreta (exceto Google): pedir para cadastrar no perfil
+    setTimeout(() => {
+      if (this.currentUser && (this.currentUser.provider !== 'google.com' && this.currentUser.provider !== 'google')) {
+        const data = core.getLocalDB();
+        const prof = data.users.find(u => (u.id||u.uid) === (this.currentUser.id || this.currentUser.uid));
+        if (prof && !prof.secretQuestion) {
+          core.toast('Cadastre sua pergunta secreta no Perfil para poder recuperar senha por lá!', 'warning');
+          // Opcional: abrir perfil automaticamente
+          // this.navigate('perfil');
+        }
+      }
+    }, 1800);
   },
 
   async handleRegister(e) {
@@ -956,10 +971,19 @@ const App = {
       const cred = await auth.createUserWithEmailAndPassword(email, password);
       await cred.user.updateProfile({ displayName: username });
 
-      const profileFS = {
+      const secretQ = document.getElementById('regSecretQ')?.value || '';
+    const secretA = document.getElementById('regSecretA')?.value.trim() || '';
+    let secretAnswerHash = '';
+    if (secretA) {
+      try { secretAnswerHash = await core.hashPassword(secretA.toLowerCase()); } catch(e){}
+    }
+
+    const profileFS = {
         username, email,
         name: username, lastName: '', phone: '', address: '',
         avatar: '', avatarType: 'emoji',
+        secretQuestion: secretQ,
+        secretAnswerHash: secretAnswerHash,
         role: this.isBootstrapAdminEmail(email) ? 'admin' : 'member', banned: false,
         createdAt: firebase.firestore.FieldValue.serverTimestamp(),
         provider: 'password'
@@ -977,7 +1001,12 @@ const App = {
         console.warn('Erro ao criar user no Firestore:', setErr);
       }
 
-      data.users.push({ id: cred.user.uid, uid: cred.user.uid, ...savedProfile, passHash: await core.hashPassword(password) });
+      const localReg = { id: cred.user.uid, uid: cred.user.uid, ...savedProfile, passHash: await core.hashPassword(password) };
+      if (secretAnswerHash) {
+        localReg.secretQuestion = secretQ;
+        localReg.secretAnswerHash = secretAnswerHash;
+      }
+      data.users.push(localReg);
       core.saveLocalDB(data);
 
       await this.loginSuccess(cred.user, false);
@@ -1049,7 +1078,8 @@ const App = {
             avatarType: profile.avatarType || 'emoji',
             fontScale: profile.fontScale || 'normal',
             role: profile.role || 'member',
-            provider: profile.provider || 'google.com'
+            provider: profile.provider || 'google.com',
+            secretQuestion: profile.secretQuestion || ''
           };
           core.setCurrentUser(this.currentUser);
           // Tema por usuário: adota tema/modo do perfil, se existir.

@@ -589,12 +589,13 @@ function confirmDeleteTask(id) {
     // Exclui do Firestore em background — o Firestore replica a exclusão
     // local, então a atividade some em todos os dispositivos do usuário.
     if (task) page.deleteDocument('tasks', task.id);
-    App.closeModal();
+    try { page.closeModal(); } catch(e){}
     page.toast('Atividade excluída definitivamente 🗑️', 'info');
     render();
     window.parent.postMessage({ type: 'updateBadge' }, '*');
-  } catch (err) {
-    if (err) { err.textContent = 'Erro ao excluir: ' + (err.message || err); err.style.display = 'block'; }
+  } catch (e) {
+    const errEl = document.getElementById('confirmDeleteError');
+    if (errEl) { errEl.textContent = 'Erro ao excluir: ' + (e.message || e); errEl.style.display = 'block'; }
     if (btn) { btn.disabled = false; btn.textContent = '🗑️ Excluir definitivamente'; }
   }
 }
@@ -836,7 +837,10 @@ function materializeDailyOccurrence() {
   const data = page.getDB();
   const today = core.today();
   const currentUser = page.getUser();
-  if (core.isDayOff(today, currentUser)) return;
+  if (core.isDayOff(today, currentUser)) {
+    // Folga: NÃO registrar NENHUMA atividade nova (nem recorrentes) no dia de folga
+    return;
+  }
   // Normalizar date local para string antes de comparar (garante não duplicar por tipo diferente)
   (data.tasks || []).forEach(t => {
     if (t.date && t.date instanceof Date) t.date = core.dateKeyFromLocalDate(t.date);

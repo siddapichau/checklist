@@ -121,6 +121,46 @@
         </p>
         <button class="btn btn-secondary" style="width:100%" onclick="sendResetEmail()">📧 Enviar link de redefinição</button>
       </div>
+
+      <!-- PERGUNTA SECRETA (recuperação no perfil) -->
+      <div id="secretQuestionBlock" style="margin-top:16px;padding-top:16px;border-top:1px solid var(--line)">
+        <h3 style="font-size:14px;margin-bottom:8px">🔐 Pergunta secreta (troca de senha no perfil)</h3>
+        <div id="secretStatus"></div>
+        <div id="secretFormContainer">
+          <form onsubmit="setupOrChangeSecret(event)">
+            <label><span>Pergunta</span>
+              <select id="secretQ" required>
+                <option value="">Selecione...</option>
+                <option value="cidade de nascimento da mãe">Cidade de nascimento da mãe</option>
+                <option value="Primeiro animal de estimação">Primeiro animal de estimação</option>
+                <option value="Comida favorita">Comida favorita</option>
+              </select>
+            </label>
+            <label><span>Resposta secreta</span>
+              <input type="text" id="secretA" required placeholder="Resposta exata (case insensitive)">
+            </label>
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:6px" id="btnSecret">Salvar pergunta secreta</button>
+          </form>
+          <div style="margin-top:12px">
+            <small class="text-muted">Use a pergunta para trocar senha abaixo (apenas no perfil).</small>
+          </div>
+        </div>
+
+        <div id="secretChangePass" style="display:none;margin-top:12px;padding-top:12px;border-top:1px dashed var(--line)">
+          <form onsubmit="changePasswordWithSecret(event)">
+            <label><span>Resposta secreta para confirmar</span>
+              <input type="text" id="secretVerifyA" required placeholder="Digite a resposta secreta">
+            </label>
+            <label><span>Nova senha</span>
+              <input type="password" id="secretNewPass" required>
+            </label>
+            <label><span>Confirmar nova senha</span>
+              <input type="password" id="secretNewPassConfirm" required>
+            </label>
+            <button type="submit" class="btn btn-primary" style="width:100%;margin-top:6px">🔒 Trocar senha com pergunta secreta</button>
+          </form>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -197,6 +237,27 @@ if (user?.provider === 'google.com' || user?.provider === 'google') {
 } else {
   providerEl.innerHTML = '📧 E-mail e senha';
 }
+
+// Secret question status
+function loadSecretStatus() {
+  const statusEl = document.getElementById('secretStatus');
+  const formCont = document.getElementById('secretFormContainer');
+  const changePass = document.getElementById('secretChangePass');
+  refreshUser();
+  const u = findUserInDB(page.getDB());
+  const hasQ = !!(u && u.secretQuestion);
+  if (statusEl) {
+    statusEl.innerHTML = hasQ 
+      ? `<div style="background:#ecfdf5;color:#166534;padding:8px 10px;border-radius:6px;font-size:12px">✅ Pergunta secreta cadastrada: <b>${page.esc(u.secretQuestion)}</b></div>`
+      : `<div style="background:#fef3c7;color:#92400e;padding:8px 10px;border-radius:6px;font-size:12px">⚠️ Nenhuma pergunta secreta. Cadastre agora para poder trocar senha pelo perfil.</div>`;
+  }
+  if (formCont) formCont.style.display = hasQ ? 'none' : '';
+  if (changePass) changePass.style.display = hasQ ? '' : 'none';
+  if (hasQ && document.getElementById('secretQ')) {
+    document.getElementById('secretQ').value = u.secretQuestion || '';
+  }
+}
+loadSecretStatus();
 
 // Username validation
 function validateUsername() {
@@ -562,6 +623,61 @@ async function changePassword(e) {
   document.getElementById('confirmPass').value = '';
 
   if (btn) { btn.disabled = false; btn.textContent = origText || '💾 Alterar senha'; }
+}
+
+async function setupOrChangeSecret(e) {
+  e.preventDefault();
+  refreshUser();
+  const q = document.getElementById('secretQ').value;
+  const a = document.getElementById('secretA').value.trim();
+  if (!q || !a) return page.toast('Preencha pergunta e resposta', 'error');
+
+  const data = page.getDB();
+  const u = findUserInDB(data);
+  if (!u) return page.toast('Usuário não encontrado', 'error');
+
+  u.secretQuestion = q;
+  try { u.secretAnswerHash = await core.hashPassword(a.toLowerCase()); } catch(e){ u.secretAnswerHash = ''; }
+
+  page.saveDB(data);
+  try { page.syncDocument('users', u.uid || u.id, { secretQuestion: q, secretAnswerHash: u.secretAnswerHash }); } catch(e){}
+
+  page.toast('Pergunta secreta salva! ✅', 'success');
+  loadSecretStatus();
+  window.parent.postMessage({ type: 'reload' }, '*');
+}
+
+async function changePasswordWithSecret(e) {
+  e.preventDefault();
+  refreshUser();
+  const verifyA = document.getElementById('secretVerifyA').value.trim();
+  const newP = document.getElementById('secretNewPass').value;
+  const conf = document.getElementById('secretNewPassConfirm').value;
+
+  if (newP !== conf) return page.toast('Senhas não coincidem', 'error');
+  const v = core.validatePassword(newP);
+  if (!v.valid) return page.toast(v.errors.join(', '), 'error');
+
+  const data = page.getDB();
+  const u = findUserInDB(data);
+  if (!u || !u.secretAnswerHash) return page.toast('Pergunta secreta não cadastrada', 'error');
+
+  const ok = await core.verifyPassword(verifyA.toLowerCase(), u.secretAnswerHash);
+  if (!ok) return page.toast('Resposta secreta incorreta', 'error');
+
+  u.passHash = await core.hashPassword(newP);
+  page.saveDB(data);
+  try { page.syncDocument('users', u.uid || u.id, { passHash: u.passHash }); } catch(e){}
+
+  const fbUser = firebase.auth().currentUser;
+  if (fbUser && fbUser.email === u.email) {
+    try { await fbUser.updatePassword(newP); } catch(e){}
+  }
+
+  page.toast('Senha alterada com sucesso via pergunta secreta! 🔒', 'success');
+  document.getElementById('secretVerifyA').value = '';
+  document.getElementById('secretNewPass').value = '';
+  document.getElementById('secretNewPassConfirm').value = '';
 }
 </script>
 
