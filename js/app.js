@@ -21,6 +21,7 @@ const App = {
   settings: null,
   _authListenerAttached: false,
   _initDone: false,
+  _bootFinished: false,
   _swUpdateRequested: false,
   _recoveryListenersAttached: false,
   _lastConnectionRecovery: 0,
@@ -88,20 +89,45 @@ const App = {
     await core.tReady(this.settings.language);
 
     // Firebase Auth é a ÚNICA fonte de verdade para sessão.
-    // Não usamos mais rememberUser local sem Firebase; usamos persistence do SDK.
+    // Não usamos mais rememberUser local sem Firebase; usamos persistence do SDK
+    // (já configurada para LOCAL em firebase.js, para o usuário continuar logado
+    // entre recarregamentos sem flash chato).
 
     this.applyUserTheme();
-    // Tentar atualizar streak se houver sessão anterior em cache (mas vai ser sobrescrito pelo onAuth)
+
+    // Se temos usuário em cache de sessão, restaurar em memória para uso
+    // imediato da UI (enquanto o Firebase confirma a sessão). Isso evita que
+    // a tela de login apareça "piscando" a cada F5.
+    let cachedUser = null;
     try {
-      const cached = core.getCurrentUser();
-      if (cached) { this.currentUser = cached; core.updateStreak(cached.id || cached.uid); }
+      cachedUser = core.getCurrentUser();
+      if (cachedUser) {
+        this.currentUser = cachedUser;
+        core.updateStreak(cachedUser.id || cachedUser.uid);
+      }
     } catch(e) {}
 
     window.addEventListener('message', (e) => this.handleMessage(e));
 
+    // ---------- TELA DE BOOT: nenhuma tela é mostrada até sabermos o estado
+    // real do Firebase. O HTML já deixa a loadingScreen visível por padrão;
+    // só saímos dela quando onAuthStateChanged decide se é login ou app. ----------
+    document.getElementById('loginScreen')?.classList.add('hidden');
+    document.getElementById('appScreen')?.classList.add('hidden');
+    document.getElementById('loadingScreen')?.classList.remove('hidden');
+
+    // Timeout de segurança: se o Firebase demorar mais que 4s para restaurar
+    // a sessão (offline / App Check pendente), liberamos a UI com base no que
+    // temos — cache do usuário autenticado ou a tela de login.
+    const bootTimeout = setTimeout(() => {
+      console.warn('⏱️ Firebase demorou a restaurar a sessão; liberando UI pelo cache');
+      this._finishBoot(cachedUser);
+    }, 4000);
+
     if (!this._authListenerAttached) {
       this._authListenerAttached = true;
       auth.onAuthStateChanged(async (fbUser) => {
+        clearTimeout(bootTimeout);
         try {
           if (fbUser) {
             console.log('🔥 Auth state: logado', fbUser.uid, 'emailVerified:', fbUser.emailVerified);
@@ -110,8 +136,6 @@ const App = {
             if (!isGoogle && !fbUser.emailVerified) {
               // Usuário logado mas email não verificado -> mostrar modal de verificação
               console.log('✉️ Email não verificado, exigindo verificação');
-              // Não chamar sync ainda, apenas manter sessão mas mostrar verificação
-              // Mas still sync para buscar perfil? Sim, vamos sync e mostrar modal
               await this.syncFirebaseUser(fbUser, true); // true = suppress showApp
               this.showEmailVerificationRequired(fbUser);
               document.getElementById('loadingScreen')?.classList.add('hidden');
@@ -142,9 +166,6 @@ const App = {
               const uid = this.currentUser.uid || this.currentUser.id;
               if (uid === fbUser.uid) {
                 fireSync.start(uid);
-                // Em atualizações de página o Firebase pode restaurar a sessão
-                // depois do fallback que mostra o login. Se já temos o usuário
-                // em cache e ele é o mesmo do Auth, garanta a volta ao app.
                 this.showApp();
                 // Garante que o Firebase lembra que está logado a cada hora
                 if (typeof startFirebaseAuthHeartbeat === 'function') startFirebaseAuthHeartbeat();
@@ -158,15 +179,14 @@ const App = {
               this.currentUser = null;
               core.setCurrentUser(null);
               core.setRememberedUser(null);
-              // Se estava no app, voltar pro login
-              const appScreen = document.getElementById('appScreen');
-              if (appScreen && !appScreen.classList.contains('hidden')) {
-                this.showLogin();
-              }
             }
+            document.getElementById('loadingScreen')?.classList.add('hidden');
+            this.showLogin();
           }
         } catch(err) {
           console.warn('onAuthStateChanged erro:', err);
+          // Em caso de erro, liberar UI com cache se existir
+          this._finishBoot(cachedUser);
         }
       });
     }
@@ -190,23 +210,20 @@ const App = {
         frame.contentWindow.postMessage({ type: 'firebaseSync', collection: type }, '*');
       }
     });
+  },
 
-    setTimeout(() => {
-      const loading = document.getElementById('loadingScreen');
-      if (loading) loading.classList.add('hidden');
-    }, 500);
+  /* ---------- Fallback de boot: chamado quando o Firebase demora além do
+     timeout ou quando tudo já foi resolvido. Mostra app se há cache de
+     usuário válido, senão mostra a tela de login. Evita ficar eternamente no
+     loading e evita o "flash de login" a cada F5. ---------- */
+  _finishBoot(cachedUser) {
+    if (this._bootFinished) return;
+    this._bootFinished = true;
     document.getElementById('loadingScreen')?.classList.add('hidden');
-
-    // A decisão de mostrar app ou login será tomada pelo onAuthStateChanged,
-    // mas fazemos um fallback rápido para não piscar.
-    const fbCurrent = auth.currentUser;
-    if (fbCurrent && fbCurrent.emailVerified) {
-      // Já tem auth, mas sync será feito; enquanto isso mostra loading -> onAuth vai mostrar app
-      this.currentUser = core.getCurrentUser(); // pode ser null ainda
-      if (this.currentUser) this.showApp();
+    if (cachedUser && this.currentUser) {
+      this.showApp();
       if (typeof startFirebaseAuthHeartbeat === 'function') startFirebaseAuthHeartbeat();
-    } else if (!fbCurrent) {
-      // Sem Firebase user, mostrar login
+    } else {
       this.showLogin();
     }
   },
@@ -347,6 +364,8 @@ const App = {
 
   /* ========== TELAS ========== */
   showLogin() {
+    this._bootFinished = true;
+    document.getElementById('loadingScreen')?.classList.add('hidden');
     document.getElementById('loginScreen')?.classList.remove('hidden');
     document.getElementById('appScreen')?.classList.add('hidden');
     const brandEl = document.getElementById('loginBrandName');
@@ -356,8 +375,10 @@ const App = {
   },
 
   showApp() {
+    this._bootFinished = true;
     document.getElementById('loginScreen')?.classList.add('hidden');
     document.getElementById('appScreen')?.classList.remove('hidden');
+    document.getElementById('loadingScreen')?.classList.add('hidden');
     // Esconder modais de verificação/login
     document.getElementById('emailVerifyModal')?.classList.add('hidden');
     document.getElementById('forgotSentModal')?.classList.add('hidden');
@@ -1452,34 +1473,46 @@ const App = {
     const nowParts = core._zonedParts();
     const hhmm = String(nowParts.hour).padStart(2, '0') + ':' + String(nowParts.minute).padStart(2, '0');
     const data = core.getLocalDB();
+    const todayIsOff = core.isDayOff(today, this.currentUser);
 
-    (data.tasks || []).forEach(task => {
-      if (!task.alertTime || task.date !== today) return;
-      if (task.alertTime > hhmm) return;
-      if (task.status === 'finished' || task.status === 'notdone') return;
-      if (task.owner && uid && String(task.owner) !== String(uid)) return;
+    // Se hoje é dia de folga: NÃO dispara nenhum alerta de atividade. As
+    // tarefas de hoje já ficam ocultas em toda a UI, então um lembrete aqui
+    // seria um falso incomodo.
+    if (!todayIsOff) {
+      (data.tasks || []).forEach(task => {
+        if (!task.alertTime || task.date !== today) return;
+        if (task.alertTime > hhmm) return;
+        if (task.status === 'finished' || task.status === 'notdone') return;
+        if (task.owner && uid && String(task.owner) !== String(uid)) return;
+        // Safety: respeita folga (defensivo — hoje já foi checado acima).
+        if (core.isDayOffForTask && core.isDayOffForTask(task, this.currentUser)) return;
+        // Safety: ignora tarefas excluídas recentemente mas ainda no cache.
+        const stillExists = (data.tasks || []).some(t => String(t.id) === String(task.id));
+        if (!stillExists) return;
 
-      const marker = `cl-alert-${task.id}-${task.date}-${task.alertTime}`;
-      try { if (localStorage.getItem(marker)) return; } catch (e) {}
-      try { localStorage.setItem(marker, '1'); } catch (e) {}
+        const marker = `cl-alert-${task.id}-${task.date}-${task.alertTime}`;
+        try { if (localStorage.getItem(marker)) return; } catch (e) {}
+        try { localStorage.setItem(marker, '1'); } catch (e) {}
 
-      const title = '⏰ Lembrete de atividade';
-      const body = `${task.alertTime} — ${task.title}`;
-      core._createNotification(uid, title, body, 'warning', {
-        dedupeKey: `alert:${task.id}:${task.date}:${task.alertTime}`,
-        data: { page: 'atividades', taskId: task.id },
-        showToast: false,
-        showBrowser: false,
+        const title = '⏰ Lembrete de atividade';
+        const body = `${task.alertTime} — ${task.title}`;
+        core._createNotification(uid, title, body, 'warning', {
+          dedupeKey: `alert:${task.id}:${task.date}:${task.alertTime}`,
+          data: { page: 'atividades', taskId: task.id },
+          showToast: false,
+          showBrowser: false,
+        });
+        core.chromeNotification(title, body, 'warning');
+        try { this.renderNotifications(); } catch (e) {}
       });
-      core.chromeNotification(title, body, 'warning');
-      try { this.renderNotifications(); } catch (e) {}
-    });
+    }
 
     (data.notes || []).forEach(note => {
       if (note.done) return;
       if (!note.remind || !note.time || note.date !== today) return;
       if (note.time > hhmm) return;
       if (note.owner && uid && String(note.owner) !== String(uid)) return;
+      if (todayIsOff) return;
 
       const marker = `cl-alert-note-${note.id}-${note.date}-${note.time}`;
       try { if (localStorage.getItem(marker)) return; } catch (e) {}
@@ -1509,7 +1542,14 @@ const App = {
     try {
       const data = core.getLocalDB();
       const today = core.today();
-      const late = data.tasks.filter(t => t.date && t.date < today && !core.isDayOff(t.date, this.currentUser) && t.status !== 'finished' && t.status !== 'notdone');
+      // Contagem de atrasadas deve respeitar folga em QUALQUER dia (não só
+      // hoje) e ignorar tarefas apagadas (por segurança, o filter no cache já
+      // deve refletir o Firestore). Não conta finalizadas/não realizadas.
+      const late = data.tasks.filter(t =>
+        t.date && t.date < today &&
+        t.status !== 'finished' && t.status !== 'notdone' &&
+        !core.isDayOff(t.date, this.currentUser)
+      );
       return late.length > 0 ? late.length : '';
     } catch { return ''; }
   },

@@ -1286,9 +1286,35 @@ const Core = {
   },
 
   /**
+   * isDayOffForTask - resolvendo folga para uma tarefa: pega o usuário da
+   * tarefa (owner) em vez de depender só do currentUser, para não contar/
+   * notificar atividades de um dia marcado como folga em nenhum lugar do app.
+   */
+  isDayOffForTask(task, fallbackUser) {
+    try {
+      if (!task || !task.date) return false;
+      let ownerUser = fallbackUser || this.getCurrentUser();
+      // Se a tarefa tem owner e ele bate com o currentUser, usar currentUser
+      // (que tem as preferências mais recentes de daysOff/dayOffDates salvas
+      // na sessão, inclusive logo após editar o perfil).
+      const ownerId = String(task.owner || '');
+      if (ownerId && (!ownerUser || ownerId !== String(ownerUser.id || ownerUser.uid || ''))) {
+        try {
+          const data = this.getLocalDB();
+          const found = (data.users || []).find(u => String(u.id || u.uid || '') === ownerId);
+          if (found) ownerUser = found;
+        } catch(e) {}
+      }
+      return this.isDayOff(task.date, ownerUser);
+    } catch(e) { return false; }
+  },
+
+  /**
    * checkLateAutomations - verifica somente as tarefas do usuário que iniciou
    * a sessão. Cada aviso é criado uma vez por tarefa/automação/dia e entra na
    * central de notificações sem abrir vários toasts ao fazer login.
+   * Respeita dias de folga: atividades em dia de folga NÃO disparam aviso de
+   * atraso, e não entram na contagem de pendentes/atrasadas.
    */
   checkLateAutomations(userId) {
     if (!userId) return;
@@ -1299,10 +1325,15 @@ const Core = {
     try { localStorage.setItem(marker, '1'); } catch(e){}
 
     const data = this.getLocalDB();
-    const late = data.tasks.filter(task =>
-      task.owner === userId && task.date && task.date < today &&
-      task.status !== 'finished' && task.status !== 'notdone'
-    );
+    const currentUser = this.getCurrentUser();
+    const late = data.tasks.filter(task => {
+      if (task.owner !== userId) return false;
+      if (!task.date || task.date >= today) return false;
+      if (task.status === 'finished' || task.status === 'notdone') return false;
+      // Folga: não notifica nem conta atraso em dia de folga do usuário.
+      if (this.isDayOffForTask(task, currentUser)) return false;
+      return true;
+    });
     const adminIds = (data.users || [])
       .filter(account => account.role === 'admin' && !account.banned)
       .map(account => account.id || account.uid)

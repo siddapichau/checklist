@@ -49,6 +49,16 @@ const auth = firebase.auth();
 const db = firebase.firestore();
 const storage = firebase.storage();
 
+// Persistência de auth LOCAL por padrão: lembrar que o usuário está logado entre
+// abas/recarregamentos SEM exigir marcar "lembrar de mim". Isso evita o flash
+// chato em que o app mostra a tela de login por frações de segundo a cada F5.
+// Se o usuário marcar "não lembrar", o handleLogin troca para SESSION na hora.
+try {
+  auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(err => {
+    console.warn('Auth persistence LOCAL indisponível, continuando com default:', err.code);
+  });
+} catch(e) { console.warn('setPersistence falhou:', e); }
+
 // Google Auth Provider
 const googleProvider = new firebase.auth.GoogleAuthProvider();
 googleProvider.addScope('profile');
@@ -1079,6 +1089,21 @@ const FireSync = {
           } else if (item._delete) {
             await db.collection(item.collection).doc(String(item.id)).delete();
             console.log(`🗑️ (outbox) ${item.collection}/${item.id} removido do Firestore`);
+            // Garante que o item NÃO reapareça no cache local enquanto o
+            // snapshot não chega (remove imediatamente do localStorage).
+            try {
+              if (typeof core !== 'undefined' && core.getLocalDB && core.saveLocalDB) {
+                const data = core.getLocalDB();
+                if (Array.isArray(data[item.collection])) {
+                  const before = data[item.collection].length;
+                  data[item.collection] = data[item.collection].filter(doc => String(doc.id) !== String(item.id));
+                  if (data[item.collection].length !== before) {
+                    core.saveLocalDB(data);
+                    window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: item.collection } }));
+                  }
+                }
+              }
+            } catch (e2) { console.warn('limpeza local após delete outbox falhou:', e2); }
           } else {
             await this._writeDoc(item.collection, item.id, item.data);
           }
@@ -1291,23 +1316,93 @@ const FireSync = {
       ]);
       const [tasksSnap, notesSnap, macrosSnap, gamSnap, widgetsSnap] = settled.map(r => r.status === 'fulfilled' ? r.value : null);
 
-      const asSnapshot = snap => ({
-        forEach: cb => snap.forEach(cb),
-        docChanges: () => (typeof snap.docChanges === 'function' ? snap.docChanges() : []),
-      });
+      // Converte um QuerySnapshot (ou Get) em algo compatível com _handleCollectionSync.
+      // Importante: deve expor docChanges() com TODOS os documentos marcados como
+      // 'added' para o pull inicial, e marcar como 'removed' os que existem no
+      // cache local mas NÃO existem mais no Firestore (tarefas excluídas em outro
+      // dispositivo / após refresh). Sem isso, uma atividade apagada voltava
+      // sempre ao recarregar a página, porque _handleCollectionSync não tinha
+      // como saber que ela foi removida do servidor.
+      const asSnapshot = (snap, collectionName) => {
+        const remoteIds = new Set();
+        snap.forEach(d => remoteIds.add(String(d.id)));
+        const removed = [];
+        // Comparar com estado local para detectar exclusões remotas.
+        try {
+          const localData = typeof core !== 'undefined' && core.getLocalDB ? core.getLocalDB() : null;
+          let localList = null;
+          if (localData) {
+            if (collectionName === 'tasks') localList = localData.tasks;
+            else if (collectionName === 'notes') localList = localData.notes;
+            else if (collectionName === 'macros') localList = localData.macros;
+          }
+          // Também respeitar exclusões pendentes no outbox (elas ainda não
+          // foram para a nuvem, então não devem ser trazidas de volta).
+          const pendingDeletes = new Set(
+            (this._outbox || []).filter(w => w._delete && w.collection === collectionName).map(w => String(w.id))
+          );
+          if (Array.isArray(localList)) {
+            localList.forEach(item => {
+              const id = String(item.id);
+              if (pendingDeletes.has(id)) {
+                // Exclusão pendente: marcar para ser removida do cache agora,
+                // senão ela reaparece até o outbox dar flush.
+                removed.push({ doc: { id }, type: 'removed' });
+              } else if (item && item.owner === userId && !remoteIds.has(id)) {
+                // Existia no cache do usuário mas sumiu do Firestore = foi apagada.
+                removed.push({ doc: { id }, type: 'removed' });
+              }
+            });
+          }
+        } catch (e) { console.warn('diff remoto/local falhou:', e); }
+
+        return {
+          forEach: cb => snap.forEach(cb),
+          docChanges: () => {
+            // Simula docChanges() como o onSnapshot real faz.
+            const added = [];
+            snap.forEach(d => added.push({ doc: d, type: 'added' }));
+            return added.concat(removed);
+          },
+        };
+      };
 
       let tasksCount = 0, notesCount = 0, macrosCount = 0;
-      
+
+      // ANTES de aplicar snapshot, remover tarefas/notes/macros que estão na
+      // fila de exclusão (outbox _delete) do cache local. Isso evita que elas
+      // "pisquem" de volta na tela durante o pull inicial.
+      const purgePendingDeletes = (list, collectionName) => {
+        if (!Array.isArray(list)) return list;
+        const pendingDeletes = new Set(
+          (this._outbox || []).filter(w => w._delete && w.collection === collectionName).map(w => String(w.id))
+        );
+        if (!pendingDeletes.size) return list;
+        return list.filter(item => !pendingDeletes.has(String(item.id)));
+      };
+      try {
+        const localData = typeof core !== 'undefined' && core.getLocalDB ? core.getLocalDB() : null;
+        if (localData) {
+          let mutated = false;
+          ['tasks','notes','macros'].forEach(col => {
+            const before = (localData[col] || []).length;
+            localData[col] = purgePendingDeletes(localData[col] || [], col);
+            if (localData[col].length !== before) mutated = true;
+          });
+          if (mutated && core.saveLocalDB) core.saveLocalDB(localData);
+        }
+      } catch(e) { console.warn('purgePendingDeletes:', e); }
+
       if (tasksSnap) {
-        this._handleCollectionSync('tasks', asSnapshot(tasksSnap), userId);
+        this._handleCollectionSync('tasks', asSnapshot(tasksSnap, 'tasks'), userId);
         tasksCount = tasksSnap.size || 0;
       }
       if (notesSnap) {
-        this._handleCollectionSync('notes', asSnapshot(notesSnap), userId);
+        this._handleCollectionSync('notes', asSnapshot(notesSnap, 'notes'), userId);
         notesCount = notesSnap.size || 0;
       }
       if (macrosSnap) {
-        this._handleCollectionSync('macros', asSnapshot(macrosSnap), userId);
+        this._handleCollectionSync('macros', asSnapshot(macrosSnap, 'macros'), userId);
         macrosCount = macrosSnap.size || 0;
       }
 

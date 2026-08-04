@@ -186,10 +186,14 @@ function repStartDate(){
 function filterByPeriod(tasks){
   const start = repStartDate();
   const end = core.today();
+  const user = page.getUser();
   return (tasks || []).filter(t => {
     if (!t.date) return repPeriod === 'all';   // sem data só aparece em "Tudo"
     if (t.date > end) return false;             // nunca considera futuro
-    return start ? t.date >= start : true;
+    if (start && t.date < start) return false;
+    // Folga: dias marcados como folga NÃO entram em nenhuma estatística.
+    if (core.isDayOff(t.date, user)) return false;
+    return true;
   });
 }
 function updateRepSeg(){
@@ -486,10 +490,12 @@ function render() {
   const weekPendingData = [];
   for (let i = 6; i >= 0; i--) {
     const ds = core.addDays(today, -i);
+    const isOff = core.isDayOff(ds, user);
     const dayName = core.dayName(ds, 'short').slice(0, 3);
-    weekDays.push(dayName);
-    // Tendência semanal usa o histórico completo (janela fixa de 7 dias).
-    const dayTasks = allTasks.filter(t => t.date === ds);
+    weekDays.push(isOff ? dayName + ' 🌴' : dayName);
+    // Tendência semanal usa o histórico completo (janela fixa de 7 dias),
+    // exceto dias de folga, que zeram para não distorcer as métricas.
+    const dayTasks = isOff ? [] : allTasks.filter(t => t.date === ds && !core.isDayOff(t.date, user));
     weekDoneData.push(dayTasks.filter(t => t.status === 'finished').length);
     weekTotalData.push(dayTasks.length);
     weekPendingData.push(dayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length);
@@ -715,7 +721,7 @@ function render() {
       .toLocaleDateString('pt-BR', { timeZone: core.TIME_ZONE, month: 'short', year: '2-digit' });
     monthLabels.push(monthName);
     // Tendência mensal usa o histórico completo (janela fixa de 6 meses).
-    const mTasks = allTasks.filter(t => t.date && t.date.startsWith(monthKey));
+    const mTasks = allTasks.filter(t => t.date && t.date.startsWith(monthKey) && !core.isDayOff(t.date, user));
     monthTotal.push(mTasks.length);
     monthFinished.push(mTasks.filter(t => t.status === 'finished').length);
   }
