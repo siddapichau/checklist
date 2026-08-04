@@ -633,7 +633,9 @@ function sendEmailMacro() {
   const text = stripHtml(html).trim();
   const to = document.getElementById('useRecipients').value
     .split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).join(',');
-  const su = document.getElementById('useSubject').value.trim();
+  // Aplicar variáveis também no ASSUNTO do e-mail ({{nome}}, {c1}, etc.)
+  const rawSubject = document.getElementById('useSubject').value.trim();
+  const su = stripHtml(substituteVars(page.esc(rawSubject), getUseValues(), false)).trim();
   if (!to) return page.toast('Informe ao menos um e-mail de destino.', 'warning');
 
   const url = 'https://mail.google.com/mail/?view=cm&fs=1'
@@ -668,6 +670,17 @@ function renderUseResult() {
 
 function refreshUsePreview() {
   document.getElementById('usePreview').innerHTML = renderUseResult() || '—';
+  // Atualizar também o campo de assunto com preview das variáveis resolvidas
+  const subjectInput = document.getElementById('useSubject');
+  if (subjectInput && subjectInput.offsetParent !== null) {
+    const rawSubject = subjectInput.value;
+    if (rawSubject && (/\{\{/.test(rawSubject) || /\{c\d/.test(rawSubject))) {
+      const resolved = stripHtml(substituteVars(page.esc(rawSubject), getUseValues(), false)).trim();
+      if (resolved !== rawSubject) {
+        subjectInput.title = 'Assunto resolvido: ' + resolved;
+      }
+    }
+  }
 }
 
 function closeUseModal() {

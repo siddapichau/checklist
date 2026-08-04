@@ -71,11 +71,14 @@
   </label>
 
   <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">
-    <button class="btn btn-secondary btn-sm" onclick="quickQ('Resuma meu dia e me diga as atrasadas, futuras e próximas')">📋 Resumo + atrasadas + futuras + próximas</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Resuma meu dia e me diga as atrasadas, feitas e em aberto')">📋 Resumo completo do dia</button>
     <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais são minhas atividades mais urgentes?')">🚨 Urgentes</button>
-    <button class="btn btn-secondary btn-sm" onclick="quickQ('Resuma meu dia de trabalho')">📋 Resumo do dia</button>
-    <button class="btn btn-secondary btn-sm" onclick="quickQ('Sugira uma ordem para fazer as tarefas pendentes')">📊 Sugerir ordem</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Analise minha semana: feitas, não feitas e pela metade')">📊 Análise da semana</button>
     <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais atividades estão atrasadas?')">⚠️ Atrasadas</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Como foi minha produtividade nos últimos 7 dias?')">📈 Produtividade 7 dias</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Analise o mês: atividades feitas, não feitas e em andamento')">📅 Análise do mês</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Analise minhas macros mais usadas e sugira melhorias')">💬 Minhas macros</button>
+    <button class="btn btn-secondary btn-sm" onclick="quickQ('Quais atividades ficaram pela metade (em análise)?')">🔍 Pela metade</button>
   </div>
 
   <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -245,9 +248,16 @@ function inferIntentTags(question) {
     ['urgência/prioridade', /(urgent|priorid|crític|importante)/],
     ['ordem de execução', /(ordem|sequência|sugerir|priorizar|roteiro)/],
     ['produtividade', /(produtiv|foco|pomodoro|tempo|efici)/],
-    ['detalhes de atividade', /(detalh|explique|descriç|atividade\s+\d+)/],
+    ['detalhes de atividade', /(detalh|explique|descriç|atividade)/],
     ['relatórios/progresso', /(progress|relat|indicador|porcent|meta)/],
     ['calendário/prazos', /(calend|prazo|hoje|amanhã|semana|mês|data)/],
+    ['análise semanal', /(semana|7 dias|semanal)/],
+    ['análise mensal', /(m[eê]s|30 dias|mensal)/],
+    ['macros/modelos', /(macro|modelo|mensagem|email|e-mail)/],
+    ['arquivos', /(arquivo|documento|file|anexo)/],
+    ['em andamento', /(metade|andamento|análise|parcial|analyzing)/],
+    ['feitas/concluídas', /(feitas?|conclu[íi]das?|realizadas?|finalizadas?)/],
+    ['não feitas', /(não feitas?|nao feitas?|não realizadas?|pendentes)/],
   ];
   rules.forEach(([tag, re]) => { if (re.test(q)) tags.push(tag); });
   return tags.length ? tags : ['consulta geral'];
@@ -489,105 +499,290 @@ async function askAI() {
   btn.disabled = true;
   btn.textContent = '⏳ Processando...';
 
-  // A janela padrão é hoje; "ontem/dia anterior" usa offset -1 dia de forma
-  // explícita, sem depender do fuso do aparelho. Períodos solicitados recebem
-  // exatamente os dias pedidos.
+  // ========== COLETA COMPLETA DE DADOS PARA ANÁLISE PROFUNDA ==========
   const tasks = data.tasks || [];
+  const macros = data.macros || [];
+  const files = data.files || [];
+  const notes = data.notes || [];
+  const posts = data.posts || [];
   const today = core.today();
   const normalizedQuestion = question.toLowerCase();
+  const user = page.getUser();
+
+  // ===== DETECÇÃO INTELIGENTE DE PERÍODO =====
+  // Detectar: hoje, ontem, esta semana, semana passada, este mês, mês passado,
+  // últimos N dias, dia específico, etc.
   const asksPreviousDay = /\b(ontem|dia anterior|d-1|d - 1)\b/.test(normalizedQuestion);
-  const referenceDate = asksPreviousDay ? core.addDays(today, -1) : today;
+  const asksLastWeek = /\b(semana passada|última semana|ultima semana|7 dias)\b/.test(normalizedQuestion);
+  const asksLastMonth = /\b(m[eê]s passado|último m[eê]s|ultimo mes|30 dias|últimos 30 dias)\b/.test(normalizedQuestion);
+  const asksThisWeek = /\b(esta semana|semana atual|essa semana)\b/.test(normalizedQuestion);
+  const asksThisMonth = /\b(este m[eê]s|esse m[eê]s|m[eê]s atual)\b/.test(normalizedQuestion);
+  const asksLast7 = /\b(últimos 7 dias|ultimos 7 dias|7 dias)\b/.test(normalizedQuestion);
+  const asksLast15 = /\b(últimos 15 dias|ultimos 15 dias|15 dias)\b/.test(normalizedQuestion);
+  const asksLastNDays = normalizedQuestion.match(/últimos?\s+(\d+)\s+dias?/i);
+
+  let referenceDate = today;
+  let rangeStart = today;
+  let rangeEnd = today;
+  let rangeLabel = `hoje (${today})`;
+
+  if (asksPreviousDay) {
+    referenceDate = core.addDays(today, -1);
+    rangeStart = referenceDate;
+    rangeEnd = referenceDate;
+    rangeLabel = `ontem (${referenceDate})`;
+  } else if (asksLastWeek || asksLast7) {
+    rangeStart = core.addDays(today, -6);
+    rangeEnd = today;
+    rangeLabel = `últimos 7 dias (${rangeStart} a ${rangeEnd})`;
+  } else if (asksLast15) {
+    rangeStart = core.addDays(today, -14);
+    rangeEnd = today;
+    rangeLabel = `últimos 15 dias (${rangeStart} a ${rangeEnd})`;
+  } else if (asksLastMonth) {
+    rangeStart = core.addDays(today, -29);
+    rangeEnd = today;
+    rangeLabel = `últimos 30 dias (${rangeStart} a ${rangeEnd})`;
+  } else if (asksLastNDays) {
+    const n = parseInt(asksLastNDays[1]);
+    rangeStart = core.addDays(today, -(n - 1));
+    rangeEnd = today;
+    rangeLabel = `últimos ${n} dias (${rangeStart} a ${rangeEnd})`;
+  } else if (asksThisWeek) {
+    rangeStart = core.startOfWeek(today);
+    rangeEnd = today;
+    rangeLabel = `esta semana (${rangeStart} a ${rangeEnd})`;
+  } else if (asksThisMonth) {
+    const bounds = core.monthBounds(today);
+    rangeStart = bounds.start;
+    rangeEnd = today;
+    rangeLabel = `este mês (${rangeStart} a ${rangeEnd})`;
+  } else {
+    const parsed = core.parseDateRange(question, today);
+    if (parsed) {
+      rangeStart = parsed.start;
+      rangeEnd = parsed.end;
+      rangeLabel = parsed.label;
+    }
+  }
+
   const dayOfWeek = core.dayName(referenceDate);
-  const requestedRange = asksPreviousDay
-    ? { start: referenceDate, end: referenceDate, label: `dia anterior (${referenceDate})` }
-    : core.parseDateRange(question, today);
-  const rangeStart = requestedRange?.start || today;
-  const rangeEnd = requestedRange?.end || today;
-  const visibleForAI = tasks.filter(t => t.date && t.date >= rangeStart && t.date <= rangeEnd && !core.isDayOff(t.date, page.getUser()));
-  const isLate = t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
-  const isTodayPending = t => t.date === referenceDate && t.status !== 'finished' && t.status !== 'notdone';
-  const isTodayDone = t => t.date === referenceDate && t.status === 'finished';
-  const isAnalyzing = t => t.status === 'analyzing';
-  const isPending = t => t.status === 'pending';
-  const isNotDone = t => t.status === 'notdone';
-  const isFinished = t => t.status === 'finished';
-  const late = visibleForAI.filter(isLate);
-  const todayAll = visibleForAI.filter(t => t.date === referenceDate);
-  const todayOpen = todayAll.filter(isTodayPending);
-  const todayDone = todayAll.filter(isTodayDone);
-  const todayAnalyzing = todayAll.filter(isAnalyzing);
-  const pendingAll = visibleForAI.filter(isPending);
-  const notDoneAll = visibleForAI.filter(isNotDone);
-  const finishedAll = visibleForAI.filter(isFinished);
-  const rangeTasks = visibleForAI;
-  const rangeLabel = requestedRange?.label || `hoje (${today})`;
+
+  // ===== DADOS HISTÓRICOS COMPLETOS =====
+  // Filtrar tarefas visíveis para o período solicitado
+  const visibleForAI = tasks.filter(t => t.date && t.date >= rangeStart && t.date <= rangeEnd && !core.isDayOff(t.date, user));
+
+  // Dados de HOJE
+  const todayTasks = tasks.filter(t => t.date === today && !core.isDayOff(t.date, user));
+  const todayFinished = todayTasks.filter(t => t.status === 'finished');
+  const todayOpen = todayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing');
+  const todayNotDone = todayTasks.filter(t => t.status === 'notdone');
+  const todayAnalyzing = todayTasks.filter(t => t.status === 'analyzing');
+
+  // Dados do PERÍODO solicitado
+  const periodFinished = visibleForAI.filter(t => t.status === 'finished');
+  const periodPending = visibleForAI.filter(t => t.status === 'pending');
+  const periodAnalyzing = visibleForAI.filter(t => t.status === 'analyzing');
+  const periodNotDone = visibleForAI.filter(t => t.status === 'notdone');
+  const periodOpen = visibleForAI.filter(t => t.status === 'pending' || t.status === 'analyzing');
+
+  // Atrasadas GLOBAIS (sempre, independente do período)
+  const allLate = tasks.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone' && !core.isDayOff(t.date, user));
+  // Atrasadas no período
+  const periodLate = visibleForAI.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone');
+
+  // Tarefas em andamento (analyzing) globais
+  const allAnalyzing = tasks.filter(t => t.status === 'analyzing' && !core.isDayOff(t.date, user));
+
+  // Dados de SEMANA ATUAL
+  const weekStart = core.startOfWeek(today);
+  const weekTasks = tasks.filter(t => t.date && t.date >= weekStart && t.date <= today && !core.isDayOff(t.date, user));
+  const weekFinished = weekTasks.filter(t => t.status === 'finished');
+  const weekNotDone = weekTasks.filter(t => t.status === 'notdone');
+
+  // Dados de MÊS ATUAL
+  const monthBounds = core.monthBounds(today);
+  const monthTasks = tasks.filter(t => t.date && t.date >= monthBounds.start && t.date <= today && !core.isDayOff(t.date, user));
+  const monthFinished = monthTasks.filter(t => t.status === 'finished');
+  const monthNotDone = monthTasks.filter(t => t.status === 'notdone');
+  const monthPending = monthTasks.filter(t => t.status === 'pending' || t.status === 'analyzing');
+
+  // Análise por CATEGORIA no período
+  const categoryStats = {};
+  visibleForAI.forEach(t => {
+    const cats = String(t.category || 'Geral').split(',').map(s => s.trim()).filter(Boolean);
+    cats.forEach(c => {
+      if (!categoryStats[c]) categoryStats[c] = { total: 0, finished: 0, pending: 0, notdone: 0, late: 0 };
+      categoryStats[c].total++;
+      if (t.status === 'finished') categoryStats[c].finished++;
+      else if (t.status === 'notdone') categoryStats[c].notdone++;
+      else categoryStats[c].pending++;
+      if (t.date < today && t.status !== 'finished' && t.status !== 'notdone') categoryStats[c].late++;
+    });
+  });
+
+  // Análise por PRIORIDADE no período
+  const priorityStats = { urgent: 0, high: 0, medium: 0, low: 0 };
+  visibleForAI.forEach(t => {
+    const p = t.priority || 'medium';
+    if (priorityStats[p] !== undefined) priorityStats[p]++;
+  });
+
+  // Tarefas "pela metade" - status analyzing
+  const halfDone = visibleForAI.filter(t => t.status === 'analyzing');
+
+  // Produtividade diária no período (últimos 7 dias no máximo para gráfico)
+  const dailyProductivity = [];
+  const lookbackDays = Math.min(core.diffDays(rangeStart, rangeEnd) + 1, 30);
+  for (let i = lookbackDays - 1; i >= 0; i--) {
+    const d = core.addDays(rangeEnd, -i);
+    const dayTasks = tasks.filter(t => t.date === d && !core.isDayOff(d, user));
+    const dayDone = dayTasks.filter(t => t.status === 'finished').length;
+    const dayTotal = dayTasks.length;
+    dailyProductivity.push({ date: d, done: dayDone, total: dayTotal, pct: dayTotal > 0 ? Math.round(dayDone / dayTotal * 100) : 0 });
+  }
+
+  // Gamificação
+  const gamStats = user ? core.getUserStats(user.id || user.uid) : null;
+  const points = gamStats?.points || 0;
+  const streak = gamStats?.streak || 0;
+
+  // Macros do usuário
+  const userMacros = macros.filter(m => !m.owner || m.owner === (user?.id || user?.uid));
+
+  // Arquivos do usuário
+  const userFiles = files.filter(f => !f.owner || f.owner === (user?.id || user?.uid));
+
+  // Notas do usuário
+  const userNotes = notes.filter(n => !n.owner || n.owner === (user?.id || user?.uid));
 
   const context = {
-    today, referenceDate, dayOfWeek, isPreviousDayQuery: asksPreviousDay, isReferenceDayOff: core.isDayOff(referenceDate, page.getUser()),
+    today, referenceDate, dayOfWeek,
+    isPreviousDayQuery: asksPreviousDay,
+    isReferenceDayOff: core.isDayOff(referenceDate, user),
     totalTasks: visibleForAI.length,
     totalAll: tasks.length,
-    rangeStart, rangeEnd, rangeLabel, rangeTasks,
-    pending: pendingAll,
-    analyzing: todayAnalyzing,
-    finished: finishedAll,
-    notdone: notDoneAll,
-    late,
-    todayTasks: todayAll,
-    todayOpen, todayDone,
+    rangeStart, rangeEnd, rangeLabel,
+    rangeTasks: visibleForAI,
+    pending: periodPending,
+    analyzing: periodAnalyzing,
+    finished: periodFinished,
+    notdone: periodNotDone,
+    late: periodLate,
+    todayTasks, todayOpen, todayDone: todayFinished, todayNotDone, todayAnalyzing,
+    allLate, allAnalyzing,
+    weekFinished: weekFinished.length, weekNotDone: weekNotDone.length, weekTotal: weekTasks.length,
+    monthFinished: monthFinished.length, monthNotDone: monthNotDone.length, monthPending: monthPending.length, monthTotal: monthTasks.length,
+    categoryStats, priorityStats, halfDone,
+    dailyProductivity,
+    gamPoints: points, gamStreak: streak,
+    macros: userMacros,
+    files: userFiles,
+    notes: userNotes,
+    posts,
   };
 
-  // ============== SYSTEM PROMPT (inteligente, multi-pergunta) ==============
-  // Instruções firmes:
-  //  - Trabalhe SOMENTE com as listas fornecidas (HOJE / ATRASADAS / PENDENTES).
-  //  - JAMAIS invente atividades de datas futuras. Se a pergunta pedir
-  //    "futuras", diga que o app não considera futuras na análise operacional
-  //    e ofereça as "próximas" (= pendentes do dia atual).
-  //  - Quando o usuário fizer VÁRIOS pedidos em uma única pergunta, entregue
-  //    TODOS, um por seção. Ex.: "resumo + atrasadas + próximas + detalhe da
-  //    2ª atividade" → quatro seções.
-  //  - Responda em português, direto e organizado, com emojis.
-  const fmtTask = t => `- [${t.id}] ${t.title} (cat: ${t.category || 'Geral'}, pri: ${t.priority || 'média'}, data: ${t.date || 'sem data'}${t.alertTime ? ', alerta ' + t.alertTime : ''})`;
-  const systemPrompt = `Você é a IA Operacional do Checklist ML — um centro logístico do Mercado Livre.
+  // ============== SYSTEM PROMPT (IA avançada com análise completa) ==============
+  // SEM IDs numéricos nas tarefas - apenas título e dados relevantes
+  const fmtTask = (t, idx) => `- ${idx ? idx + '. ' : ''}${t.title} (cat: ${t.category || 'Geral'}, pri: ${t.priority || 'média'}, data: ${t.date || 'sem data'}, status: ${t.status || 'pending'}${t.alertTime ? ', alerta ' + t.alertTime : ''}${t.description ? ', desc: ' + t.description.slice(0, 80) : ''})`;
+
+  const fmtCategoryStats = Object.entries(categoryStats).map(([cat, s]) =>
+    `  • ${cat}: ${s.total} total, ${s.finished} feitas, ${s.pending} pendentes, ${s.notdone} não feitas, ${s.late} atrasadas`
+  ).join('\n');
+
+  const fmtDailyProductivity = dailyProductivity.slice(-7).map(d =>
+    `  ${d.date}: ${d.done}/${d.total} (${d.pct}%)`
+  ).join('\n');
+
+  const fmtMacros = userMacros.length > 0
+    ? userMacros.slice(0, 10).map(m => `  • "${m.title}" (${m.type || 'text'}, ${m.uses || 0}x usada, cat: ${m.category || 'Geral'})`).join('\n')
+    : '  (nenhuma macro)';
+
+  const fmtFiles = userFiles.length > 0
+    ? userFiles.slice(0, 10).map(f => `  • "${f.title}" (${f.category || 'Geral'})`).join('\n')
+    : '  (nenhum arquivo)';
+
+  const fmtNotes = userNotes.length > 0
+    ? userNotes.slice(0, 5).map(n => `  • "${n.title}" (${n.date || 'sem data'}${n.done ? ', concluída' : ', pendente'})`).join('\n')
+    : '  (nenhuma nota)';
+
+  const systemPrompt = `Você é a IA Operacional do Checklist ML — assistente inteligente de um centro logístico.
 
 DATA/HORA OPERACIONAL: ${core.now()} — Horário oficial de ${core.TIME_ZONE_LABEL}.
-DATA ATUAL REAL (hoje): ${today}.
-DATA DE REFERÊNCIA DA PERGUNTA: ${referenceDate} (${dayOfWeek})${asksPreviousDay ? ' — offset -1 dia aplicado porque o usuário pediu ontem/dia anterior.' : ''}.
-SE A DATA DE REFERÊNCIA FOR FOLGA: ${core.isDayOff(referenceDate, page.getUser()) ? 'SIM — explique que não há pendências operacionais neste dia de folga.' : 'NÃO'}.
+DATA ATUAL (hoje): ${today} (${dayOfWeek}).
+PERÍODO ANALISADO: ${rangeLabel} (${rangeStart} a ${rangeEnd}).
+USUÁRIO: ${user?.name || user?.username || 'Operador'}${user?.role ? ` (${user.role})` : ''}.
+${core.isDayOff(referenceDate, user) ? '⚠️ O dia de referência é FOLGA do usuário.' : ''}
 
-=== MEMÓRIA DE APRENDIZADO DO USUÁRIO (sincronizada na nuvem) ===
+=== MEMÓRIA DE APRENDIZADO ===
 ${memoryForPrompt()}
-Use essa memória para adaptar tom, foco e recomendações; nunca use a memória para inventar atividades que não estejam nas listas fornecidas.
 
-⚠️ REGRAS RÍGIDAS (não quebre):
-1) Você SÓ pode falar sobre as listas fornecidas abaixo. Não invente atividades.
-2) Respeite exatamente o período solicitado. Se o usuário pedir datas futuras sem dados fornecidos, informe que não há dados disponíveis.
-3) "Atrasadas" = datas anteriores a ${today} ainda não concluídas; "Dia de referência" = tudo com data = ${referenceDate}. Separe claramente REALIZADAS (finished) vs PENDENTES/EM ANÁLISE/ATRASADAS. Em intervalos, analise todos os dias do intervalo.
-4) Se o usuário fizer MAIS DE UM PEDIDO na mesma pergunta (ex.: "resumo do dia e atrasadas e futuras e mais detalhes da 2ª atividade"), entregue TODOS, em SEÇÕES SEPARADAS e com títulos. Não ignore nenhum pedido.
-5) Se o usuário pedir "detalhes da N-ésima atividade" ou "mais detalhe da atividade X", use o campo "id" e "title" das listas abaixo para localizar e trazer o que sabe: status, prioridade, categoria, data, horário de alerta, descrição.
-6) Linguagem: português, clara, prática, com emojis e marcadores (• / 1./ 2.) para legibilidade.
+⚠️ REGRAS FUNDAMENTAIS:
+1) NUNCA mostre IDs numéricos de atividades (ex: 77789466). Use apenas o TÍTULO da atividade para referenciá-la.
+2) Trabalhe SOMENTE com os dados fornecidos abaixo. Não invente atividades, macros ou arquivos.
+3) Quando o usuário pedir dados de dias, semanas ou meses anteriores, use os dados históricos fornecidos.
+4) Se o usuário fizer MÚLTIPLOS pedidos, entregue TODOS em seções separadas com títulos.
+5) Seja analítico: compare períodos, identifique tendências, sugira melhorias.
+6) Linguagem: português, clara, prática, com emojis e marcadores para legibilidade.
+7) Para "atividade feita pela metade" considere status "analyzing" (em análise).
+8) Ao citar atividades, SEMPRE use o título, nunca o ID numérico.
 
-=== DADOS DO PERÍODO SOLICITADO (${rangeLabel}: ${rangeStart} a ${rangeEnd}) ===
-${rangeTasks.length ? rangeTasks.map(fmtTask).join('\n') : '(nenhuma atividade no período solicitado)'}
+=== 📊 ESTATÍSTICAS GERAIS DO SISTEMA ===
+• Total de atividades cadastradas: ${tasks.length}
+• Macros criadas: ${userMacros.length} (${userMacros.filter(m => m.type === 'email').length} de e-mail)
+• Arquivos: ${userFiles.length}
+• Notas: ${userNotes.length}
+• Pontos de gamificação: ${points} | Sequência: ${streak} dias
 
-=== ATRASADAS (data < ${today}, ainda pendentes) ===
-${late.length ? late.map(fmtTask).join('\n') : '(nenhuma atrasada)'}
+=== 📅 HOJE (${today}) ===
+• Total: ${todayTasks.length} | ✅ Feitas: ${todayFinished.length} | ⏳ Em aberto: ${todayOpen.length} | 🔍 Analisando: ${todayAnalyzing.length} | ❌ Não feitas: ${todayNotDone.length}
+${todayTasks.length ? todayTasks.map((t, i) => fmtTask(t, i + 1)).join('\n') : '  (nenhuma atividade hoje)'}
 
-=== REALIZADAS NO DIA DE REFERÊNCIA (${referenceDate}) ===
-${todayDone.length ? todayDone.map(fmtTask).join('\n') : '(nenhuma realizada na data de referência)'}
+=== 📆 PERÍODO SOLICITADO (${rangeLabel}: ${rangeStart} a ${rangeEnd}) ===
+• Total: ${visibleForAI.length} | ✅ Feitas: ${periodFinished.length} | ⏳ Pendentes: ${periodPending.length} | 🔍 Analisando: ${periodAnalyzing.length} | ❌ Não feitas: ${periodNotDone.length}
+${visibleForAI.length ? visibleForAI.map((t, i) => fmtTask(t, i + 1)).join('\n') : '  (nenhuma atividade no período)'}
 
-=== PENDENTES/EM ANÁLISE NO DIA DE REFERÊNCIA (${referenceDate}) ===
-${todayOpen.length ? todayOpen.map(fmtTask).join('\n') : '(nenhuma pendente/em análise na data de referência)'}
+=== ⚠️ ATRASADAS GLOBAIS (data < ${today}, não concluídas) — ${allLate.length} total ===
+${allLate.length ? allLate.slice(0, 15).map((t, i) => fmtTask(t, i + 1)).join('\n') : '  (nenhuma atrasada!)'}
 
-=== PENDENTES (status pendente, não futuras) ===
-${pendingAll.length ? pendingAll.map(fmtTask).join('\n') : '(nenhuma pendente)'}
+=== 🔍 EM ANÁLISE (andamento) — ${allAnalyzing.length} total ===
+${allAnalyzing.length ? allAnalyzing.slice(0, 10).map((t, i) => fmtTask(t, i + 1)).join('\n') : '  (nenhuma em análise)'}
 
-Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura quando o usuário pedir várias coisas: **📋 Resumo do dia** … **✅ Realizadas** … **⏳ Pendentes** … **⚠️ Atrasadas** … **🔍 Detalhes da atividade X** …`;
+=== 📈 SEMANA ATUAL (${weekStart} a ${today}) ===
+• Total: ${weekTasks.length} | Feitas: ${weekFinished.length} | Não feitas: ${weekNotDone.length}
+• Taxa de conclusão: ${weekTasks.length > 0 ? Math.round(weekFinished.length / weekTasks.length * 100) : 0}%
+
+=== 📊 MÊS ATUAL (${monthBounds.start} a ${today}) ===
+• Total: ${monthTasks.length} | Feitas: ${monthFinished.length} | Pendentes: ${monthPending.length} | Não feitas: ${monthNotDone.length}
+• Taxa de conclusão: ${monthTasks.length > 0 ? Math.round(monthFinished.length / monthTasks.length * 100) : 0}%
+
+=== 🏷️ ANÁLISE POR CATEGORIA (no período) ===
+${fmtCategoryStats || '  (sem dados no período)'}
+
+=== 🎯 ANÁLISE POR PRIORIDADE (no período) ===
+• 🚨 Urgente: ${priorityStats.urgent} | 🔴 Alta: ${priorityStats.high} | 🟡 Média: ${priorityStats.medium} | 🟢 Baixa: ${priorityStats.low}
+
+=== 📉 PRODUTIVIDADE DIÁRIA (últimos dias do período) ===
+${fmtDailyProductivity || '  (sem dados suficientes)'}
+
+=== 💬 MACROS DO USUÁRIO ===
+${fmtMacros}
+
+=== 📁 ARQUIVOS ===
+${fmtFiles}
+
+=== 📝 NOTAS ===
+${fmtNotes}
+
+=== 📰 NOTÍCIAS/COMUNICADOS ===
+${posts.length > 0 ? posts.slice(0, 5).map(p => `  • "${p.title}" (${p.category || 'Geral'}, ${core.formatDate(p.publishedAt)})`).join('\n') : '  (nenhuma notícia)'}
+
+Responda em seções com títulos em negrito (**Título**). Analise profundamente os dados, identifique padrões, tendências e dê sugestões práticas. SEMPRE cite atividades pelo TÍTULO, nunca por IDs numéricos.`;
 
   const cfg = await aiConfig();
 
   try {
     if (!cfg.apiKey) {
-      // Modo preview sem API key
       showAnswer(
         generateLocalResponse(question, context) +
         '\n\n— A chave da IA selecionada não foi encontrada para este navegador/conta. ' +
@@ -606,8 +801,11 @@ Responda em seções com títulos em negrito (**Título**). Exemplo de estrutura
         provider: cfg.provider,
         proxyUrl: cfg.proxyUrl,
         onProgress: attempt => { btn.textContent = `⏳ Conectando (${attempt.label})...`; },
+        timeoutMs: 60000,
       });
-      showAnswer(answer, question, channel, context, true);
+      // Remover IDs numéricos da resposta da IA (ex: [77789466])
+      const cleanedAnswer = answer.replace(/\[\d{5,}\]/g, '').replace(/\b\d{8,}\b/g, '').trim();
+      showAnswer(cleanedAnswer, question, channel, context, true);
       updateAIStatus();
     }
   } catch (err) {
@@ -699,7 +897,10 @@ function showAnswer(text, question, channel, context = {}, ok = true) {
 }
 
 function formatAnswer(text) {
-  let html = page.esc(String(text || ''));
+  let raw = String(text || '');
+  // Remover IDs numéricos que possam ter vazado na resposta (ex: [77789466] ou 77789466)
+  raw = raw.replace(/\[\d{5,}\]/g, '').replace(/\b\d{8,}\b/g, '').replace(/\s{2,}/g, ' ').trim();
+  let html = page.esc(raw);
   html = html
     .replace(/\*\*([\s\S]*?)\*\*/g, '<b>$1</b>')
     .replace(/\*([^*]+?)\*/g, '<i>$1</i>')
@@ -710,95 +911,123 @@ function formatAnswer(text) {
 
 function generateLocalResponse(question, ctx) {
   const q = question.toLowerCase();
-  let resp = '🤖 **Modo Preview** (configure a API Key do DeepSeek em Administração para respostas reais).\n\n';
-  if (ctx.rangeStart && (ctx.rangeStart !== ctx.today || ctx.rangeEnd !== ctx.today)) {
-    const byDay = {};
-    (ctx.rangeTasks || []).forEach(t => { byDay[t.date] = (byDay[t.date] || 0) + 1; });
-    resp += `📅 **Período analisado: ${ctx.rangeLabel}** (${ctx.rangeStart} a ${ctx.rangeEnd})\n`;
-    resp += `Total de atividades: **${ctx.rangeTasks.length}**\n`;
-    resp += Object.keys(byDay).sort().map(d => `- ${d}: ${byDay[d]} atividade(s)`).join('\\n') + '\\n\\n';
-  }
+  let resp = '🤖 **Modo Preview** (configure a API Key do DeepSeek/Groq em Administração para respostas reais com análise profunda).\n\n';
 
   // Detecta os pedidos do usuário (multi-pergunta)
   const wants = {
     resumo: /(\bresumo\b|\bdia\b|\bvisão geral\b|\bpanorama\b)/.test(q),
     atrasadas: /(\batrasad|\bvencid)/.test(q),
     urgentes: /(\burgent|\bpriorid)/.test(q),
-    proximas: /(\bpróxim|\bhoje\b|\bagendad)/.test(q),
+    proximas: /(\bpróxim|\bhoje\b|\bagendad|\bem aberto|\bandamento)/.test(q),
     futuras: /(\bfuturas?\b|\bamanhã\b|\bpróximos dias)/.test(q),
     ordem: /(\bordem|\bsugerir|\bsequência)/.test(q),
     detalhes: /(\bdetalh|\bexplique|\bconte mais|\bdescriç)/.test(q),
-    progresso: /(\bprogress|\bconclus|\bporcent)/.test(q),
+    progresso: /(\bprogress|\bconclus|\bporcent|\bprodutiv)/.test(q),
+    semana: /(\bsemana|\b7 dias)/.test(q),
+    mes: /(\bm[eê]s|\b30 dias)/.test(q),
+    macros: /(\bmacro|\bmodelo|\bmensagem)/.test(q),
+    arquivos: /(\barquivo|\bdocumento|\bfile)/.test(q),
+    metade: /(\bmetade|\banalizando|\banálise|\bandamento|\bparcial)/.test(q),
+    feitas: /(\bfeitas?\b|\bconclu[íi]das?\b|\brealizadas?\b)/.test(q),
+    naofeitas: /(\bnão feitas?\b|\bnao feitas?\b|\bnão realizadas?\b)/.test(q),
   };
   const any = Object.values(wants).some(Boolean);
 
   // =============== SEÇÕES ===============
   if (wants.resumo || (!any)) {
-    resp += `📋 **Resumo do dia ${ctx.referenceDate} (${ctx.dayOfWeek}):**\n\n`;
-    if (ctx.isReferenceDayOff) resp += '- 🌴 Dia de folga: sem pendências operacionais para cobrar nesta data.\n';
-    resp += `- Atividades da data: **${ctx.todayTasks.length}** (✅ ${ctx.todayDone.length} realizadas, ⏳ ${ctx.todayOpen.length} pendentes/em aberto, 🔍 ${ctx.todayAnalyzing.length} em análise)\n`;
-    resp += `- Atrasadas: **${ctx.late.length}**\n`;
-    resp += `- Pendentes: **${ctx.pending.length}**\n`;
-    resp += `- Progresso: **${ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0}%**\n\n`;
+    resp += `📋 **Resumo — ${ctx.rangeLabel}:**\n\n`;
+    if (ctx.isReferenceDayOff) resp += '🌴 Dia de folga: sem pendências operacionais.\n';
+    resp += `- ✅ Feitas: **${ctx.finished.length}**\n`;
+    resp += `- ⏳ Pendentes: **${ctx.pending.length}**\n`;
+    resp += `- 🔍 Em análise: **${ctx.analyzing.length}**\n`;
+    resp += `- ❌ Não feitas: **${ctx.notdone.length}**\n`;
+    resp += `- ⚠️ Atrasadas: **${ctx.allLate.length}** (globais)\n`;
+    resp += `- 📈 Taxa de conclusão: **${ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0}%**\n\n`;
   }
   if (wants.atrasadas) {
-    resp += `⚠️ **Atrasadas (${ctx.late.length}):**\n`;
-    if (ctx.late.length === 0) resp += 'Nenhuma atrasada — parabéns! 🎉\n';
-    else ctx.late.slice(0, 10).forEach(t => { resp += `- ${t.title} (desde ${t.date})\n`; });
+    resp += `⚠️ **Atrasadas (${ctx.allLate.length}):**\n`;
+    if (ctx.allLate.length === 0) resp += 'Nenhuma atrasada — parabéns! 🎉\n';
+    else ctx.allLate.slice(0, 10).forEach(t => { resp += `- ${t.title} (desde ${t.date}, pri: ${t.priority || 'média'})\n`; });
     resp += '\n';
   }
   if (wants.urgentes) {
     resp += `🚨 **Mais urgentes:**\n`;
-    const urgentes = [...ctx.late, ...ctx.todayOpen]
+    const urgentes = [...ctx.allLate, ...ctx.todayOpen]
       .filter(t => t.priority === 'urgent' || t.priority === 'high')
       .slice(0, 10);
     if (!urgentes.length) resp += 'Nenhuma marcada como urgente/alta.\n';
     else urgentes.forEach(t => { resp += `- ${t.title} (pri: ${t.priority}, ${t.date || 'sem data'})\n`; });
     resp += '\n';
   }
-  if (wants.futuras) {
-    resp += `🗓️ **Futuras:** a análise operacional deste app considera apenas HOJE, ATRASADAS e PENDENTES — datas futuras ficam para o dia marcado.\n\n`;
-  }
   if (wants.proximas) {
-    resp += `⏭️ **Pendentes/em aberto (${ctx.referenceDate}):**\n`;
-    if (!ctx.todayOpen.length) resp += 'Nenhuma atividade em aberto nesta data. ✅\n';
-    else ctx.todayOpen.slice(0, 10).forEach(t => { resp += `- ${t.title} (pri: ${t.priority || 'média'})\n`; });
+    resp += `⏭️ **Em aberto/andamento (hoje):**\n`;
+    if (!ctx.todayOpen.length) resp += 'Nenhuma atividade em aberto. ✅\n';
+    else ctx.todayOpen.slice(0, 10).forEach(t => { resp += `- ${t.title} (pri: ${t.priority || 'média'}, status: ${t.status})\n`; });
     resp += '\n';
+  }
+  if (wants.futuras) {
+    resp += `🗓️ **Futuras:** a análise considera HOJE, ATRASADAS e PENDENTES.\n\n`;
   }
   if (wants.ordem) {
     resp += `📊 **Ordem sugerida:**\n`;
-    resp += `1. 🔴 Atrasadas (${ctx.late.length})\n`;
-    resp += `2. 🟡 Data de referência em aberto (${ctx.todayOpen.length})\n`;
-    resp += `3. 🟢 Pendentes por prioridade\n\n`;
+    resp += `1. 🔴 Atrasadas (${ctx.allLate.length})\n`;
+    resp += `2. 🟡 Em análise/andamento (${ctx.allAnalyzing.length})\n`;
+    resp += `3. 🟠 Pendentes de hoje (${ctx.todayOpen.length})\n`;
+    resp += `4. 🟢 Pendentes por prioridade\n\n`;
   }
-  if (wants.detalhes) {
-    // pega a primeira atividade HOJE como exemplo de "detalhe"
-    const ex = ctx.todayTasks[0] || ctx.late[0] || ctx.pending[0];
-    if (ex) {
-      resp += `🔍 **Detalhes da atividade (exemplo):**\n`;
-      resp += `- Título: ${ex.title}\n`;
-      resp += `- Status: ${ex.status}\n`;
-      resp += `- Prioridade: ${ex.priority || 'média'}\n`;
-      resp += `- Categoria: ${ex.category || 'Geral'}\n`;
-      resp += `- Data: ${ex.date || 'sem data'}\n`;
-      if (ex.alertTime) resp += `- Alerta: ${ex.alertTime}\n`;
-      if (ex.description) resp += `- Descrição: ${ex.description}\n`;
-      resp += '\n';
-    }
+  if (wants.semana) {
+    resp += `📊 **Semana atual:**\n`;
+    resp += `- Total: ${ctx.weekTotal} | Feitas: ${ctx.weekFinished} | Não feitas: ${ctx.weekNotDone}\n`;
+    resp += `- Taxa: ${ctx.weekTotal > 0 ? Math.round(ctx.weekFinished / ctx.weekTotal * 100) : 0}%\n\n`;
+  }
+  if (wants.mes) {
+    resp += `📅 **Mês atual:**\n`;
+    resp += `- Total: ${ctx.monthTotal} | Feitas: ${ctx.monthFinished} | Pendentes: ${ctx.monthPending} | Não feitas: ${ctx.monthNotDone}\n`;
+    resp += `- Taxa: ${ctx.monthTotal > 0 ? Math.round(ctx.monthFinished / ctx.monthTotal * 100) : 0}%\n\n`;
   }
   if (wants.progresso) {
-    const pct = ctx.totalTasks > 0 ? Math.round(ctx.finished.length / ctx.totalTasks * 100) : 0;
-    resp += `📈 **Progresso geral:** ${ctx.finished.length}/${ctx.totalTasks} concluídas (${pct}%).\n\n`;
+    resp += `📈 **Produtividade diária (últimos 7 dias):**\n`;
+    (ctx.dailyProductivity || []).slice(-7).forEach(d => {
+      resp += `- ${d.date}: ${d.done}/${d.total} (${d.pct}%)\n`;
+    });
+    resp += '\n';
+  }
+  if (wants.macros) {
+    resp += `💬 **Macros (${(ctx.macros || []).length}):**\n`;
+    if (!(ctx.macros || []).length) resp += 'Nenhuma macro criada.\n';
+    else (ctx.macros || []).slice(0, 5).forEach(m => { resp += `- "${m.title}" (${m.type || 'text'}, ${m.uses || 0}x usada)\n`; });
+    resp += '\n';
+  }
+  if (wants.arquivos) {
+    resp += `📁 **Arquivos (${(ctx.files || []).length}):**\n`;
+    if (!(ctx.files || []).length) resp += 'Nenhum arquivo cadastrado.\n';
+    else (ctx.files || []).slice(0, 5).forEach(f => { resp += `- "${f.title}" (${f.category || 'Geral'})\n`; });
+    resp += '\n';
+  }
+  if (wants.metade) {
+    resp += `🔍 **Atividades pela metade (em análise):**\n`;
+    if (!(ctx.halfDone || []).length) resp += 'Nenhuma atividade em análise. ✅\n';
+    else (ctx.halfDone || []).forEach(t => { resp += `- ${t.title} (${t.date}, pri: ${t.priority || 'média'})\n`; });
+    resp += '\n';
+  }
+  if (wants.feitas) {
+    resp += `✅ **Feitas no período (${ctx.finished.length}):**\n`;
+    if (!ctx.finished.length) resp += 'Nenhuma concluída no período.\n';
+    else ctx.finished.slice(0, 10).forEach(t => { resp += `- ${t.title} (${t.date})\n`; });
+    resp += '\n';
+  }
+  if (wants.naofeitas) {
+    resp += `❌ **Não feitas no período (${ctx.notdone.length}):**\n`;
+    if (!ctx.notdone.length) resp += 'Nenhuma marcada como não feita.\n';
+    else ctx.notdone.slice(0, 10).forEach(t => { resp += `- ${t.title} (${t.date})\n`; });
+    resp += '\n';
   }
 
-  if (any) {
-    resp += `💡 Para uma análise mais detalhada, configure a API Key do DeepSeek em Administração → API / IA.`;
-  } else {
-    // Fallback: visão geral curta
-    resp += `📊 **Visão geral:**\n`;
-    resp += `Total: ${ctx.totalTasks} | Pendentes: ${ctx.pending.length} | Atrasadas: ${ctx.late.length} | Feitas: ${ctx.finished.length}\n`;
+  if (!any) {
+    resp += `📊 **Visão geral:** ${ctx.totalTasks} atividades no período | ${ctx.finished.length} feitas | ${ctx.pending.length} pendentes | ${ctx.allLate.length} atrasadas\n`;
   }
 
+  resp += `\n💡 Para análise completa com IA, configure a API Key em Administração → API / IA.`;
   return resp;
 }
 

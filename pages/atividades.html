@@ -167,28 +167,26 @@ let initialDataLoaded = false;
 const user = page.getUser();
 const settings = page.getDB().settings;
 
+// Debounce para evitar flickering: re-renderizar no máximo 1x a cada 500ms
+let _renderDebounceTimer = null;
+function debouncedRender() {
+  if (_renderDebounceTimer) clearTimeout(_renderDebounceTimer);
+  _renderDebounceTimer = setTimeout(() => {
+    _renderDebounceTimer = null;
+    if (typeof render === 'function') render();
+  }, 500);
+}
+
 // Escutar eventos de sincronização do Firebase para re-renderizar quando dados chegarem
+// IMPORTANTE: apenas coleções que afetam esta página disparam re-render, e com debounce
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'firebaseSync') {
-    console.log('📥 Evento firebaseSync recebido na página:', e.data.collection);
-    // Pequeno delay para garantir que o localDB foi atualizado
-    setTimeout(() => {
-      if (typeof render === 'function') {
-        render();
-        console.log('✅ Página re-renderizada após sync Firebase');
-      }
-    }, 100);
-  }
-});
-
-// Também escutar o evento global de sync
-window.addEventListener('firebaseSync', (e) => {
-  console.log('📥 Evento global firebaseSync:', e.detail?.type);
-  setTimeout(() => {
-    if (typeof render === 'function') {
-      render();
+    const col = e.data.collection;
+    // Só re-renderizar se for dado relevante para atividades
+    if (col === 'tasks' || col === 'settings' || col === 'comments') {
+      debouncedRender();
     }
-  }, 100);
+  }
 });
 
 /* ========== CATEGORIAS POR CAIXA MARCÁVEL ==========
@@ -633,7 +631,8 @@ function toggleStatus(id) {
   page.syncDocument('tasks', task.id, task);
   createdRecurrences.forEach(recurringTask => page.syncDocument('tasks', recurringTask.id, recurringTask));
   core.log('task_status', user?.id, `${task.title} → ${statusLabel(task.status)}`);
-  core.chromeNotification('Status da atividade alterado', `${task.title}: ${statusLabel(oldStatus)} → ${statusLabel(task.status)}`, task.status === 'finished' ? 'success' : 'info');
+  // NOTIFICAÇÃO REMOVIDA: não notificar alterações manuais de status.
+  // Notificações automáticas acontecem apenas no horário agendado (10 min antes e no horário).
   render();
   window.parent.postMessage({ type: 'updateBadge' }, '*');
 }

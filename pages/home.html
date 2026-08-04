@@ -206,16 +206,28 @@ function renderWidgets() {
           </div>
         </div>`;
 
-      case 'late':
+      case 'late': {
+        // Mostrar atrasadas E em aberto (andamento) juntas
+        const openToday = todayTasks.filter(t => t.status === 'pending' || t.status === 'analyzing');
+        const combinedItems = [
+          ...late.map(t => ({ ...t, _group: 'late' })),
+          ...openToday.map(t => ({ ...t, _group: 'open' })),
+        ];
+        // Ordenar: atrasadas primeiro (por data), depois abertas de hoje
+        combinedItems.sort((a, b) => {
+          if (a._group !== b._group) return a._group === 'late' ? -1 : 1;
+          if (a._group === 'late') return a.date.localeCompare(b.date);
+          return 0;
+        });
         return `<div class="widget ${cls}" data-wtype="${w.type}">
           <div class="widget-handle">⠿</div>
-          <h2>⚠️ Atividades atrasadas</h2>
-          ${late.length === 0 ? '<div class="empty"><p>🎉 Nenhuma atividade atrasada!</p></div>' :
-            late.slice(0, 5).map(t => `
-              <div class="item">
+          <h2>⚠️ Atrasadas e em aberto</h2>
+          ${combinedItems.length === 0 ? '<div class="empty"><p>🎉 Tudo em dia! Nenhuma atividade atrasada ou em aberto.</p></div>' :
+            combinedItems.slice(0, 8).map(t => `
+              <div class="item" style="${t._group === 'late' ? 'border-left:3px solid var(--danger,#EF4444);padding-left:10px' : 'border-left:3px solid var(--warning,#F59E0B);padding-left:10px'}">
                 <div class="item-info">
-                  <b>${page.esc(t.title)}</b>
-                  <small>${core.formatDate(t.date)} · ${page.esc(t.category || 'Geral')} · <span class="badge ${t.status}">${statusLabel(t.status)}</span></small>
+                  <b>${t._group === 'late' ? '🔴' : '🟡'} ${page.esc(t.title)}</b>
+                  <small>${core.formatDate(t.date)} · ${page.esc(t.category || 'Geral')} · <span class="badge ${t.status}">${statusLabel(t.status)}</span>${t._group === 'late' ? ' · <span style="color:var(--danger)">Atrasada</span>' : ' · <span style="color:var(--warning)">Em aberto</span>'}</small>
                 </div>
                 <div class="item-actions">
                   <button class="btn-icon" onclick="finishTask(${t.id})" title="Finalizar">✅</button>
@@ -224,6 +236,7 @@ function renderWidgets() {
             `).join('')
           }
         </div>`;
+      }
 
       case 'next':
         // Atividades DO PERÍODO (do dia atual para trás) — nunca do futuro.
@@ -416,21 +429,27 @@ function finishTask(id) {
   }
 }
 
+// Debounce para atualizar widgets sem flickering
+let _homeRenderDebounce = null;
+function debouncedRenderWidgets() {
+  if (_homeRenderDebounce) clearTimeout(_homeRenderDebounce);
+  _homeRenderDebounce = setTimeout(() => {
+    _homeRenderDebounce = null;
+    renderWidgets();
+  }, 600);
+}
+
 window.addEventListener('message', (e) => {
   if (e.data?.type === 'languageChanged' || e.data?.type === 'themeChanged') {
     setTimeout(() => { page.applyI18n(document.body); updatePeriodUI(); renderWidgets(); }, 100);
   }
-  // Re-renderizar quando dados do Firebase chegarem
+  // Re-renderizar quando dados do Firebase chegarem (com debounce)
   if (e.data?.type === 'firebaseSync') {
-    console.log('📥 Dados sincronizados, atualizando dashboard...');
-    setTimeout(() => { renderWidgets(); }, 200);
+    const col = e.data.collection;
+    if (col === 'tasks' || col === 'posts' || col === 'settings') {
+      debouncedRenderWidgets();
+    }
   }
-});
-
-// Também escutar evento global de sync Firebase
-window.addEventListener('firebaseSync', (e) => {
-  console.log('📥 Evento global firebaseSync na home:', e.detail?.type);
-  setTimeout(() => { renderWidgets(); }, 200);
 });
 </script>
 
