@@ -76,11 +76,24 @@ setTimeout(function(){
     console.warn('Loading demorou >5s, mostrando recuperação');
   }
 }, 5000);
-// ESC sempre libera a página travada
+// ESC libera a página só se ela ainda estiver travada no loading APÓS o boot
+// (evita abrir a tela de login no meio da restauração de sessão do Firebase).
 document.addEventListener('keydown', function(e){
   if (e.key === 'Escape') {
     var loading = document.getElementById('loadingScreen');
-    if (loading) loading.classList.add('hidden');
+    if (!loading || loading.classList.contains('hidden')) return;
+    // Se já passou do boot normal (App marcou _bootFinished), não force nada.
+    if (window.App && window.App._bootFinished) return;
+    loading.classList.add('hidden');
+    // Tentar mostrar app se há usuário em cache, senão mostra login.
+    try {
+      var cached = sessionStorage.getItem('currentUser');
+      if (cached) {
+        var app = document.getElementById('appScreen');
+        if (app) app.classList.remove('hidden');
+        return;
+      }
+    } catch(_) {}
     var login = document.getElementById('loginScreen');
     if (login) login.classList.remove('hidden');
   }

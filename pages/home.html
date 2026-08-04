@@ -115,9 +115,12 @@ function getPeriodRange() {
 }
 
 // Tarefas dentro do período (do dia atual para trás). Ignora datas futuras.
-function tasksInPeriod(tasks) {
+// Também ignora tarefas de dias de folga (não contam para o turno).
+function tasksInPeriod(tasks, user) {
   const { start, end } = getPeriodRange();
-  return (tasks || []).filter(t => t.date && t.date >= start && t.date <= end);
+  return (tasks || []).filter(t =>
+    t.date && t.date >= start && t.date <= end && !core.isDayOff(t.date, user)
+  );
 }
 
 function setPeriod(p) {
@@ -162,13 +165,20 @@ function renderWidgets() {
   const notSkippedToday = t => !skippedToday(t);
 
   // Métricas do PERÍODO selecionado (do dia atual para trás).
-  const notDayOffTask = t => !t.date || !core.isDayOff(t.date, user);
-  const periodTasks = (dayOffToday ? [] : tasksInPeriod(tasks)).filter(notSkippedToday).filter(notDayOffTask);
+  // Folga de HOJE zera as contagens do dia; folgas passadas também são
+  // ignoradas (tasksInPeriod e late checam isDayOff para cada data).
+  const periodAll = dayOffToday ? [] : tasksInPeriod(tasks, user).filter(notSkippedToday);
+  const periodTasks = periodAll;
   const total = periodTasks.length;
   const finished = periodTasks.filter(t => t.status === 'finished').length;
-  const pending = periodTasks.filter(t => t.status === 'pending').length;
-  // Atrasadas = vencidas até hoje e não concluídas (backlog, sempre para trás).
-  const late = dayOffToday ? [] : tasks.filter(t => t.date && t.date < today && !core.isDayOff(t.date, user) && t.status !== 'finished' && t.status !== 'notdone');
+  const pending = periodTasks.filter(t => t.status === 'pending' || t.status === 'analyzing').length;
+  // Atrasadas = vencidas até hoje e não concluídas (backlog, sempre para trás),
+  // exceto as que caem em dia de folga (recorrente ou avulsa).
+  const late = dayOffToday ? [] : tasks.filter(t =>
+    t.date && t.date < today &&
+    t.status !== 'finished' && t.status !== 'notdone' &&
+    !core.isDayOff(t.date, user)
+  );
   const todayTasks = (dayOffToday ? [] : tasks.filter(t => t.date === today && !core.isDayOff(t.date, user))).filter(notSkippedToday);
   const todayDone = todayTasks.filter(t => t.status === 'finished').length;
   const pct = total > 0 ? Math.round(finished / total * 100) : 0;
@@ -217,8 +227,8 @@ function renderWidgets() {
 
       case 'next':
         // Atividades DO PERÍODO (do dia atual para trás) — nunca do futuro.
-        // Ordenadas do mais recente (hoje) para o mais antigo.
-        const periodList = tasksInPeriod(tasks)
+        // Ordenadas do mais recente (hoje) para o mais antigo. Respeita folgas.
+        const periodList = tasksInPeriod(tasks, user)
           .slice()
           .sort((a, b) => b.date.localeCompare(a.date))
           .slice(0, 8);
@@ -240,35 +250,43 @@ function renderWidgets() {
           }
         </div>`;
 
-      case 'weekProgress':
+      case 'weekProgress': {
         const weekStart = core.startOfWeek(today);
-        const weekTasks = tasks.filter(t => t.date && t.date >= weekStart && t.date <= today);
+        // Semana respeita folgas: dias de folga não entram na contagem.
+        const weekTasks = tasks.filter(t =>
+          t.date && t.date >= weekStart && t.date <= today && !core.isDayOff(t.date, user)
+        );
         const weekDone = weekTasks.filter(t => t.status === 'finished').length;
         const weekTotal = weekTasks.length;
         const weekPct = weekTotal > 0 ? Math.round(weekDone / weekTotal * 100) : 0;
         let bars = '';
         for (let i = 6; i >= 0; i--) {
           const ds = core.addDays(today, -i);
-          const dayTasks = tasks.filter(t => t.date === ds);
+          const isOff = core.isDayOff(ds, user);
+          const dayTasks = isOff ? [] : tasks.filter(t => t.date === ds && !core.isDayOff(t.date, user));
           const dayDone = dayTasks.filter(t => t.status === 'finished').length;
           const dayTotal = dayTasks.length;
           const dayName = core.dayName(ds, 'short').slice(0, 3);
-          const h = dayTotal > 0 ? Math.max(8, (dayDone / dayTotal) * 60) : 8;
-          const color = dayTotal === 0 ? 'var(--line,#E2E8F0)' : dayDone === dayTotal ? 'var(--success,#10B981)' : 'var(--warning,#F59E0B)';
-          bars += `<div style="flex:1;text-align:center">
-            <div style="height:60px;display:flex;align-items:flex-end;justify-content:center">
-              <div style="width:24px;height:${h}px;background:${color};border-radius:4px" title="${dayDone}/${dayTotal}"></div>
-            </div>
-            <small style="font-size:11px;color:var(--muted)">${dayName}</small>
-          </div>`;
+          const h = isOff ? 8 : (dayTotal > 0 ? Math.max(8, (dayDone / dayTotal) * 60) : 8);
+          const color = isOff
+            ? 'var(--primary-light,#DBEAFE)'
+            : (dayTotal === 0 ? 'var(--line,#E2E8F0)' : dayDone === dayTotal ? 'var(--success,#10B981)' : 'var(--warning,#F59E0B)');
+          const title = isOff ? 'Folga' : (dayDone + '/' + dayTotal);
+          bars += '<div style="flex:1;text-align:center">' +
+            '<div style="height:60px;display:flex;align-items:flex-end;justify-content:center">' +
+              '<div style="width:24px;height:' + h + 'px;background:' + color + ';border-radius:4px' + (isOff?';border:1px dashed var(--primary,#2563EB)':'') + '" title="' + title + '"></div>' +
+            '</div>' +
+            '<small style="font-size:11px;color:' + (isOff?'var(--primary,#2563EB)':'var(--muted)') + '">' + (isOff?'🌴':dayName) + '</small>' +
+          '</div>';
         }
-        return `<div class="widget ${cls}" data-wtype="${w.type}">
-          <div class="widget-handle">⠿</div>
-          <h2>📈 Progresso da semana</h2>
-          <div style="margin-bottom:12px"><b>${weekDone}/${weekTotal}</b> atividades concluídas esta semana</div>
-          <div class="progress"><div class="progress-bar green" style="width:${weekPct}%"></div></div>
-          <div style="display:flex;gap:6px;margin-top:16px">${bars}</div>
-        </div>`;
+        return '<div class="widget ' + cls + '" data-wtype="' + w.type + '">' +
+          '<div class="widget-handle">⠿</div>' +
+          '<h2>📈 Progresso da semana</h2>' +
+          '<div style="margin-bottom:12px"><b>' + weekDone + '/' + weekTotal + '</b> atividades concluídas esta semana' + (weekTotal===0?' (sem dias úteis no período?)':'') + '</div>' +
+          '<div class="progress"><div class="progress-bar green" style="width:' + weekPct + '%"></div></div>' +
+          '<div style="display:flex;gap:6px;margin-top:16px">' + bars + '</div>' +
+        '</div>';
+      }
 
       case 'posts':
         return `<div class="widget ${cls}" data-wtype="${w.type}">
