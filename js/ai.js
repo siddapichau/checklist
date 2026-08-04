@@ -147,7 +147,7 @@
               { role: 'user', content: question },
             ],
             temperature: 0.7,
-            max_tokens: 1500,
+            max_tokens: 2500,
           }),
         }, timeoutMs);
 

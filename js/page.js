@@ -33,13 +33,19 @@
     const settings = core.getLocalDB().settings;
     apply(settings.theme, settings.mode, localStorage.getItem('cl-font-scale') || 'normal');
   }
+  // Debounce global para re-renderizar páginas via firebaseSync (evita flickering)
+  let _pageSyncDebounce = null;
   window.addEventListener('message', event => {
     if (event.data?.type === 'themeChanged') apply(event.data.theme, event.data.mode);
     if (event.data?.type === 'firebaseSync') {
-      // Re-renderizar a página se a função render() existir
-      if (typeof render === 'function') render();
-      // Em notas e atividades, também recarregar categorias pois podem vir de settings
-      if (event.data.collection === 'settings' && typeof initCategories === 'function') initCategories();
+      // Debounce: só re-renderizar 1x a cada 600ms para evitar flickering
+      if (_pageSyncDebounce) clearTimeout(_pageSyncDebounce);
+      _pageSyncDebounce = setTimeout(() => {
+        _pageSyncDebounce = null;
+        if (event.data.collection === 'settings' && typeof initCategories === 'function') initCategories();
+        // Deixar cada página decidir se re-renderiza (algumas já têm listener próprio com debounce)
+        if (typeof render === 'function' && typeof debouncedRender !== 'function') render();
+      }, 600);
     }
   });
 })();

@@ -1462,7 +1462,8 @@ const App = {
     const tick = () => {
       try { this._checkTaskAlerts(); } catch (e) { console.warn('taskAlerts:', e); }
     };
-    this._alertTimer = setInterval(tick, 30000);
+    // Verificar a cada 15 segundos para pegar a janela de 10 min antes com precisão
+    this._alertTimer = setInterval(tick, 15000);
     setTimeout(tick, 4000);
   },
 
@@ -1481,7 +1482,6 @@ const App = {
     if (!todayIsOff) {
       (data.tasks || []).forEach(task => {
         if (!task.alertTime || task.date !== today) return;
-        if (task.alertTime > hhmm) return;
         if (task.status === 'finished' || task.status === 'notdone') return;
         if (task.owner && uid && String(task.owner) !== String(uid)) return;
         // Safety: respeita folga (defensivo — hoje já foi checado acima).
@@ -1490,20 +1490,54 @@ const App = {
         const stillExists = (data.tasks || []).some(t => String(t.id) === String(task.id));
         if (!stillExists) return;
 
-        const marker = `cl-alert-${task.id}-${task.date}-${task.alertTime}`;
-        try { if (localStorage.getItem(marker)) return; } catch (e) {}
-        try { localStorage.setItem(marker, '1'); } catch (e) {}
+        // Calcular janelas de tempo para as notificações
+        // Parse alertTime (HH:MM) e hora atual em minutos desde meia-noite
+        const [alertH, alertM] = task.alertTime.split(':').map(Number);
+        const alertMinutes = alertH * 60 + alertM;
+        const nowMinutes = nowParts.hour * 60 + nowParts.minute;
 
-        const title = '⏰ Lembrete de atividade';
-        const body = `${task.alertTime} — ${task.title}`;
-        core._createNotification(uid, title, body, 'warning', {
-          dedupeKey: `alert:${task.id}:${task.date}:${task.alertTime}`,
-          data: { page: 'atividades', taskId: task.id },
-          showToast: false,
-          showBrowser: false,
-        });
-        core.chromeNotification(title, body, 'warning');
-        try { this.renderNotifications(); } catch (e) {}
+        // Janela 1: 10 minutos antes do horário marcado
+        // Disparar quando nowMinutes >= alertMinutes - 10 E nowMinutes < alertMinutes
+        const preAlertMinutes = alertMinutes - 10;
+        if (preAlertMinutes >= 0 && nowMinutes >= preAlertMinutes && nowMinutes < alertMinutes) {
+          const markerPre = `cl-alert-pre10-${task.id}-${task.date}-${task.alertTime}`;
+          try {
+            if (!localStorage.getItem(markerPre)) {
+              localStorage.setItem(markerPre, '1');
+              const titlePre = '⏰ Atividade em 10 minutos';
+              const bodyPre = `${task.alertTime} — ${task.title}`;
+              core._createNotification(uid, titlePre, bodyPre, 'warning', {
+                dedupeKey: `alert:pre10:${task.id}:${task.date}:${task.alertTime}`,
+                data: { page: 'atividades', taskId: task.id },
+                showToast: true,
+                showBrowser: true,
+              });
+              core.chromeNotification(titlePre, bodyPre, 'warning');
+              try { this.renderNotifications(); } catch (e) {}
+            }
+          } catch (e) {}
+        }
+
+        // Janela 2: no horário exato (e até 5 min depois para não perder)
+        // Disparar quando nowMinutes >= alertMinutes E nowMinutes <= alertMinutes + 5
+        if (nowMinutes >= alertMinutes && nowMinutes <= alertMinutes + 5) {
+          const markerNow = `cl-alert-now-${task.id}-${task.date}-${task.alertTime}`;
+          try {
+            if (!localStorage.getItem(markerNow)) {
+              localStorage.setItem(markerNow, '1');
+              const titleNow = '🔔 Hora da atividade!';
+              const bodyNow = `${task.alertTime} — ${task.title}`;
+              core._createNotification(uid, titleNow, bodyNow, 'warning', {
+                dedupeKey: `alert:now:${task.id}:${task.date}:${task.alertTime}`,
+                data: { page: 'atividades', taskId: task.id },
+                showToast: true,
+                showBrowser: true,
+              });
+              core.chromeNotification(titleNow, bodyNow, 'warning');
+              try { this.renderNotifications(); } catch (e) {}
+            }
+          } catch (e) {}
+        }
       });
     }
 
@@ -1533,6 +1567,13 @@ const App = {
     try {
       Object.keys(localStorage)
         .filter(key => key.startsWith('cl-alert-') && !key.includes(`-${today}-`))
+        .forEach(key => localStorage.removeItem(key));
+    } catch (e) {}
+
+    // Também limpar markers de notas
+    try {
+      Object.keys(localStorage)
+        .filter(key => key.startsWith('cl-alert-note-') && !key.includes(`-${today}-`))
         .forEach(key => localStorage.removeItem(key));
     } catch (e) {}
   },
