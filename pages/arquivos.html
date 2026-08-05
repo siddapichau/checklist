@@ -56,9 +56,14 @@
       <label><span>Título *</span>
         <input type="text" id="fileTitle" required placeholder="Nome do arquivo ou documento">
       </label>
-      <label><span>URL / Link *</span>
-        <input type="text" id="fileUrl" required placeholder="https://... ou caminho do arquivo">
+      <label><span>URL / Link</span>
+        <input type="url" id="fileUrl" placeholder="https://... (opcional se enviar um arquivo)">
       </label>
+      <label><span>Arquivo do dispositivo</span>
+        <input type="file" id="fileResource" onchange="handleResourceFile(event)">
+        <small class="text-muted">Opcional: envie PDF, planilha, vídeo, imagem ou documento para o Firebase Storage (máx. 5 MB).</small>
+      </label>
+      <div id="fileUploadStatus" class="text-muted" style="display:none;font-size:12px;margin-top:-6px"></div>
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
         <label><span>Tipo</span>
           <select id="fileType">
@@ -84,12 +89,12 @@
         <div style="display:flex;gap:8px;align-items:end">
           <input type="text" id="fileImage" placeholder="URL da thumbnail" style="flex:1">
           <span style="color:var(--muted);font-size:12px;white-space:nowrap">ou</span>
-          <input type="file" accept="image/*" onchange="uploadFileImage(event)" style="flex:1;min-width:0">
+          <input type="file" id="fileImageUpload" accept="image/*" onchange="uploadFileImage(event)" style="flex:1;min-width:0">
         </div>
       </label>
       <div class="modal-actions">
         <button type="button" class="btn btn-secondary" onclick="closeFileModal()">Cancelar</button>
-        <button type="submit" class="btn btn-primary">＋ Adicionar</button>
+        <button type="submit" class="btn btn-primary" id="saveFileButton">＋ Publicar arquivo</button>
       </div>
     </form>
   </div>
@@ -98,28 +103,45 @@
 <script src="../js/core.js"></script>
 <script src="../js/page.js"></script>
 <script>
-const settings = page.getDB().settings;
+let selectedResourceFile = null;
+let selectedThumbnailFile = null;
+let thumbnailPreviewUrl = '';
 
-// Detectar tipo do arquivo pela URL/extensão
+function currentUserId() {
+  const user = page.getUser() || {};
+  return String(user.uid || user.id || '');
+}
+
+function setUploadStatus(message = '', type = 'info') {
+  const el = document.getElementById('fileUploadStatus');
+  if (!el) return;
+  el.style.display = message ? '' : 'none';
+  el.textContent = message;
+  el.style.color = type === 'error' ? 'var(--danger,#DC2626)' : type === 'success' ? 'var(--success,#059669)' : 'var(--muted)';
+}
+
+function safeFileUrl(value) {
+  try {
+    const url = new URL(String(value || '').trim(), window.location.origin);
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : '';
+  } catch (_) { return ''; }
+}
+
 function detectFileType(file) {
   if (file.fileType) return file.fileType;
   const url = (file.url || '').toLowerCase();
-  const title = (file.title || '').toLowerCase();
-
+  const title = `${file.title || ''} ${file.fileName || ''}`.toLowerCase();
   if (/\.(xlsx|xls|csv|ods)$/.test(url) || /planilha|excel|spreadsheet/i.test(title)) return 'spreadsheet';
   if (/\.(docx|doc|odt|txt|rtf)$/.test(url) || /documento|word|doc/i.test(title)) return 'document';
   if (/\.(pptx|ppt|odp)$/.test(url) || /apresentação|slides|ppt/i.test(title)) return 'presentation';
   if (/\.(mp4|mov|avi|mkv|webm|wmv)$/.test(url) || /vídeo|video|player/i.test(title)) return 'video';
   if (/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/.test(url) || /imagem|foto|image/i.test(title)) return 'image';
   if (/\.pdf$/.test(url) || /pdf/i.test(title)) return 'pdf';
-  if (/^https?:\/\//.test(url) && !/\.\w{2,5}$/.test(url)) return 'link';
+  if (/^https?:\/\//.test(url) && !/\.\w{2,5}(?:[?#].*)?$/.test(url)) return 'link';
   return 'other';
 }
 
-// Thumbnail automática baseada no tipo
 function getFileIcon(file) {
-  if (file.image && file.image.trim()) return null; // tem imagem customizada
-
   const type = detectFileType(file);
   const icons = {
     spreadsheet: { icon: '📊', bg: '#D1FAE5', color: '#059669', label: 'Planilha' },
@@ -134,144 +156,304 @@ function getFileIcon(file) {
   return icons[type] || icons.other;
 }
 
-// Permissão: criar arquivos é restrito a admin/editor (regras do Firestore)
+function safePreviewUrl(value) {
+  const raw = String(value || '').trim();
+  // Compatibilidade com capas WebP legadas que já estavam no Firestore. Só
+  // aceita data URL de imagem, nunca javascript/data HTML.
+  if (/^data:image\/(?:png|jpeg|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(raw)) return raw;
+  return safeFileUrl(raw);
+}
+
+function previewUrlFor(file) {
+  if (file.image && String(file.image).trim()) return safePreviewUrl(file.image);
+  if (detectFileType(file) === 'image') return safePreviewUrl(file.url);
+  return '';
+}
+
+function formatFileDate(value) {
+  const key = typeof value === 'string' ? value.slice(0, 10) : value;
+  return key ? core.formatDate(key) : '';
+}
+
 function canManageFiles() {
   const role = page.getUser()?.role || 'member';
   return role === 'admin' || role === 'editor';
 }
 
-// Popular filtro de categorias
-(function init() {
-  const cats = settings.categories || ['Geral'];
+function updateManageControls() {
+  const allowed = canManageFiles();
+  document.getElementById('btnAddFile').style.display = allowed ? '' : 'none';
+  document.getElementById('btnAddFileEmpty').style.display = allowed ? '' : 'none';
+  document.getElementById('fileEmptyHint').textContent = allowed
+    ? 'Use o botão “＋ Adicionar arquivo” para publicar o primeiro recurso'
+    : 'Arquivos são adicionados pelo administrador no painel de controle';
+}
+
+function buildCategoryOptions() {
+  const cats = page.getDB().settings.categories || ['Geral'];
   const filterCat = document.getElementById('filterCategory');
   const modalCat = document.getElementById('fileCategory');
-  cats.forEach(c => {
-    filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
-    modalCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
+  const selectedFilter = filterCat.value || 'all';
+  const selectedModal = modalCat.value || cats[0] || 'Geral';
+  filterCat.innerHTML = '<option value="all">📂 Todas categorias</option>';
+  modalCat.innerHTML = '';
+  cats.forEach(category => {
+    const safe = page.esc(category);
+    filterCat.innerHTML += `<option value="${safe}">${safe}</option>`;
+    modalCat.innerHTML += `<option value="${safe}">${safe}</option>`;
   });
+  filterCat.value = Array.from(filterCat.options).some(option => option.value === selectedFilter) ? selectedFilter : 'all';
+  modalCat.value = Array.from(modalCat.options).some(option => option.value === selectedModal) ? selectedModal : (cats[0] || 'Geral');
+}
 
-  // Botão "Adicionar arquivo" visível para quem pode gerenciar a biblioteca
-  if (canManageFiles()) {
-    document.getElementById('btnAddFile').style.display = '';
-    document.getElementById('btnAddFileEmpty').style.display = '';
-    document.getElementById('fileEmptyHint').textContent = 'Use o botão "＋ Adicionar arquivo" para publicar o primeiro recurso';
-  }
+(function init() {
+  buildCategoryOptions();
+  updateManageControls();
   render();
 })();
 
-/* ========== MODAL ADICIONAR ARQUIVO ========== */
+window.addEventListener('message', event => {
+  if (event.data?.type !== 'firebaseSync') return;
+  if (event.data.collection === 'settings') buildCategoryOptions();
+  if (event.data.collection === 'users') updateManageControls();
+  if (event.data.collection === 'files' || event.data.collection === 'settings' || event.data.collection === 'users' || event.data.collection === 'syncReady') render();
+});
+
 function openFileModal() {
   if (!canManageFiles()) return page.toast('Apenas admin/editor podem adicionar arquivos', 'warning');
   document.getElementById('fileModal').classList.remove('hidden');
   setTimeout(() => document.getElementById('fileTitle').focus(), 100);
 }
 
-function closeFileModal() {
-  document.getElementById('fileModal').classList.add('hidden');
+function resetFileForm() {
+  if (thumbnailPreviewUrl) URL.revokeObjectURL(thumbnailPreviewUrl);
+  thumbnailPreviewUrl = '';
+  selectedResourceFile = null;
+  selectedThumbnailFile = null;
   document.getElementById('fileTitle').value = '';
   document.getElementById('fileUrl').value = '';
   document.getElementById('fileType').value = '';
   document.getElementById('fileDesc').value = '';
   document.getElementById('fileImage').value = '';
+  document.getElementById('fileResource').value = '';
+  document.getElementById('fileImageUpload').value = '';
+  setUploadStatus('');
 }
 
-async function uploadFileImage(e) {
-  const file = e.target.files[0];
-  if (!file) return;
-  const compressed = await core.compressImage(file, 200, 0.7);
-  document.getElementById('fileImage').value = compressed;
-  page.toast('Thumbnail carregada!', 'info');
+function closeFileModal() {
+  document.getElementById('fileModal').classList.add('hidden');
+  resetFileForm();
 }
 
-function saveFile(e) {
-  e.preventDefault();
+function handleResourceFile(event) {
+  selectedResourceFile = event.target.files?.[0] || null;
+  if (!selectedResourceFile) return;
+  if (selectedResourceFile.size > 5 * 1024 * 1024) {
+    page.toast('O arquivo deve ter no máximo 5 MB.', 'warning');
+    event.target.value = '';
+    selectedResourceFile = null;
+    return;
+  }
+  const title = document.getElementById('fileTitle');
+  if (!title.value.trim()) title.value = selectedResourceFile.name.replace(/\.[^.]+$/, '');
+  const typeSelect = document.getElementById('fileType');
+  if (!typeSelect.value) typeSelect.value = detectFileType({ fileName: selectedResourceFile.name, title: selectedResourceFile.name });
+  setUploadStatus(`Selecionado: ${selectedResourceFile.name} (${Math.ceil(selectedResourceFile.size / 1024)} KB)`);
+}
+
+function uploadFileImage(event) {
+  selectedThumbnailFile = event.target.files?.[0] || null;
+  if (!selectedThumbnailFile) return;
+  if (!selectedThumbnailFile.type.startsWith('image/') || selectedThumbnailFile.size > 2 * 1024 * 1024) {
+    page.toast('Escolha uma imagem de até 2 MB para a capa.', 'warning');
+    event.target.value = '';
+    selectedThumbnailFile = null;
+    return;
+  }
+  if (thumbnailPreviewUrl) URL.revokeObjectURL(thumbnailPreviewUrl);
+  thumbnailPreviewUrl = URL.createObjectURL(selectedThumbnailFile);
+  document.getElementById('fileImage').value = thumbnailPreviewUrl;
+  page.toast('Capa selecionada. Ela será enviada ao Firebase Storage.', 'info');
+}
+
+async function saveFile(event) {
+  event.preventDefault();
   if (!canManageFiles()) return page.toast('Sem permissão para adicionar arquivos', 'warning');
   const title = document.getElementById('fileTitle').value.trim();
-  const url = document.getElementById('fileUrl').value.trim();
-  if (!title || !url) return page.toast('Preencha título e URL', 'warning');
+  let url = document.getElementById('fileUrl').value.trim();
+  if (!title || (!url && !selectedResourceFile)) return page.toast('Informe título e uma URL ou selecione um arquivo.', 'warning');
+  if (url && !safeFileUrl(url)) return page.toast('Use uma URL http:// ou https:// válida.', 'warning');
 
+  const button = document.getElementById('saveFileButton');
+  if (button.disabled) return;
+  const originalLabel = button.textContent;
+  button.disabled = true;
+  let uploadedResource = null;
+  let uploadedThumbnail = null;
+  const fileId = core.genId('file');
+
+  try {
+    if (selectedResourceFile) {
+      button.textContent = '⏳ Enviando arquivo…';
+      setUploadStatus('Enviando arquivo para o Firebase Storage: 0%');
+      uploadedResource = await page.uploadLibraryAsset(fileId, selectedResourceFile, 'resource', percent => {
+        setUploadStatus(`Enviando arquivo para o Firebase Storage: ${percent}%`);
+      });
+      url = uploadedResource.url;
+    }
+
+    let image = document.getElementById('fileImage').value.trim();
+    if (selectedThumbnailFile) {
+      button.textContent = '⏳ Enviando capa…';
+      setUploadStatus('Enviando imagem de capa: 0%');
+      uploadedThumbnail = await page.uploadLibraryAsset(fileId, selectedThumbnailFile, 'thumbnail', percent => {
+        setUploadStatus(`Enviando imagem de capa: ${percent}%`);
+      });
+      image = uploadedThumbnail.url;
+    }
+
+    const user = page.getUser() || {};
+    const entry = {
+      id: fileId,
+      title,
+      url,
+      category: document.getElementById('fileCategory').value || 'Geral',
+      description: document.getElementById('fileDesc').value.trim(),
+      image: image && !image.startsWith('blob:') ? image : '',
+      fileType: document.getElementById('fileType').value || detectFileType({ url, title, fileName: uploadedResource?.name || selectedResourceFile?.name || '' }),
+      fileName: uploadedResource?.name || selectedResourceFile?.name || '',
+      fileSize: uploadedResource?.size || selectedResourceFile?.size || 0,
+      contentType: uploadedResource?.contentType || selectedResourceFile?.type || '',
+      storagePath: uploadedResource?.storagePath || '',
+      thumbnailStoragePath: uploadedThumbnail?.storagePath || '',
+      createdBy: user.uid || user.id || 'unknown',
+      createdAt: core.now(),
+      updatedAt: core.now(),
+    };
+
+    const data = page.getDB();
+    data.files = (data.files || []).filter(file => String(file.id) !== String(entry.id));
+    data.files.unshift(entry);
+    page.saveDB(data);
+
+    button.textContent = '⏳ Publicando…';
+    const synced = await page.syncDocument('files', entry.id, entry);
+    const denied = Boolean(window.parent?.fireSync?._collectionErrors?.files);
+    if (!synced && denied) {
+      data.files = data.files.filter(file => String(file.id) !== String(entry.id));
+      page.saveDB(data);
+      await page.deleteLibraryAssets(entry).catch(() => {});
+      throw new Error('O Firebase recusou a publicação. Confirme se sua conta é Editor ou Admin e se as regras foram publicadas.');
+    }
+
+    core.log('file_add', currentUserId(), title);
+    closeFileModal();
+    render();
+    page.toast(synced ? 'Arquivo publicado no Firebase! 📁' : 'Arquivo salvo e aguardando sincronização com o Firebase.', synced ? 'success' : 'info');
+  } catch (error) {
+    console.error('saveFile:', error);
+    setUploadStatus(error.message || 'Não foi possível publicar o arquivo.', 'error');
+    page.toast(error.message || 'Não foi possível publicar o arquivo.', 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = originalLabel;
+  }
+}
+
+function openFile(id) {
+  const file = (page.getDB().files || []).find(item => String(item.id) === String(id));
+  const url = safeFileUrl(file?.url);
+  if (!url) return page.toast('O link deste arquivo não é válido.', 'warning');
+  window.open(url, '_blank', 'noopener');
+}
+
+async function deleteFile(id) {
+  if (!canManageFiles()) return;
   const data = page.getDB();
-  const user = page.getUser() || {};
-  const fileEntry = {
-    id: Date.now(),
-    title, url,
-    category: document.getElementById('fileCategory').value,
-    description: document.getElementById('fileDesc').value.trim(),
-    image: document.getElementById('fileImage').value.trim(),
-    fileType: document.getElementById('fileType').value || '',
-    createdBy: user.id || user.uid || 'unknown',
-    updatedAt: core.now()
-  };
-  data.files.push(fileEntry);
+  const file = (data.files || []).find(item => String(item.id) === String(id));
+  if (!file || !confirm(`Excluir “${file.title}” da biblioteca?`)) return;
+  data.files = data.files.filter(item => String(item.id) !== String(id));
   page.saveDB(data);
-  page.syncDocument('files', fileEntry.id, fileEntry);
-  core.log('file_add', user.id || user.uid, title);
-
-  closeFileModal();
   render();
-  page.toast('Arquivo adicionado! 📁', 'success');
+  const removed = await page.deleteDocument('files', id);
+  const denied = Boolean(window.parent?.fireSync?._collectionErrors?.files);
+  if (!removed && denied) {
+    data.files.unshift(file);
+    page.saveDB(data);
+    render();
+    return page.toast('O Firebase recusou a exclusão deste arquivo.', 'error');
+  }
+  if (!removed && window.parent?.navigator?.onLine) page.toast('Exclusão aguardando sincronização com o Firebase.', 'info');
+  await page.deleteLibraryAssets(file).catch(() => {});
 }
 
 function render() {
-  const data = page.getDB();
-  const files = data.files || [];
+  const files = page.getDB().files || [];
   const search = document.getElementById('search').value.toLowerCase().trim();
   const category = document.getElementById('filterCategory').value;
   const filterType = document.getElementById('filterType').value;
-
-  let filtered = files.filter(f => {
-    if (search && !f.title.toLowerCase().includes(search) && !(f.description || '').toLowerCase().includes(search)) return false;
-    if (category !== 'all' && f.category !== category) return false;
-    if (filterType !== 'all' && detectFileType(f) !== filterType) return false;
+  const filtered = files.filter(file => {
+    const title = String(file.title || '').toLowerCase();
+    const description = String(file.description || '').toLowerCase();
+    if (search && !title.includes(search) && !description.includes(search)) return false;
+    if (category !== 'all' && file.category !== category) return false;
+    if (filterType !== 'all' && detectFileType(file) !== filterType) return false;
     return true;
-  });
-
-  // Sort: newest first if has date
-  filtered.sort((a, b) => {
-    const da = a.updatedAt || a.createdAt || 0;
-    const db = b.updatedAt || b.createdAt || 0;
-    return new Date(db) - new Date(da);
-  });
+  }).sort((a, b) => new Date(b.updatedAt || b.createdAt || 0) - new Date(a.updatedAt || a.createdAt || 0));
 
   const grid = document.getElementById('fileGrid');
   const empty = document.getElementById('fileEmpty');
-
-  if (filtered.length === 0) {
+  if (!filtered.length) {
     grid.innerHTML = '';
     empty.style.display = 'block';
     return;
   }
-
   empty.style.display = 'none';
-
-  grid.innerHTML = filtered.map(f => {
-    const typeInfo = getFileIcon(f);
-    const type = detectFileType(f);
-    const hasImage = f.image && f.image.trim();
-
+  grid.innerHTML = filtered.map(file => {
+    const typeInfo = getFileIcon(file);
+    const type = detectFileType(file);
+    const preview = previewUrlFor(file);
+    const updated = file.updatedAt || file.createdAt;
+    const size = Number(file.fileSize || 0);
+    const sizeLabel = size ? (size >= 1024 * 1024 ? `${(size / (1024 * 1024)).toFixed(1)} MB` : `${Math.ceil(size / 1024)} KB`) : '';
+    const actions = canManageFiles()
+      ? `<button type="button" class="file-card-manage" data-delete-file="${page.esc(file.id)}" title="Excluir arquivo">🗑️</button>` : '';
     return `
-      <div class="file-card" onclick="window.open('${page.esc(f.url)}', '_blank')">
-        <div class="file-card-thumb" style="background:${hasImage ? 'var(--bg-secondary)' : typeInfo.bg}">
-          ${hasImage
-            ? `<img src="${f.image}" alt="${page.esc(f.title)}" loading="lazy">`
-            : `<span class="file-card-icon">${typeInfo.icon}</span>`
-          }
+      <article class="file-card" data-open-file="${page.esc(file.id)}" tabindex="0" role="button" aria-label="Abrir ${page.esc(file.title || 'arquivo')}">
+        <div class="file-card-thumb" style="background:${typeInfo.bg}">
+          ${preview
+            ? `<img src="${page.esc(preview)}" alt="Prévia de ${page.esc(file.title || 'arquivo')}" loading="lazy" onerror="this.remove();this.parentElement.querySelector('.file-card-icon').hidden=false">`
+            : ''}
+          <span class="file-card-icon" ${preview ? 'hidden' : ''}>${typeInfo.icon}</span>
           <span class="file-card-type-badge" style="background:${typeInfo.color}">${typeInfo.label}</span>
+          ${actions}
         </div>
         <div class="file-card-body">
-          <h4 class="file-card-title">${page.esc(f.title)}</h4>
-          ${f.description ? `<p class="file-card-desc">${page.esc(f.description)}</p>` : ''}
+          <h4 class="file-card-title">${page.esc(file.title || 'Sem título')}</h4>
+          <p class="file-card-desc">${page.esc(file.description || 'Sem descrição disponível para este recurso.')}</p>
           <div class="file-card-meta">
-            <span class="badge ${f.category ? 'member' : ''}" style="font-size:10px">${page.esc(f.category || 'Geral')}</span>
-            ${f.updatedAt ? `<span style="font-size:10px;color:var(--muted)">${core.formatDate(f.updatedAt)}</span>` : ''}
+            <span class="badge ${file.category ? 'member' : ''}" style="font-size:10px">${page.esc(file.category || 'Geral')}</span>
+            <span style="font-size:10px;color:var(--muted)">${sizeLabel || (updated ? formatFileDate(updated) : '')}</span>
           </div>
-          <a href="${page.esc(f.url)}" target="_blank" class="file-card-link" onclick="event.stopPropagation()">
+          <button type="button" class="file-card-link" data-open-file="${page.esc(file.id)}">
             ${type === 'video' ? '▶️ Assistir' : type === 'link' ? '🔗 Acessar' : '📥 Abrir'}
-          </a>
+          </button>
         </div>
-      </div>
-    `;
+      </article>`;
   }).join('');
+
+  grid.querySelectorAll('.file-card').forEach(card => {
+    card.addEventListener('click', event => {
+      if (event.target.closest('[data-delete-file]')) return;
+      openFile(card.dataset.openFile);
+    });
+    card.addEventListener('keydown', event => {
+      if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openFile(card.dataset.openFile); }
+    });
+  });
+  grid.querySelectorAll('[data-delete-file]').forEach(button => {
+    button.addEventListener('click', event => { event.stopPropagation(); deleteFile(button.dataset.deleteFile); });
+  });
 }
 </script>
 

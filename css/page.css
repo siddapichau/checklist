@@ -749,6 +749,14 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
   letter-spacing:.3px;
   text-transform:uppercase;
 }
+.file-card-manage{
+  position:absolute;top:9px;left:9px;width:30px;height:30px;border:0;
+  border-radius:8px;background:rgba(255,255,255,.92);color:var(--danger,#DC2626);
+  cursor:pointer;display:grid;place-items:center;box-shadow:0 2px 8px rgba(15,23,42,.12);
+}
+.file-card-manage:hover{background:#fff;transform:scale(1.06)}
+.file-card:focus-visible{outline:3px solid rgba(37,99,235,.35);outline-offset:3px}
+.file-card-icon[hidden]{display:none}
 .file-card-body {
   padding:14px 16px;
   flex:1;
@@ -784,6 +792,10 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 }
 .file-card-link {
   display:block;
+  width:100%;
+  border:0;
+  cursor:pointer;
+  font-family:inherit;
   text-align:center;
   padding:8px;
   border-radius:8px;

@@ -478,7 +478,7 @@ function saveMacro(e) {
     page.toast('Macro atualizada! 💾', 'success');
   } else {
     const macro = {
-      id: Date.now(),
+      id: core.genId('macro'),
       title,
       shortcut: document.getElementById('macroShortcut').value.trim(),
       category: document.getElementById('macroCategory').value,
@@ -509,7 +509,7 @@ function duplicateMacro(id) {
   const user = page.getUser() || {};
   const copy = {
     ...m,
-    id: Date.now(),
+    id: core.genId('macro'),
     title: (m.title || 'Macro') + ' (cópia)',
     uses: 0,
     owner: user.id || user.uid || m.owner,

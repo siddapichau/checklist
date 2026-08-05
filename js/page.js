@@ -70,10 +70,55 @@ const Page = {
   },
   reload() { this._post({ type: 'reload' }); }, navigate(page) { this._post({ type: 'navigate', page }); },
   openModal(html) { this._post({ type: 'modal', html }); }, closeModal() { this._post({ type: 'closeModal' }); },
-  syncDocument(collection, id, data) { this._post({ type: 'firebaseSync', collection, id, data }); },
-  deleteDocument(collection, id) { this._post({ type: 'firebaseDelete', collection, id }); }, syncSettings(settings) { this._post({ type: 'firebaseSettings', settings }); },
-  syncGamification(userId, stats) { this._post({ type: 'firebaseGamification', userId, stats }); },
-  syncWidgets(userId, widgets) { this._post({ type: 'firebaseWidgets', userId, widgets }); },
+
+  /* A página vive no iframe, mas o FireSync e sua outbox vivem no shell.
+     Chamar diretamente registra a escrita antes de a aba poder ser suspensa;
+     postMessage continua como fallback para uma incorporação diferente. */
+  async syncDocument(collection, id, data) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.pushDocument) return sync.pushDocument(collection, id, data);
+    this._post({ type: 'firebaseSync', collection, id, data });
+    return false;
+  },
+  async deleteDocument(collection, id) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.deleteDocument) return sync.deleteDocument(collection, id);
+    this._post({ type: 'firebaseDelete', collection, id });
+    return false;
+  },
+  async syncSettings(settings) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.pushSettings) return sync.pushSettings(settings);
+    this._post({ type: 'firebaseSettings', settings });
+    return false;
+  },
+  async syncGamification(userId, stats) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.pushGamification) return sync.pushGamification(userId, stats);
+    this._post({ type: 'firebaseGamification', userId, stats });
+    return false;
+  },
+  async syncWidgets(userId, widgets) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.pushDashboardWidgets) return sync.pushDashboardWidgets(userId, widgets);
+    this._post({ type: 'firebaseWidgets', userId, widgets });
+    return false;
+  },
+  isSyncReady() {
+    const sync = window.parent?.fireSync || window.fireSync;
+    const userId = core.getCurrentUser()?.uid || core.getCurrentUser()?.id;
+    return Boolean(sync?.isInitialSyncReady?.(userId));
+  },
+  async uploadLibraryAsset(fileId, file, kind = 'resource', onProgress) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (!sync?.uploadLibraryAsset) throw new Error('Upload Firebase indisponível nesta página.');
+    return sync.uploadLibraryAsset(fileId, file, kind, onProgress);
+  },
+  async deleteLibraryAssets(fileRecord) {
+    const sync = window.parent?.fireSync || window.fireSync;
+    if (sync?.deleteLibraryAssets) return sync.deleteLibraryAssets(fileRecord);
+    return false;
+  },
   async getAdminConfig() { if (!window.parent?.fireSync) throw new Error('Sincronização Firebase indisponível'); return window.parent.fireSync.getAdminConfig(); },
   async saveAdminConfig(config) { if (!window.parent?.fireSync) throw new Error('Sincronização Firebase indisponível'); return window.parent.fireSync.saveAdminConfig(config); },
   async getDeepseekKey() { return window.parent?.fireSync ? window.parent.fireSync.getDeepseekKey() : ''; },

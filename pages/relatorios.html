@@ -280,7 +280,7 @@ function render() {
   const theme = repColors();
 
   const data = page.getDB();
-  const allTasks = data.tasks || [];
+  const allTasks = core.ownedTasks(data.tasks, page.getUser());
   const tasks = filterByPeriod(allTasks);
   const today = core.today();
   const user = page.getUser();
@@ -826,7 +826,7 @@ function render() {
   function csvEscape(v){ return `"${String(v ?? '').replace(/"/g,'""')}"`; }
 
   window.exportDailyCSV = function(dateKey = core.today()) {
-    const daily = (page.getDB().tasks || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
+    const daily = (core.ownedTasks(page.getDB().tasks, page.getUser()) || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
     let csv = 'Data,Título,Categoria,Prioridade,Status,Alerta,Descrição\n';
     daily.forEach(t => {
       csv += [dateKey, t.title, t.category || 'Geral', t.priority || '', t.status || 'pending', t.alertTime || '', t.description || ''].map(csvEscape).join(',') + '\n';
@@ -842,7 +842,7 @@ function render() {
   };
 
   window.exportDailyPDF = function(dateKey = core.today()) {
-    const daily = (page.getDB().tasks || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
+    const daily = (core.ownedTasks(page.getDB().tasks, page.getUser()) || []).filter(t => t.date === dateKey && !core.isDayOff(dateKey, page.getUser()));
     const done = daily.filter(t => t.status === 'finished');
     const pending = daily.filter(t => t.status !== 'finished' && t.status !== 'notdone');
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>Relatório diário ${dateKey}</title>
@@ -903,7 +903,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB(); const today = core.today();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     return `Hoje: ${today} · Total: ${ts.length} · Finalizadas: ${ts.filter(t => t.status === 'finished').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · Pendentes: ${ts.filter(t => t.status === 'pending').length}`;
   },
 });

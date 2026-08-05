@@ -22,7 +22,7 @@ const App = {
   _authListenerAttached: false,
   _initDone: false,
   _bootFinished: false,
-  _swUpdateRequested: false,
+  _appShellShown: false,
   _recoveryListenersAttached: false,
   _lastConnectionRecovery: 0,
   _alertTimer: null,
@@ -177,6 +177,7 @@ const App = {
             // Limpar currentUser se estava logado e agora deslogou
             if (this.currentUser) {
               this.currentUser = null;
+              this._appShellShown = false;
               core.setCurrentUser(null);
               core.setRememberedUser(null);
             }
@@ -236,31 +237,26 @@ const App = {
           try { fireSync._flushOutbox(); } catch (e) { console.warn('flushOutbox SW:', e); }
         }
       });
+      // Não recarregue a aplicação quando o controller muda. Um reload no
+      // retorno de uma aba interrompia a outbox e fazia a tela parecer voltar
+      // ao estado antigo. A nova versão passa a valer na próxima abertura.
       navigator.serviceWorker.addEventListener('controllerchange', () => {
-        if (!this._swUpdateRequested) return;
-        this._swUpdateRequested = false;
-        try {
-          if (sessionStorage.getItem('cl-sw-reloaded') === '1') return;
-          sessionStorage.setItem('cl-sw-reloaded', '1');
-        } catch(e) {}
-        window.location.reload();
+        console.info('Service Worker atualizado sem recarregar a sessão atual.');
       });
 
       navigator.serviceWorker.register('/service-worker.js', { scope: '/' })
         .then((reg) => {
           console.log('✅ Service Worker registrado:', reg.scope);
-          const activateUpdate = (worker) => {
+          const notifyUpdate = (worker) => {
             if (!worker || !navigator.serviceWorker.controller) return;
-            this._swUpdateRequested = true;
-            core.toast('Atualizando o aplicativo para mantê-lo estável…', 'info');
-            worker.postMessage({ type: 'SKIP_WAITING' });
+            core.toast('Uma atualização está pronta e será aplicada na próxima abertura, sem interromper seu trabalho.', 'info');
           };
-          if (reg.waiting) activateUpdate(reg.waiting);
+          if (reg.waiting) notifyUpdate(reg.waiting);
           reg.addEventListener('updatefound', () => {
             const newWorker = reg.installing;
             if (!newWorker) return;
             newWorker.addEventListener('statechange', () => {
-              if (newWorker.state === 'installed') activateUpdate(newWorker);
+              if (newWorker.state === 'installed') notifyUpdate(newWorker);
             });
           });
           this.requestPushPermission(reg);
@@ -298,17 +294,25 @@ const App = {
     const recover = (reason) => {
       const uid = this.currentUser?.uid || this.currentUser?.id;
       const now = Date.now();
-      const staleConnection = reason === 'visible' && now - this._lastConnectionRecovery > 60000;
-      if (uid && auth.currentUser?.uid === uid && (!fireSync._syncing || staleConnection)) {
-        if (staleConnection) fireSync.stop();
-        fireSync.start(uid);
+      const shouldRefresh = reason === 'visible' && now - this._lastConnectionRecovery > 60000;
+      if (uid && auth.currentUser?.uid === uid) {
+        if (!fireSync._syncing) {
+          // Só recria listeners se eles realmente não existem. Reiniciá-los em
+          // toda volta de aba fazia um novo pull concorrer com a UI aberta.
+          fireSync.start(uid);
+        } else if (shouldRefresh) {
+          // Firestore normalmente já reconecta sozinho; este pull de servidor
+          // é uma confirmação leve para abas que ficaram suspensas, sem reload
+          // de iframe nem stop/start dos listeners.
+          fireSync.refreshFromServer?.(uid).catch(err => console.warn('refresh ao retomar:', err));
+        }
         this._lastConnectionRecovery = now;
       }
       const frame = document.getElementById('pageFrame');
       if (this.currentUser && frame && !frame.getAttribute('src')) {
         this.navigate(this.currentPage || 'home');
       }
-      console.log('♻️ Recuperação do app:', reason);
+      console.log('♻️ Recuperação do app sem recarregar a página:', reason);
     };
 
     window.addEventListener('online', () => recover('online'));
@@ -391,7 +395,12 @@ const App = {
     this.injectNotificationButton();
     this.startTaskAlertMonitor();
     const page = location.hash.slice(1) || 'home';
-    this.navigate(page);
+    // A primeira abertura precisa inicializar o iframe com o usuário recém
+    // confirmado. Depois disso navigate() é idempotente e preserva formulário,
+    // scroll e estado da página ao voltar para a aba.
+    const firstAppPaint = !this._appShellShown;
+    this._appShellShown = true;
+    this.navigate(page, { force: firstAppPaint });
   },
 
   /* ========== TABS LOGIN / CADASTRO ========== */
@@ -1211,6 +1220,7 @@ const App = {
     core.setCurrentUser(null);
     core.setRememberedUser(null);
     this.currentUser = null;
+    this._appShellShown = false;
     this.showLogin();
     document.getElementById('langSwitcher')?.remove();
     document.getElementById('notifButton')?.remove();
@@ -1219,8 +1229,9 @@ const App = {
   },
 
   /* ========== NAVEGAÇÃO ========== */
-  navigate(page) {
+  navigate(page, options = {}) {
     if (!this.currentUser) return;
+    const { force = false } = options;
 
     const allowedPages = new Set((this.settings?.menuItems || []).map(item => item.id));
     if (!allowedPages.has(page)) page = 'home';
@@ -1230,19 +1241,27 @@ const App = {
       page = 'home';
     }
 
-    this.currentPage = page;
     const frame = document.getElementById('pageFrame');
     if (!frame) return;
-    frame.src = `pages/${page}.html`;
+    const target = `pages/${page}.html`;
+    const currentSource = String(frame.getAttribute('src') || '').split('?')[0];
+    const shouldLoadFrame = force || currentSource !== target;
+    this.currentPage = page;
 
-    frame.style.opacity = '0';
-    frame.style.transform = 'translateY(6px)';
-    frame.style.transition = 'opacity .2s ease, transform .2s ease';
-    frame.onload = () => {
-      frame.style.opacity = '1';
-      frame.style.transform = 'none';
-      frame.onload = null;
-    };
+    // Não atribua frame.src quando já estamos na mesma página. Essa simples
+    // atribuição reinicia todo o iframe e era a causa de "voltar na aba" parecer
+    // um reload, inclusive enquanto a sincronização chegava do Firebase.
+    if (shouldLoadFrame) {
+      frame.src = target;
+      frame.style.opacity = '0';
+      frame.style.transform = 'translateY(6px)';
+      frame.style.transition = 'opacity .2s ease, transform .2s ease';
+      frame.onload = () => {
+        frame.style.opacity = '1';
+        frame.style.transform = 'none';
+        frame.onload = null;
+      };
+    }
 
     const items = this.settings?.menuItems || [];
     const item = items.find(i => i.id === page);
@@ -1260,7 +1279,9 @@ const App = {
 
     this.closeSidebar();
     this.closeTopnavMenus();
-    try { history.replaceState({}, '', '#' + page); } catch(e) {}
+    try {
+      if (location.hash !== '#' + page) history.replaceState({}, '', '#' + page);
+    } catch(e) {}
   },
 
   closeSidebar() {
@@ -1483,7 +1504,7 @@ const App = {
       (data.tasks || []).forEach(task => {
         if (!task.alertTime || task.date !== today) return;
         if (task.status === 'finished' || task.status === 'notdone') return;
-        if (task.owner && uid && String(task.owner) !== String(uid)) return;
+        if (String(task.owner || '') !== String(uid)) return;
         // Safety: respeita folga (defensivo — hoje já foi checado acima).
         if (core.isDayOffForTask && core.isDayOffForTask(task, this.currentUser)) return;
         // Safety: ignora tarefas excluídas recentemente mas ainda no cache.
@@ -1545,7 +1566,7 @@ const App = {
       if (note.done) return;
       if (!note.remind || !note.time || note.date !== today) return;
       if (note.time > hhmm) return;
-      if (note.owner && uid && String(note.owner) !== String(uid)) return;
+      if (String(note.owner || '') !== String(uid)) return;
       if (todayIsOff) return;
 
       const marker = `cl-alert-note-${note.id}-${note.date}-${note.time}`;
@@ -1586,7 +1607,7 @@ const App = {
       // Contagem de atrasadas deve respeitar folga em QUALQUER dia (não só
       // hoje) e ignorar tarefas apagadas (por segurança, o filter no cache já
       // deve refletir o Firestore). Não conta finalizadas/não realizadas.
-      const late = data.tasks.filter(t =>
+      const late = core.ownedTasks(data.tasks, this.currentUser).filter(t =>
         t.date && t.date < today &&
         t.status !== 'finished' && t.status !== 'notdone' &&
         !core.isDayOff(t.date, this.currentUser)
@@ -1613,6 +1634,7 @@ const App = {
     core.setCurrentUser(this.currentUser);
     this.applyFontSize(this.currentUser.fontScale || null);
     this.updateUserInfo();
+    this.renderSidebar();
   },
 
   updateUserInfo() {
@@ -2057,8 +2079,8 @@ const App = {
     }
     const data = core.getLocalDB();
     let html = '';
-    const matchedTasks = (data.tasks || []).filter(t =>
-      t.title.toLowerCase().includes(q) || (t.description || '').toLowerCase().includes(q)
+    const matchedTasks = core.ownedTasks(data.tasks, this.currentUser).filter(t =>
+      String(t.title || '').toLowerCase().includes(q) || String(t.description || '').toLowerCase().includes(q)
     ).slice(0, 5);
     if (matchedTasks.length > 0) {
       html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">✅ Atividades</div>';
@@ -2072,7 +2094,7 @@ const App = {
       });
     }
     const matchedFiles = (data.files || []).filter(f =>
-      f.title.toLowerCase().includes(q) || (f.description || '').toLowerCase().includes(q)
+      String(f.title || '').toLowerCase().includes(q) || String(f.description || '').toLowerCase().includes(q)
     ).slice(0, 3);
     if (matchedFiles.length > 0) {
       html += '<div style="padding:8px 12px;font-size:11px;font-weight:700;text-transform:uppercase;color:var(--muted)">📁 Arquivos</div>';

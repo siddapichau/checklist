@@ -500,7 +500,7 @@ async function askAI() {
   btn.textContent = '⏳ Processando...';
 
   // ========== COLETA COMPLETA DE DADOS PARA ANÁLISE PROFUNDA ==========
-  const tasks = data.tasks || [];
+  const tasks = core.ownedTasks(data.tasks, page.getUser());
   const macros = data.macros || [];
   const files = data.files || [];
   const notes = data.notes || [];
@@ -1077,7 +1077,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB(); const today = core.today();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     return `Hoje: ${today} · Pendentes: ${ts.filter(t => t.status === 'pending').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · De hoje: ${ts.filter(t => t.date === today).length}`;
   },
 });

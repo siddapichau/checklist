@@ -115,6 +115,15 @@ Pomodoro, layout do dashboard, arquivos, posts e configurações:
 - **Notificações, histórico/memória da IA e configuração do Pomodoro** ficam em
   `settings/{seção}/user/{uid}` no Firestore (só o dono lê/escreve) e são
   sincronizados entre dispositivos.
+- **Biblioteca de arquivos:** os metadados (título, descrição, categoria e
+  thumbnail) ficam em `files` no Firestore; arquivos enviados pelo formulário
+  ficam em `files/{fileId}/...` no Firebase Storage. A tela sempre mostra a
+  biblioteca em cards com prévia/ícone, descrição, categoria e ação de abrir.
+- **Sincronização entre abas/navegadores:** toda escrita entra primeiro numa
+  outbox ligada ao UID do usuário e só sai do cache após confirmação. O pull do
+  servidor é a autoridade; ele não reenvia resíduos de localStorage. Ocorrências
+  recorrentes usam ID determinístico por série+data para não duplicar quando duas
+  abas estiverem abertas.
 - ⚠️ **Importante:** republicue as regras do Firestore (veja
   `FIREBASE_SETUP.md` → seção 3 → "Admin de uso único") — elas incluem a
   permissão da coleção `dashboardWidgets`. É só copiar o conteúdo de

@@ -537,7 +537,46 @@ const Core = {
                     '🚀','⚡','🔥','💎','🎯','🏆','🌟','🎨','🎮','🤖'],
 
   /* ---------- ID GENERATOR ---------- */
-  genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
+  // IDs de documentos não podem depender somente de Date.now(): duas abas ou
+  // dois navegadores podem criar a mesma atividade no mesmo milissegundo.
+  // UUID é suportado pelos navegadores modernos; os fallbacks preservam a
+  // compatibilidade com WebViews antigos.
+  genId(prefix = '') {
+    let raw = '';
+    try {
+      if (globalThis.crypto?.randomUUID) raw = globalThis.crypto.randomUUID();
+      else if (globalThis.crypto?.getRandomValues) {
+        const bytes = new Uint8Array(16);
+        globalThis.crypto.getRandomValues(bytes);
+        raw = Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
+      }
+    } catch (_) {}
+    if (!raw) raw = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+    return prefix ? `${prefix}-${raw}` : raw;
+  },
+
+  /* Identificador determinístico de uma ocorrência recorrente.
+     A mesma série no mesmo dia gera sempre o mesmo docId. Assim, se duas abas
+     estiverem abertas, ambas escrevem o MESMO documento no Firestore em vez
+     de criar duas atividades. */
+  recurrenceOccurrenceId(rootId, dateKey) {
+    const root = String(rootId || 'task').replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+    const day = String(dateKey || this.today()).slice(0, 10).replace(/[^0-9]/g, '');
+    return `rec-${root}-${day || 'undated'}`;
+  },
+
+  getUserId(user = this.getCurrentUser()) {
+    return user?.uid || user?.id || '';
+  },
+
+  isOwnedByCurrentUser(item, user = this.getCurrentUser()) {
+    const uid = this.getUserId(user);
+    return Boolean(uid && item && String(item.owner || '') === String(uid));
+  },
+
+  ownedTasks(tasks, user = this.getCurrentUser()) {
+    return (Array.isArray(tasks) ? tasks : []).filter(task => this.isOwnedByCurrentUser(task, user));
+  },
 
   /* ---------- LOG ---------- */
   log(action, userId, details = '') {
@@ -1163,16 +1202,34 @@ const Core = {
         } else if (trigger === 'task_finished') {
           const task = payload.task;
           if (auto.action === 'create_recurrence' && task.recurrence && task.recurrence !== 'none') {
-            // Cria a próxima recorrente
+            // Cria a próxima ocorrência com ID determinístico. Antes era usado
+            // Date.now()+Math.random(), então duas abas que finalizavam/sincronizavam
+            // a mesma atividade podiam gravar duas tarefas para a mesma data.
             const data = this.getLocalDB();
             const nextDate = this._nextRecurrenceDate(task.date, task.recurrence);
             if (nextDate) {
+              const rootId = String(task.recurrenceRootId || task.id);
+              const occurrenceId = this.recurrenceOccurrenceId(rootId, nextDate);
+              const alreadyExists = (data.tasks || []).some(existing =>
+                String(existing.recurrenceRootId || existing.id) === rootId &&
+                String(existing.date || '').slice(0, 10) === nextDate
+              );
+
+              if (alreadyExists) {
+                // Idempotência: a próxima ocorrência já foi criada por outra
+                // aba/dispositivo. Não duplicar nem mostrar notificação extra.
+                results.push({ auto, ok: true, skipped: true, occurrenceId });
+                return;
+              }
+
               const newTask = {
                 ...task,
-                id: Date.now() + Math.floor(Math.random() * 1000),
+                id: occurrenceId,
+                recurrenceRootId: rootId,
                 status: 'pending',
                 date: nextDate,
                 createdAt: this.now(),
+                updatedAt: this.now(),
                 finishedAt: null,
                 comments: undefined,
               };

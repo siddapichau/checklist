@@ -222,6 +222,10 @@ function operationalNow() {
 function safeFirestoreTimestamp(value) {
   if (!value) return null;
   if (value instanceof firebase.firestore.Timestamp) return value;
+  if (typeof value === 'number') {
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return firebase.firestore.Timestamp.fromDate(d);
+  }
   if (typeof value === 'string') {
     const d = new Date(value);
     if (!isNaN(d.getTime())) return firebase.firestore.Timestamp.fromDate(d);
@@ -254,7 +258,14 @@ const FireSync = {
   _outbox: [],
   _outboxFlushing: false,
   _outboxTimer: null,
-  _outboxKey: 'cl-firesync-outbox-v18',
+  // v21: cada item da fila recebe o UID que o originou. Uma aba em que outro
+  // usuário faz login nunca pode reenviar a alteração pendente de outra conta.
+  _outboxKey: 'cl-firesync-outbox-v21',
+  _legacyOutboxKey: 'cl-firesync-outbox-v18',
+  _readyUserId: null,
+  _lastServerPullAt: 0,
+  _serverPullPromise: null,
+  _dedupeUsers: new Set(),
 
   /* Iniciar sincronização para um usuário */
   async start(userId) {
@@ -268,8 +279,9 @@ const FireSync = {
 
     this.stop();
     this._userId = userId;
+    this._readyUserId = null;
     this._collectionErrors = {};
-    this._loadOutbox();
+    this._loadOutbox(userId);
 
     console.log('🔄 FireSync iniciado para:', userId);
 
@@ -306,6 +318,23 @@ const FireSync = {
         });
       this._unsubscribers.push(tasksUnsub);
 
+      // Todo usuário acompanha o PRÓPRIO perfil. Além de manter nome/avatar
+      // atualizados, isso atualiza imediatamente o cargo quando um admin promove
+      // alguém a editor — necessário para publicar arquivos sem relogar.
+      const ownUserUnsub = db.collection('users').doc(userId)
+        .onSnapshot(doc => {
+          if (!this._syncing || !doc.exists) return;
+          const oneDocSnapshot = {
+            forEach: callback => callback(doc),
+            docChanges: () => [{ type: 'modified', doc }],
+          };
+          this._handleCollectionSync('users', oneDocSnapshot, userId);
+        }, err => {
+          console.warn('Own user sync error:', err.code, err.message);
+          this._handleSyncError(err, 'users', false);
+        });
+      this._unsubscribers.push(ownUserUnsub);
+
       // Administradores precisam ver perfis atuais para que o painel de usuários
       // consiga realmente editar cargos e bloqueios no Firestore.
       if (this._isCurrentUserAdmin()) {
@@ -321,10 +350,10 @@ const FireSync = {
         this._unsubscribers.push(usersUnsub);
       }
 
-      // 2. Sincronizar posts (todos os posts) - com try/catch para não travar se sem permissão
+      // 2. Sincronizar posts (todos os posts). Não limitar a primeira leitura:
+      // limite por ID/data fazia posts antigos e recursos simplesmente sumirem
+      // em um navegador novo.
       const postsUnsub = db.collection('posts')
-        .orderBy('publishedAt', 'desc')
-        .limit(50) // limite para não travar
         .onSnapshot(snapshot => {
           if (!this._syncing) return;
           this._handleCollectionSync('posts', snapshot, null);
@@ -335,9 +364,10 @@ const FireSync = {
         });
       this._unsubscribers.push(postsUnsub);
 
-      // 3. Sincronizar files
+      // 3. Sincronizar biblioteca completa. O antigo limit(100), sem ordenação,
+      // deixava arquivos salvos fora da primeira página invisíveis em outro
+      // navegador. A coleção é a fonte da verdade da biblioteca.
       const filesUnsub = db.collection('files')
-        .limit(100)
         .onSnapshot(snapshot => {
           if (!this._syncing) return;
           this._handleCollectionSync('files', snapshot, null);
@@ -508,10 +538,11 @@ const FireSync = {
         this._unsubscribers.push(unsub);
       });
 
-      // 6. Pull inicial do servidor: garante que um dispositivo com cache vazio
-      //    receba TODOS os dados do usuário mesmo antes do primeiro evento de
-      //    snapshot (e que dados locais ainda não enviados subam para a nuvem).
-      this._pullUserData(userId).catch(err => {
+      // 6. Pull inicial DO SERVIDOR. O cache local só acelera a primeira tela;
+      //    ele nunca decide quais documentos existem. Fazemos também o pull da
+      //    biblioteca compartilhada para que arquivos recém-publicados apareçam
+      //    em qualquer navegador, mesmo antes do listener sair do cache.
+      this.refreshFromServer(userId, { force: true }).catch(err => {
         console.warn('Pull inicial falhou (snapshots seguem ativos):', err.code || err.message);
       });
 
@@ -573,11 +604,34 @@ const FireSync = {
     return (this._collectionErrors[collection] || 0) < this._maxCollectionErrors;
   },
 
-  _loadOutbox() {
+  _inferLegacyOutboxUser(item, fallbackUserId) {
+    if (item?.uid) return String(item.uid);
+    if (item?._pref && item.userId) return String(item.userId);
+    if (item?.collection === 'users' && item.id) return String(item.id);
+    const data = item?.data || {};
+    if (data.owner) return String(data.owner);
+    if (data.createdBy) return String(data.createdBy);
+    // Só adota item legado quando há prova de que ele pertence ao usuário
+    // atual. Nunca associe uma escrita compartilhada/desconhecida a quem
+    // acabou de abrir o app em outro navegador.
+    if (fallbackUserId && (item?.collection === 'tasks' || item?.collection === 'notes' || item?.collection === 'macros') &&
+        String(data.owner || '') === String(fallbackUserId)) return String(fallbackUserId);
+    return '';
+  },
+
+  _loadOutbox(userId) {
     try {
       const raw = safeLocalGet(this._outboxKey);
-      const list = raw ? JSON.parse(raw) : [];
-      if (Array.isArray(list)) this._outbox = list.slice(0, 1000);
+      const legacyRaw = raw ? null : safeLocalGet(this._legacyOutboxKey);
+      const list = JSON.parse(raw || legacyRaw || '[]');
+      this._outbox = Array.isArray(list) ? list.slice(0, 1000).map(item => {
+        const uid = this._inferLegacyOutboxUser(item, userId);
+        return { ...item, uid: uid || item.uid || '' };
+      }) : [];
+      // Migra a fila antiga para o formato que isola contas. Itens sem UID são
+      // preservados para auditoria, mas nunca são enviados automaticamente.
+      this._saveOutbox();
+      if (legacyRaw) safeLocalRemove(this._legacyOutboxKey);
     } catch(e) {
       this._outbox = [];
     }
@@ -600,25 +654,29 @@ const FireSync = {
     return copy;
   },
 
+  _resolveWriteUser(dataObj = {}, explicitUid = '') {
+    return String(explicitUid || auth.currentUser?.uid || this._userId || dataObj.owner || dataObj.createdBy || '');
+  },
 
-  _removeQueuedWrite(collection, id) {
+  _removeQueuedWrite(collection, id, uid = '') {
     const before = this._outbox.length;
-    this._outbox = this._outbox.filter(w =>
-      w._pref || w._delete || w.collection !== collection || String(w.id) !== String(id)
+    this._outbox = this._outbox.filter(item =>
+      item._pref || item._delete || item.collection !== collection || String(item.id) !== String(id) ||
+      (uid && String(item.uid || '') !== String(uid))
     );
     if (this._outbox.length !== before) this._saveOutbox();
   },
 
   _removeQueuedPref(section, userId) {
     const before = this._outbox.length;
-    this._outbox = this._outbox.filter(w => !(w._pref && w.section === section && w.userId === userId));
+    this._outbox = this._outbox.filter(item => !(item._pref && item.section === section && String(item.userId) === String(userId)));
     if (this._outbox.length !== before) this._saveOutbox();
   },
 
-
   _enqueuePref(section, userId, data) {
-    const existing = this._outbox.find(w => w._pref && w.section === section && w.userId === userId);
-    const prefWrite = { _pref: true, section, userId, data, queuedAt: operationalNow() };
+    const uid = String(userId || auth.currentUser?.uid || this._userId || '');
+    const existing = this._outbox.find(item => item._pref && item.section === section && String(item.userId) === uid);
+    const prefWrite = { _pref: true, section, userId: uid, uid, data, queuedAt: operationalNow() };
     if (existing) Object.assign(existing, prefWrite);
     else this._outbox.push(prefWrite);
     if (this._outbox.length > 1000) this._outbox.shift();
@@ -626,9 +684,12 @@ const FireSync = {
     this._scheduleOutboxFlush();
   },
 
-  _removeQueuedDelete(collection, id) {
+  _removeQueuedDelete(collection, id, uid = '') {
     const before = this._outbox.length;
-    this._outbox = this._outbox.filter(w => !(w._delete && w.collection === collection && String(w.id) === String(id)));
+    this._outbox = this._outbox.filter(item =>
+      !(item._delete && item.collection === collection && String(item.id) === String(id) &&
+        (!uid || String(item.uid || '') === String(uid)))
+    );
     if (this._outbox.length !== before) this._saveOutbox();
   },
 
@@ -644,371 +705,221 @@ const FireSync = {
     this._unsubscribers = [];
     this._syncing = false;
     this._userId = null;
+    this._readyUserId = null;
+    this._serverPullPromise = null;
     this._collectionErrors = {};
     console.log('🛑 FireSync parado');
   },
 
-  /* Sincronizar uma coleção inteira */
+  /* ---------- Estado local pendente ---------- */
+  _hasQueuedWrite(collection, id, userId = this._userId) {
+    return (this._outbox || []).some(item =>
+      !item._pref && !item._delete && item.collection === collection &&
+      String(item.id) === String(id) &&
+      (!userId || String(item.uid || '') === String(userId))
+    );
+  },
+
+  _hasQueuedDelete(collection, id, userId = this._userId) {
+    return (this._outbox || []).some(item =>
+      item._delete && item.collection === collection &&
+      String(item.id) === String(id) &&
+      (!userId || String(item.uid || '') === String(userId))
+    );
+  },
+
+  _listKeyForCollection(collectionName) {
+    return ({
+      tasks: 'tasks', notes: 'notes', posts: 'posts', files: 'files',
+      macros: 'macros', users: 'users',
+    })[collectionName] || null;
+  },
+
+  _normalizeRemoteDocument(doc) {
+    const remoteData = doc.data() || {};
+    // O cache visual usa strings ISO; FieldValue/Timestamp não pode entrar no
+    // localStorage, pois corrompe o JSON e causa renderizações inconsistentes.
+    const normalized = { ...remoteData };
+    ['createdAt', 'updatedAt', 'publishedAt', 'finishedAt'].forEach(field => {
+      if (normalized[field] && normalized[field].toDate) {
+        normalized[field] = normalized[field].toDate().toISOString();
+      }
+    });
+    if (normalized.date && normalized.date.toDate) {
+      normalized.date = core.dateKeyFromLocalDate(normalized.date.toDate());
+    } else if (normalized.date instanceof Date) {
+      normalized.date = core.dateKeyFromLocalDate(normalized.date);
+    } else if (typeof normalized.date === 'string' && normalized.date.length > 10) {
+      normalized.date = normalized.date.slice(0, 10);
+    }
+    // O ID do documento Firestore é canônico; nunca deixe um campo `id`
+    // legado do payload substituir a chave usada para sincronizar.
+    return { ...normalized, id: String(doc.id) };
+  },
+
+  _emitCollectionSync(collectionName, count) {
+    window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: collectionName } }));
+    console.log(`🔄 ${collectionName} sincronizados do Firestore (${count} docs)`);
+  },
+
+  /* Sincronizar uma coleção inteira.
+     O Firestore é a fonte da verdade: o cache só é atualizado a partir do
+     remoto. A única exceção é uma escrita ainda presente na outbox; ela fica
+     protegida até receber confirmação do servidor. O código antigo tentava
+     reenviar qualquer item que estivesse no localStorage e, em duas abas,
+     ressuscitava tarefas apagadas e criava duplicações. */
   _handleCollectionSync(collectionName, snapshot, userId) {
     try {
       const data = core.getLocalDB();
       const remoteDocs = [];
+      snapshot.forEach(doc => remoteDocs.push(this._normalizeRemoteDocument(doc)));
       let hasChanges = false;
+      const listKey = this._listKeyForCollection(collectionName);
+      const activeUserId = userId || this._userId;
 
-      snapshot.forEach(doc => {
-        const remoteData = doc.data();
-        // Converter Timestamps para string ISO para compat com localDB
-        const normalized = { ...remoteData };
-        if (normalized.createdAt && normalized.createdAt.toDate) {
-          normalized.createdAt = normalized.createdAt.toDate().toISOString();
-        }
-        if (normalized.updatedAt && normalized.updatedAt.toDate) {
-          normalized.updatedAt = normalized.updatedAt.toDate().toISOString();
-        }
-        if (normalized.publishedAt && normalized.publishedAt.toDate) {
-          normalized.publishedAt = normalized.publishedAt.toDate().toISOString();
-        }
-        if (normalized.finishedAt && normalized.finishedAt.toDate) {
-          normalized.finishedAt = normalized.finishedAt.toDate().toISOString();
-        }
-        // Normalizar date de tarefas para YYYY-MM-DD (evita duplicação por comparação falha)
-        if (normalized.date && normalized.date.toDate) {
-          normalized.date = core.dateKeyFromLocalDate(normalized.date.toDate());
-        } else if (normalized.date instanceof Date) {
-          normalized.date = core.dateKeyFromLocalDate(normalized.date);
-        }
-        remoteDocs.push({ id: doc.id, ...normalized });
-      });
-
-      // onSnapshot não devolve documentos removidos no snapshot atual. Sem
-      // tratar docChanges, um post/arquivo apagado voltava a aparecer no cache
-      // local após a próxima navegação.
       const removedIds = typeof snapshot.docChanges === 'function'
         ? snapshot.docChanges().filter(change => change.type === 'removed').map(change => String(change.doc.id))
         : [];
-      if (removedIds.length) {
-        const removeById = list => list.filter(item => !removedIds.includes(String(item.id)));
-        if (collectionName === 'tasks') data.tasks = removeById(data.tasks);
-        if (collectionName === 'notes') data.notes = removeById(data.notes);
-        if (collectionName === 'posts') data.posts = removeById(data.posts);
-        if (collectionName === 'files') data.files = removeById(data.files);
-        if (collectionName === 'macros') data.macros = removeById(data.macros);
-        if (collectionName === 'users') data.users = removeById(data.users);
-        hasChanges = true;
+
+      if (listKey && Array.isArray(data[listKey]) && removedIds.length) {
+        const before = data[listKey].length;
+        data[listKey] = data[listKey].filter(item => {
+          const id = String(item.id);
+          if (!removedIds.includes(id)) return true;
+          // Se uma alteração local legítima ainda aguarda confirmação, não a
+          // apague por causa de um snapshot anterior. Exclusões pendentes, por
+          // outro lado, precisam permanecer ocultas imediatamente.
+          return this._hasQueuedWrite(collectionName, id, activeUserId) &&
+            !this._hasQueuedDelete(collectionName, id, activeUserId);
+        });
+        hasChanges = data[listKey].length !== before;
       }
 
-      // Para tasks: filtrar as que são do usuário local
-      if (collectionName === 'tasks' && userId) {
-        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
-        const localNewer = [];
-
-        // Atualizar/inserir tasks remotas no local
+      if (collectionName === 'comments') {
+        if (!data.comments || typeof data.comments !== 'object') data.comments = {};
+        let commentsChanged = false;
         remoteDocs.forEach(remote => {
-          const localIdx = data.tasks.findIndex(t => String(t.id) === String(remote.id));
-          if (localIdx >= 0) {
-            const localUpdated = timestampMillis(data.tasks[localIdx].updatedAt || data.tasks[localIdx].createdAt);
-            const remoteUpdated = timestampMillis(remote.updatedAt || remote.createdAt);
-            if (remoteUpdated > localUpdated) {
-              data.tasks[localIdx] = { ...data.tasks[localIdx], ...remote, id: data.tasks[localIdx].id };
-              hasChanges = true;
-            } else if (localUpdated > remoteUpdated) {
-              // Local mais novo (editado offline): a versão local vence e
-              // precisa SUBIR para a nuvem, senão o outro dispositivo nunca
-              // veria a mudança.
-              localNewer.push(data.tasks[localIdx]);
+          const taskId = remote.taskId;
+          if (!taskId) return;
+          if (!data.comments[taskId]) data.comments[taskId] = [];
+          const index = data.comments[taskId].findIndex(comment => String(comment.id) === String(remote.id));
+          if (index >= 0) {
+            if (JSON.stringify(data.comments[taskId][index]) !== JSON.stringify(remote)) {
+              data.comments[taskId][index] = remote;
+              commentsChanged = true;
             }
           } else {
-            data.tasks.push(remote);
-            hasChanges = true;
+            data.comments[taskId].push(remote);
+            commentsChanged = true;
           }
         });
-
-        // Subir tasks locais que não estão no remoto — SEM limite de 20 docs:
-        // tudo que foi criado/editado offline precisa chegar inteiro à nuvem.
-        if (this._canPush('tasks')) {
-          const localTasksToPush = data.tasks.filter(t =>
-            t.owner === userId && !remoteIds.has(String(t.id))
-          ).concat(localNewer);
-          if (localTasksToPush.length > 0) {
-            this._pushLocalToFirestore('tasks', localTasksToPush, userId);
-          }
-        }
-
-      } else if (collectionName === 'users') {
-        remoteDocs.forEach(remote => {
-          const localIdx = data.users.findIndex(account =>
-            String(account.id || account.uid) === String(remote.id)
-          );
-          const normalizedUser = { ...remote, id: remote.id, uid: remote.uid || remote.id };
-          if (localIdx >= 0) {
-            // Senhas locais nunca devem ser substituídas por dados remotos.
-            const local = data.users[localIdx];
-            const next = { ...local, ...normalizedUser, passHash: local.passHash, pass: local.pass };
-            if (JSON.stringify({ ...local, passHash: undefined, pass: undefined }) !==
-                JSON.stringify({ ...next, passHash: undefined, pass: undefined })) {
-              data.users[localIdx] = next;
-              hasChanges = true;
-            }
-          } else {
-            data.users.push(normalizedUser);
-            hasChanges = true;
-          }
-        });
-
-      } else if (collectionName === 'posts') {
-        remoteDocs.forEach(remote => {
-          const localIdx = data.posts.findIndex(p => String(p.id) === String(remote.id));
-          if (localIdx >= 0) {
-            const rTime = timestampMillis(remote.updatedAt || remote.publishedAt);
-            const lTime = timestampMillis(data.posts[localIdx].updatedAt || data.posts[localIdx].publishedAt);
-            if (rTime > lTime) {
-              data.posts[localIdx] = { ...data.posts[localIdx], ...remote, id: data.posts[localIdx].id };
-              hasChanges = true;
-            }
-          } else {
-            data.posts.push(remote);
-            hasChanges = true;
-          }
-        });
-
-      } else if (collectionName === 'files') {
-        remoteDocs.forEach(remote => {
-          const localIdx = data.files.findIndex(f => String(f.id) === String(remote.id));
-          if (localIdx >= 0) {
-            // Sempre atualizar files (admin pode mudar), sem disparar falso
-            // positivo apenas porque IDs locais antigos são numéricos.
-            const localComparable = { ...data.files[localIdx], id: String(data.files[localIdx].id) };
-            const remoteComparable = { ...remote, id: String(remote.id) };
-            if (JSON.stringify(localComparable) !== JSON.stringify(remoteComparable)) {
-              data.files[localIdx] = { ...remote, id: data.files[localIdx].id };
-              hasChanges = true;
-            }
-          } else {
-            data.files.push(remote);
-            hasChanges = true;
-          }
-        });
-
-      } else if (collectionName === 'macros' && userId) {
-        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
-        const localNewer = [];
-
-        // Atualizar/inserir macros remotas no local
-        remoteDocs.forEach(remote => {
-          const localIdx = data.macros.findIndex(m => String(m.id) === String(remote.id));
-          if (localIdx >= 0) {
-            const lTime = timestampMillis(data.macros[localIdx].updatedAt || data.macros[localIdx].createdAt);
-            const rTime = timestampMillis(remote.updatedAt || remote.createdAt);
-            if (rTime > lTime) {
-              data.macros[localIdx] = { ...data.macros[localIdx], ...remote, id: data.macros[localIdx].id };
-              hasChanges = true;
-            } else if (lTime > rTime) {
-              // Editado offline: versão local vence e precisa subir à nuvem.
-              localNewer.push(data.macros[localIdx]);
-            }
-          } else {
-            data.macros.push(remote);
-            hasChanges = true;
-          }
-        });
-
-        // Subir macros locais do usuário que ainda não estão no remoto
-        if (this._canPush('macros')) {
-          const localMacrosToPush = data.macros.filter(m =>
-            m.owner === userId && !remoteIds.has(String(m.id))
-          ).concat(localNewer);
-          if (localMacrosToPush.length > 0) {
-            this._pushLocalToFirestore('macros', localMacrosToPush, userId);
-          }
-        }
-
-      } else if (collectionName === 'notes' && userId) {
-        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
-        const localNewer = [];
-
-        // Atualizar/inserir notas remotas no cache local
-        remoteDocs.forEach(remote => {
-          const localIdx = data.notes.findIndex(n => String(n.id) === String(remote.id));
-          if (localIdx >= 0) {
-            const lTime = timestampMillis(data.notes[localIdx].updatedAt || data.notes[localIdx].createdAt);
-            const rTime = timestampMillis(remote.updatedAt || remote.createdAt);
-            if (rTime > lTime) {
-              data.notes[localIdx] = { ...data.notes[localIdx], ...remote, id: data.notes[localIdx].id };
-              hasChanges = true;
-            } else if (lTime > rTime) {
-              // Editado offline: versão local vence e precisa subir à nuvem.
-              localNewer.push(data.notes[localIdx]);
-            }
-          } else {
-            data.notes.push(remote);
-            hasChanges = true;
-          }
-        });
-
-        // Subir notas locais do usuário que ainda não estão no remoto
-        if (this._canPush('notes')) {
-          const localNotesToPush = data.notes.filter(n =>
-            String(n.owner) === String(userId) && !remoteIds.has(String(n.id))
-          ).concat(localNewer);
-          if (localNotesToPush.length > 0) {
-            this._pushLocalToFirestore('notes', localNotesToPush, userId);
-          }
-        }
-      } else if (collectionName === 'comments') {
-        const remoteIds = new Set(remoteDocs.map(d => String(d.id)));
-        if (!data.comments) data.comments = {};
-        let changed = false;
-
-        remoteDocs.forEach(remote => {
-          const tid = remote.taskId;
-          if (!tid) return;
-          if (!data.comments[tid]) data.comments[tid] = [];
-          const idx = data.comments[tid].findIndex(c => String(c.id) === String(remote.id));
-          if (idx >= 0) {
-            if (JSON.stringify(data.comments[tid][idx]) !== JSON.stringify(remote)) {
-              data.comments[tid][idx] = remote;
-              changed = true;
-            }
-          } else {
-            data.comments[tid].push(remote);
-            changed = true;
-          }
-        });
-
-        // Removidos
-        removedIds.forEach(rid => {
-          Object.keys(data.comments).forEach(tid => {
-            const initialLen = data.comments[tid].length;
-            data.comments[tid] = data.comments[tid].filter(c => String(c.id) !== rid);
-            if (data.comments[tid].length !== initialLen) changed = true;
+        removedIds.forEach(id => {
+          Object.keys(data.comments).forEach(taskId => {
+            const before = data.comments[taskId].length;
+            data.comments[taskId] = data.comments[taskId].filter(comment => String(comment.id) !== id);
+            if (before !== data.comments[taskId].length) commentsChanged = true;
           });
         });
-        
-        if (changed) {
+        if (commentsChanged) {
+          Object.keys(data.comments).forEach(taskId => {
+            data.comments[taskId].sort((a, b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt));
+          });
           hasChanges = true;
-          // Ordenar comentários por data
-          Object.keys(data.comments).forEach(tid => {
-            data.comments[tid].sort((a,b) => timestampMillis(a.createdAt) - timestampMillis(b.createdAt));
-          });
         }
       } else if (collectionName === 'automations') {
-        if (JSON.stringify(data.automations) !== JSON.stringify(remoteDocs)) {
+        // Automações são globais e administradas no Firestore. Não misturar
+        // defaults antigos do cache com a lista remota.
+        if (JSON.stringify(data.automations || []) !== JSON.stringify(remoteDocs)) {
           data.automations = remoteDocs;
           hasChanges = true;
         }
       } else if (collectionName === 'customThemes') {
-        if (JSON.stringify(data.customThemes) !== JSON.stringify(remoteDocs)) {
+        if (JSON.stringify(data.customThemes || []) !== JSON.stringify(remoteDocs)) {
           data.customThemes = remoteDocs;
           hasChanges = true;
         }
+      } else if (listKey) {
+        if (!Array.isArray(data[listKey])) data[listKey] = [];
+        remoteDocs.forEach(remote => {
+          const index = data[listKey].findIndex(item => String(item.id || item.uid) === String(remote.id));
+          if (index >= 0) {
+            const local = data[listKey][index];
+            if (this._hasQueuedWrite(collectionName, remote.id, activeUserId)) return;
+            const next = collectionName === 'users'
+              ? { ...remote, id: remote.id, uid: remote.uid || remote.id }
+              : { ...remote, id: remote.id };
+            if (JSON.stringify(local) !== JSON.stringify(next)) {
+              data[listKey][index] = next;
+              hasChanges = true;
+            }
+          } else {
+            const next = collectionName === 'users'
+              ? { ...remote, id: remote.id, uid: remote.uid || remote.id }
+              : { ...remote, id: remote.id };
+            data[listKey].push(next);
+            hasChanges = true;
+          }
+        });
       }
 
       if (hasChanges) {
         core.saveLocalDB(data);
-        window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: collectionName } }));
-        console.log(`🔄 ${collectionName} sincronizados do Firestore (${remoteDocs.length} docs)`);
+        this._emitCollectionSync(collectionName, remoteDocs.length);
       }
-    } catch(e) {
-      console.warn(`_handleCollectionSync ${collectionName} error:`, e);
+    } catch (error) {
+      console.warn(`_handleCollectionSync ${collectionName} error:`, error);
     }
   },
 
-  /* Push local data to Firestore - com proteção anti-loop */
-  async _pushLocalToFirestore(collection, items, userId) {
-    if (!items || items.length === 0) return;
-    if (!this._canPush(collection)) {
-      console.warn('⚠️ Muitos erros, pulando push para', collection);
-      return;
-    }
-
-    // Sem limite de documentos: envia TUDO o que ficou pendente, em lotes de
-    // até 20 (limite seguro do Firestore por batch). Antes o .slice(0,20)
-    // deixava dados criados offline presos só no localStorage.
-    for (let i = 0; i < items.length; i += 20) {
-      const chunk = items.slice(i, i + 20);
-      const batch = db.batch();
-      let count = 0;
-
-      for (const item of chunk) {
-        try {
-          const docRef = db.collection(collection).doc(String(item.id));
-          const docData = { ...item };
-          // Remover id duplicado e converter datas com segurança
-          delete docData.id;
-
-          // Garantir owner
-          if (collection === 'tasks' || collection === 'macros') {
-            docData.owner = userId;
-          }
-
-          // Converter createdAt/updatedAt para Timestamp APENAS para Firestore
-          // Não modificar o objeto original
-          const toSend = { ...docData };
-          const createdTs = safeFirestoreTimestamp(docData.createdAt);
-          const updatedTs = safeFirestoreTimestamp(docData.updatedAt);
-          if (createdTs) toSend.createdAt = createdTs;
-          if (updatedTs) toSend.updatedAt = updatedTs;
-          if (!toSend.updatedAt) {
-            toSend.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
-          }
-
-          batch.set(docRef, toSend, { merge: true });
-          count++;
-        } catch(e) {
-          console.warn('Erro ao preparar doc para push:', e);
-        }
-      }
-
-      if (count > 0) {
-        try {
-          await batch.commit();
-          console.log(`📤 ${count} ${collection} enviados ao Firestore`);
-          this._clearError(collection);
-        } catch (err) {
-          console.warn(`Erro ao enviar ${collection}:`, err.code, err.message);
-          if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
-            this._bumpErrorSafe(collection);
-          } else {
-            // Falha transitória: agenda reenvio para não perder os dados.
-            chunk.forEach(item => this._enqueueWrite(collection, item.id, item));
-            this._scheduleOutboxFlush();
-          }
-        }
-      }
-    }
-  },
-
-  /* Push manual de um documento — com fila de reenvio (nada se perde) */
+  /* Push manual de um documento.
+     A escrita entra na outbox ANTES da tentativa de rede (write-ahead). Isso
+     fecha a janela em que uma aba era colocada em segundo plano entre salvar o
+     cache e receber a confirmação do Firestore. */
   async pushDocument(collection, id, dataObj) {
-    // Validar que temos dados e usuário autenticado antes de tentar escrever
-    if (!collection || !id || !dataObj) {
+    if (!collection || id === undefined || id === null || !dataObj) {
       console.warn('⚠️ pushDocument: parâmetros inválidos', { collection, id });
       return false;
     }
-    
+
+    const uid = this._resolveWriteUser(dataObj);
+    this._enqueueWrite(collection, id, dataObj, uid);
+
     if (!auth.currentUser) {
-      console.warn('⚠️ pushDocument: usuário não autenticado, enfileirando para quando autenticar');
-      this._enqueueWrite(collection, id, dataObj);
+      console.warn('⚠️ pushDocument: aguardando restauração da autenticação');
+      this._scheduleOutboxFlush();
       return false;
     }
-    
+
+    // A fila é ligada ao usuário que iniciou a ação. Não permita que uma aba
+    // que trocou de conta escreva os dados pendentes da conta anterior.
+    if (uid && String(uid) !== String(auth.currentUser.uid)) {
+      console.warn('⚠️ pushDocument ignorado: UID da escrita não corresponde à sessão atual');
+      return false;
+    }
+
     try {
       console.log('📤 pushDocument → Firestore:', collection, id);
       await this._writeDoc(collection, id, dataObj);
       this._clearError(collection);
-      this._removeQueuedWrite(collection, id);
+      this._removeQueuedWrite(collection, id, auth.currentUser.uid);
       console.log('✅ pushDocument OK:', collection, id);
       return true;
     } catch (err) {
       console.error('❌ pushDocument ERRO:', collection, id, err.code, err.message);
-      if (err.code === 'permission-denied' || err.code === 'unauthenticated') {
-        console.warn('⚠️ Sem permissão para escrever em', collection);
+      if (err.code === 'permission-denied') {
+        // Permission denied is definitive; keeping a phantom document in the
+        // outbox made it reappear later and parecia uma duplicação ao usuário.
+        this._removeQueuedWrite(collection, id, auth.currentUser.uid);
         this._bumpErrorSafe(collection);
+        window.dispatchEvent(new CustomEvent('firebaseWriteError', {
+          detail: { collection, id: String(id), code: err.code, message: err.message || '' }
+        }));
         core.toast(`Sem permissão para sincronizar ${collection}. Verifique as regras.`, 'warning');
+      } else {
+        // Falha transitória: a entrada já está persistida; tente novamente ao
+        // voltar online/ao retomar a aba.
+        this._scheduleOutboxFlush();
       }
-      // Enfileira para reenvio automático (offline/rede instável).
-      this._enqueueWrite(collection, id, dataObj);
-      this._scheduleOutboxFlush();
       return false;
     }
   },
@@ -1017,8 +928,6 @@ const FireSync = {
   async _writeDoc(collection, id, dataObj) {
     const docData = { ...dataObj };
     delete docData.id;
-    // Hashes/senhas usadas no fallback local jamais devem ser enviados ao
-    // Firestore nem aparecer em backups de perfis.
     if (collection === 'users') {
       delete docData.pass;
       delete docData.passHash;
@@ -1026,6 +935,8 @@ const FireSync = {
 
     const createdTs = safeFirestoreTimestamp(docData.createdAt);
     if (createdTs) docData.createdAt = createdTs;
+    // updatedAt é sempre definido pelo servidor: o relógio de um navegador
+    // antigo não pode vencer uma alteração mais recente em outro dispositivo.
     docData.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
 
     await db.collection(collection).doc(String(id)).set(docData, { merge: true });
@@ -1033,25 +944,40 @@ const FireSync = {
   },
 
   /* ---------- FILA DE REESCRITA (OUTBOX) ---------- */
-  _enqueueWrite(collection, id, data) {
+  _enqueueWrite(collection, id, data, explicitUid = '') {
     const safeData = this._sanitizeOutboxData(collection, data);
-    const existing = this._outbox.find(w =>
-      !w._pref && !w._delete && w.collection === collection && String(w.id) === String(id)
+    const uid = this._resolveWriteUser(safeData, explicitUid);
+    const existing = this._outbox.find(item =>
+      !item._pref && !item._delete && item.collection === collection &&
+      String(item.id) === String(id) && String(item.uid || '') === String(uid)
     );
-    if (existing) {
-      // Mesma escrita de novo: versão mais recente vence.
-      existing.data = safeData;
-    } else {
-      this._outbox.push({ collection, id, data: safeData, queuedAt: operationalNow() });
+    const write = { collection, id: String(id), uid, data: safeData, queuedAt: operationalNow() };
+    if (existing) Object.assign(existing, write);
+    else {
+      this._outbox.push(write);
       if (this._outbox.length > 1000) this._outbox.shift();
     }
     this._saveOutbox();
   },
 
+  _enqueueDelete(collection, id, explicitUid = '') {
+    const uid = this._resolveWriteUser({}, explicitUid);
+    const existing = this._outbox.find(item =>
+      item._delete && item.collection === collection && String(item.id) === String(id) &&
+      String(item.uid || '') === String(uid)
+    );
+    const deletion = { collection, id: String(id), uid, _delete: true, queuedAt: operationalNow() };
+    if (existing) Object.assign(existing, deletion);
+    else {
+      this._outbox.push(deletion);
+      if (this._outbox.length > 1000) this._outbox.shift();
+    }
+    // Uma exclusão vence uma gravação pendente do mesmo documento/usuário.
+    this._removeQueuedWrite(collection, id, uid);
+    this._saveOutbox();
+  },
+
   _scheduleOutboxFlush(delay = 3000) {
-    // Timer imediato quando o app está aberto + Background Sync quando o APK
-    // estiver em segundo plano/offline. A outbox é persistente, então nada se
-    // perde ao fechar antes de voltar a internet.
     try {
       if ('serviceWorker' in navigator) {
         navigator.serviceWorker.ready.then(reg => {
@@ -1065,73 +991,67 @@ const FireSync = {
       this._outboxTimer = null;
       this._flushOutbox();
     }, delay);
-  }, 
+  },
 
-  /* Reenvia escritas pendentes até a nuvem confirmar. Escritas negadas pelas
-     regras são descartadas (o dado continua no cache local); falhas
-     transitórias são tentadas de novo mais tarde. */
+  /* Reenvia somente itens do usuário autenticado atual. */
   async _flushOutbox() {
     if (this._outboxFlushing || !this._outbox.length) return;
-    if (!auth.currentUser) {
-      this._scheduleOutboxFlush(5000);
-      return;
-    }
+    const uid = auth.currentUser?.uid;
+    if (!uid) return;
     this._outboxFlushing = true;
     const started = Date.now();
     try {
-      while (this._outbox.length) {
-        const item = this._outbox[0];
+      while (true) {
+        const index = this._outbox.findIndex(item => String(item.uid || '') === String(uid));
+        if (index < 0) break; // itens de outra conta aguardam o dono voltar
+        const item = this._outbox[index];
         try {
           if (item._pref) {
             await db.collection('settings').doc(item.section).collection('user').doc(item.userId)
               .set(item.data, { merge: true });
-            console.log(`📤 (outbox) preferência ${item.section} enviada ao Firestore`);
           } else if (item._delete) {
             await db.collection(item.collection).doc(String(item.id)).delete();
-            console.log(`🗑️ (outbox) ${item.collection}/${item.id} removido do Firestore`);
-            // Garante que o item NÃO reapareça no cache local enquanto o
-            // snapshot não chega (remove imediatamente do localStorage).
-            try {
-              if (typeof core !== 'undefined' && core.getLocalDB && core.saveLocalDB) {
-                const data = core.getLocalDB();
-                if (Array.isArray(data[item.collection])) {
-                  const before = data[item.collection].length;
-                  data[item.collection] = data[item.collection].filter(doc => String(doc.id) !== String(item.id));
-                  if (data[item.collection].length !== before) {
-                    core.saveLocalDB(data);
-                    window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: item.collection } }));
-                  }
-                }
-              }
-            } catch (e2) { console.warn('limpeza local após delete outbox falhou:', e2); }
+            this._removeLocalAfterDelete(item.collection, item.id);
           } else {
             await this._writeDoc(item.collection, item.id, item.data);
           }
           this._clearError(item.collection || item.section);
-          this._outbox.shift();
+          this._outbox.splice(index, 1);
           this._saveOutbox();
         } catch (err) {
-          if (err.code === 'unauthenticated') {
-            // Auth ainda não restaurou: mantém a fila para tentar novamente.
-            break;
-          }
           if (err.code === 'permission-denied') {
             console.warn('Outbox: escrita sem permissão descartada:', item.collection || item.section, item.id || item.userId);
             this._bumpErrorSafe(item.collection || item.section);
-            this._outbox.shift();
+            this._outbox.splice(index, 1);
             this._saveOutbox();
+            window.dispatchEvent(new CustomEvent('firebaseWriteError', {
+              detail: { collection: item.collection || item.section, id: String(item.id || item.userId), code: err.code, message: err.message || '' }
+            }));
           } else {
-            // Erro transitório (offline): tenta de novo mais tarde.
+            // Offline/rede: mantém a escrita intacta para o próximo retorno.
             break;
           }
         }
-        // Não segurar a interface por muito tempo em uma única rodada.
         if (Date.now() - started > 10000) break;
       }
     } finally {
       this._outboxFlushing = false;
-      if (this._outbox.length) this._scheduleOutboxFlush(10000);
+      if (this._outbox.some(item => String(item.uid || '') === String(uid))) this._scheduleOutboxFlush(10000);
     }
+  },
+
+  _removeLocalAfterDelete(collection, id) {
+    try {
+      const data = core.getLocalDB();
+      if (Array.isArray(data[collection])) {
+        const before = data[collection].length;
+        data[collection] = data[collection].filter(doc => String(doc.id) !== String(id));
+        if (before !== data[collection].length) {
+          core.saveLocalDB(data);
+          this._emitCollectionSync(collection, data[collection].length);
+        }
+      }
+    } catch (error) { console.warn('limpeza local após delete outbox falhou:', error); }
   },
 
   _bumpErrorSafe(collection) {
@@ -1139,21 +1059,19 @@ const FireSync = {
     this._collectionErrors[collection] = count;
   },
 
-  /* Push settings to Firestore - SÓ admin */
+  /* Configurações globais — somente admin. Também usam a mesma outbox para
+     não deixar menu/categorias salvos apenas no navegador quando a rede cai. */
   async pushSettings(settings) {
     try {
-      // Verificar se é admin antes de tentar
       const currentUser = core.getCurrentUser();
       const data = core.getLocalDB();
-      const userProfile = data.users.find(u => u.id === currentUser?.id || u.id === currentUser?.uid);
-      const isAdmin = currentUser?.role === 'admin' || userProfile?.role === 'admin';
-      
+      const profile = (data.users || []).find(user => user.id === currentUser?.id || user.uid === currentUser?.uid);
+      const isAdmin = currentUser?.role === 'admin' || profile?.role === 'admin';
       if (!isAdmin) {
         console.log('ℹ️ Settings push ignorado - usuário não é admin');
-        return;
+        return false;
       }
-
-      await db.collection('settings').doc('global').set({
+      const payload = {
         brand: settings.brand || 'Checklist ML',
         theme: settings.theme || 'ocean',
         mode: settings.mode || 'light',
@@ -1164,43 +1082,89 @@ const FireSync = {
         menuOrder: settings.menuOrder || [],
         logo: settings.logo || '',
         favicon: settings.favicon || '',
-        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-      console.log('📤 Settings enviados ao Firestore');
-      return true;
+      };
+      const synced = await this.pushDocument('settings', 'global', payload);
+      if (synced) console.log('📤 Settings enviados ao Firestore');
+      return synced;
     } catch (err) {
-      console.warn('Erro ao enviar settings:', err.code, err.message);
+      console.warn('Erro ao enviar settings:', err.code || err.message);
       return false;
     }
   },
 
   async deleteDocument(collection, id) {
+    const uid = this._resolveWriteUser();
+    this._enqueueDelete(collection, id, uid);
     if (!auth.currentUser) {
-      this._outbox.push({ collection, id, _delete: true, queuedAt: operationalNow() });
-      if (this._outbox.length > 1000) this._outbox.shift();
-      this._saveOutbox();
       this._scheduleOutboxFlush();
       return false;
     }
+    if (uid && String(uid) !== String(auth.currentUser.uid)) return false;
     try {
       await db.collection(collection).doc(String(id)).delete();
       console.log(`🗑️ ${collection}/${id} removido do Firestore`);
       this._clearError(collection);
-      this._removeQueuedDelete(collection, id);
+      this._removeQueuedDelete(collection, id, auth.currentUser.uid);
       return true;
     } catch (err) {
       console.warn(`Erro ao remover ${collection}/${id}:`, err.code, err.message);
       if (err.code === 'permission-denied') {
+        this._removeQueuedDelete(collection, id, auth.currentUser.uid);
         this._bumpErrorSafe(collection);
+        window.dispatchEvent(new CustomEvent('firebaseWriteError', {
+          detail: { collection, id: String(id), code: err.code, message: err.message || '' }
+        }));
       } else {
-        // Falha transitória/unauth temporário: enfileira a exclusão para reenvio automático.
-        this._outbox.push({ collection, id, _delete: true, queuedAt: operationalNow() });
-        if (this._outbox.length > 1000) this._outbox.shift();
-        this._saveOutbox();
         this._scheduleOutboxFlush();
       }
       return false;
     }
+  },
+
+  /* ---------- BIBLIOTECA DE ARQUIVOS (Firebase Storage) ---------- */
+  _safeStorageFileName(name = 'arquivo') {
+    const cleaned = String(name).normalize?.('NFD').replace(/[\u0300-\u036f]/g, '') || String(name);
+    return cleaned.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 120) || 'arquivo';
+  },
+
+  async uploadLibraryAsset(fileId, file, kind = 'resource', onProgress) {
+    if (!auth.currentUser) throw new Error('Faça login antes de enviar um arquivo.');
+    if (!file || typeof file.size !== 'number') throw new Error('Selecione um arquivo válido.');
+    const maxBytes = kind === 'thumbnail' ? 2 * 1024 * 1024 : 5 * 1024 * 1024;
+    if (file.size > maxBytes) {
+      throw new Error(kind === 'thumbnail'
+        ? 'A imagem de capa deve ter no máximo 2 MB.'
+        : 'O arquivo deve ter no máximo 5 MB.');
+    }
+    const safeName = this._safeStorageFileName(file.name || (kind === 'thumbnail' ? 'capa' : 'arquivo'));
+    const assetName = `${kind}-${Date.now()}-${safeName}`;
+    const path = `files/${String(fileId)}/${assetName}`;
+    const ref = storage.ref().child(path);
+    const metadata = file.type ? { contentType: file.type } : undefined;
+    const upload = ref.put(file, metadata);
+    if (typeof onProgress === 'function' && upload?.on) {
+      upload.on('state_changed', snap => {
+        const total = snap.totalBytes || file.size || 1;
+        onProgress(Math.round((snap.bytesTransferred / total) * 100));
+      });
+    }
+    const snapshot = await upload;
+    const url = await snapshot.ref.getDownloadURL();
+    return {
+      url,
+      storagePath: path,
+      name: file.name || safeName,
+      size: file.size,
+      contentType: file.type || '',
+    };
+  },
+
+  async deleteLibraryAssets(fileRecord = {}) {
+    const paths = [fileRecord.storagePath, fileRecord.thumbnailStoragePath].filter(Boolean);
+    if (!paths.length) return true;
+    const results = await Promise.allSettled(paths.map(path => storage.ref().child(path).delete()));
+    // Um objeto já removido no Storage não deve impedir a exclusão do registro.
+    return results.every(result => result.status === 'fulfilled' || result.reason?.code === 'storage/object-not-found');
   },
 
   /* ---------- PREFERÊNCIAS/DADOS POR USUÁRIO NA NUVEM ----------
@@ -1209,10 +1173,11 @@ const FireSync = {
      escreve). O localStorage é apenas cache de leitura. */
   async pushUserPref(section, userId, data) {
     if (!section || !userId || String(userId).includes('local-')) return false;
-    if (!auth.currentUser) {
-      this._enqueuePref(section, userId, data);
-      return false;
-    }
+    // Write-ahead também para preferências privadas (notificações, IA e
+    // pomodoro): fechar a aba logo após alterar não pode perder o estado.
+    this._enqueuePref(section, userId, data);
+    if (!auth.currentUser) return false;
+    if (String(auth.currentUser.uid) !== String(userId)) return false;
     try {
       await db.collection('settings').doc(section).collection('user').doc(userId)
         .set(data, { merge: true });
@@ -1223,6 +1188,7 @@ const FireSync = {
       if (err.code === 'unauthenticated') {
         this._enqueuePref(section, userId, data);
       } else if (err.code === 'permission-denied') {
+        this._removeQueuedPref(section, userId);
         this._bumpErrorSafe(section);
       } else {
         // Falha transitória: enfileira com marcador de preferência de usuário.
@@ -1293,130 +1259,93 @@ const FireSync = {
     }
   },
 
-  /* Pull inicial no servidor (source:'server') para tasks/notas/macros do
-     usuário e preferências. Garante que um aparelho novo ou com cache vazio
-     receba TUDO do banco, mesmo antes do primeiro evento de snapshot. */
-  async _pullUserData(userId) {
-    if (!userId || userId.includes('local-')) {
-      console.log('⚠️ Pull ignorado: usuário local');
-      return;
-    }
-    
-    console.log('📥 Iniciando pull de dados do Firestore para', userId);
-    
+  /* Retorna um snapshot completo de servidor com as remoções que precisam ser
+     refletidas no cache. Só documentos SEM escrita pendente são removidos. */
+  _asFullServerSnapshot(snapshot, collectionName, userId = '') {
+    const remoteIds = new Set();
+    snapshot.forEach(doc => remoteIds.add(String(doc.id)));
+    const listKey = this._listKeyForCollection(collectionName);
+    const removed = [];
     try {
-      // allSettled: uma coleção sem permissão (ex.: regras antigas) não pode
-      // impedir o pull das demais — cada uma é independente.
+      const localData = core.getLocalDB();
+      const localList = listKey && Array.isArray(localData[listKey]) ? localData[listKey] : [];
+      localList.forEach(item => {
+        const id = String(item.id || item.uid || '');
+        const belongsToUser = !userId || String(item.owner || item.id || item.uid || '') === String(userId);
+        if (!id || !belongsToUser) return;
+        if (this._hasQueuedDelete(collectionName, id, userId)) {
+          removed.push({ doc: { id }, type: 'removed' });
+        } else if (!remoteIds.has(id) && !this._hasQueuedWrite(collectionName, id, userId)) {
+          // O servidor confirmou que não existe: remove cache velho, sem
+          // tentar ressuscitá-lo em outro dispositivo.
+          removed.push({ doc: { id }, type: 'removed' });
+        }
+      });
+    } catch (error) { console.warn('diff remoto/local falhou:', error); }
+    return {
+      forEach: callback => snapshot.forEach(callback),
+      docChanges: () => {
+        const added = [];
+        snapshot.forEach(doc => added.push({ doc, type: 'added' }));
+        return added.concat(removed);
+      },
+    };
+  },
+
+  isInitialSyncReady(userId = this._userId) {
+    return Boolean(userId && String(this._readyUserId || '') === String(userId));
+  },
+
+  async refreshFromServer(userId = this._userId, options = {}) {
+    const { force = false } = options;
+    if (!userId || String(auth.currentUser?.uid || '') !== String(userId)) return false;
+    const now = Date.now();
+    if (this._serverPullPromise) return this._serverPullPromise;
+    if (!force && this.isInitialSyncReady(userId) && now - this._lastServerPullAt < 30000) return true;
+    this._serverPullPromise = this._pullUserData(userId)
+      .finally(() => { this._serverPullPromise = null; });
+    return this._serverPullPromise;
+  },
+
+  /* Pull de servidor para dados do usuário E biblioteca compartilhada. */
+  async _pullUserData(userId) {
+    if (!userId || userId.includes('local-')) return false;
+    if (String(auth.currentUser?.uid || '') !== String(userId)) return false;
+
+    console.log('📥 Atualizando cache pelo Firestore para', userId);
+    try {
       const settled = await Promise.allSettled([
         db.collection('tasks').where('owner', '==', userId).get({ source: 'server' }),
         db.collection('notes').where('owner', '==', userId).get({ source: 'server' }),
         db.collection('macros').where('owner', '==', userId).get({ source: 'server' }),
+        db.collection('files').get({ source: 'server' }),
+        db.collection('posts').get({ source: 'server' }),
         db.collection('gamification').doc(userId).get({ source: 'server' }),
         db.collection('dashboardWidgets').doc(userId).get({ source: 'server' }),
       ]);
-      const [tasksSnap, notesSnap, macrosSnap, gamSnap, widgetsSnap] = settled.map(r => r.status === 'fulfilled' ? r.value : null);
+      const [tasksSnap, notesSnap, macrosSnap, filesSnap, postsSnap, gamSnap, widgetsSnap] =
+        settled.map(result => result.status === 'fulfilled' ? result.value : null);
 
-      // Converte um QuerySnapshot (ou Get) em algo compatível com _handleCollectionSync.
-      // Importante: deve expor docChanges() com TODOS os documentos marcados como
-      // 'added' para o pull inicial, e marcar como 'removed' os que existem no
-      // cache local mas NÃO existem mais no Firestore (tarefas excluídas em outro
-      // dispositivo / após refresh). Sem isso, uma atividade apagada voltava
-      // sempre ao recarregar a página, porque _handleCollectionSync não tinha
-      // como saber que ela foi removida do servidor.
-      const asSnapshot = (snap, collectionName) => {
-        const remoteIds = new Set();
-        snap.forEach(d => remoteIds.add(String(d.id)));
-        const removed = [];
-        // Comparar com estado local para detectar exclusões remotas.
-        try {
-          const localData = typeof core !== 'undefined' && core.getLocalDB ? core.getLocalDB() : null;
-          let localList = null;
-          if (localData) {
-            if (collectionName === 'tasks') localList = localData.tasks;
-            else if (collectionName === 'notes') localList = localData.notes;
-            else if (collectionName === 'macros') localList = localData.macros;
-          }
-          // Também respeitar exclusões pendentes no outbox (elas ainda não
-          // foram para a nuvem, então não devem ser trazidas de volta).
-          const pendingDeletes = new Set(
-            (this._outbox || []).filter(w => w._delete && w.collection === collectionName).map(w => String(w.id))
-          );
-          if (Array.isArray(localList)) {
-            localList.forEach(item => {
-              const id = String(item.id);
-              if (pendingDeletes.has(id)) {
-                // Exclusão pendente: marcar para ser removida do cache agora,
-                // senão ela reaparece até o outbox dar flush.
-                removed.push({ doc: { id }, type: 'removed' });
-              } else if (item && item.owner === userId && !remoteIds.has(id)) {
-                // Existia no cache do usuário mas sumiu do Firestore = foi apagada.
-                removed.push({ doc: { id }, type: 'removed' });
-              }
-            });
-          }
-        } catch (e) { console.warn('diff remoto/local falhou:', e); }
-
-        return {
-          forEach: cb => snap.forEach(cb),
-          docChanges: () => {
-            // Simula docChanges() como o onSnapshot real faz.
-            const added = [];
-            snap.forEach(d => added.push({ doc: d, type: 'added' }));
-            return added.concat(removed);
-          },
-        };
-      };
-
-      let tasksCount = 0, notesCount = 0, macrosCount = 0;
-
-      // ANTES de aplicar snapshot, remover tarefas/notes/macros que estão na
-      // fila de exclusão (outbox _delete) do cache local. Isso evita que elas
-      // "pisquem" de volta na tela durante o pull inicial.
-      const purgePendingDeletes = (list, collectionName) => {
-        if (!Array.isArray(list)) return list;
-        const pendingDeletes = new Set(
-          (this._outbox || []).filter(w => w._delete && w.collection === collectionName).map(w => String(w.id))
-        );
-        if (!pendingDeletes.size) return list;
-        return list.filter(item => !pendingDeletes.has(String(item.id)));
-      };
-      try {
-        const localData = typeof core !== 'undefined' && core.getLocalDB ? core.getLocalDB() : null;
-        if (localData) {
-          let mutated = false;
-          ['tasks','notes','macros'].forEach(col => {
-            const before = (localData[col] || []).length;
-            localData[col] = purgePendingDeletes(localData[col] || [], col);
-            if (localData[col].length !== before) mutated = true;
-          });
-          if (mutated && core.saveLocalDB) core.saveLocalDB(localData);
-        }
-      } catch(e) { console.warn('purgePendingDeletes:', e); }
-
-      if (tasksSnap) {
-        this._handleCollectionSync('tasks', asSnapshot(tasksSnap, 'tasks'), userId);
-        tasksCount = tasksSnap.size || 0;
-      }
-      if (notesSnap) {
-        this._handleCollectionSync('notes', asSnapshot(notesSnap, 'notes'), userId);
-        notesCount = notesSnap.size || 0;
-      }
-      if (macrosSnap) {
-        this._handleCollectionSync('macros', asSnapshot(macrosSnap, 'macros'), userId);
-        macrosCount = macrosSnap.size || 0;
+      if (String(auth.currentUser?.uid || '') !== String(userId) || String(this._userId || '') !== String(userId)) {
+        return false; // a conta mudou enquanto a rede respondia
       }
 
-      if (gamSnap && gamSnap.exists) {
+      if (tasksSnap) this._handleCollectionSync('tasks', this._asFullServerSnapshot(tasksSnap, 'tasks', userId), userId);
+      if (notesSnap) this._handleCollectionSync('notes', this._asFullServerSnapshot(notesSnap, 'notes', userId), userId);
+      if (macrosSnap) this._handleCollectionSync('macros', this._asFullServerSnapshot(macrosSnap, 'macros', userId), userId);
+      if (filesSnap) this._handleCollectionSync('files', this._asFullServerSnapshot(filesSnap, 'files'), null);
+      if (postsSnap) this._handleCollectionSync('posts', this._asFullServerSnapshot(postsSnap, 'posts'), null);
+
+      if (gamSnap?.exists) {
         const data = core.getLocalDB();
         if (JSON.stringify(data.gamification[userId]) !== JSON.stringify(gamSnap.data())) {
           data.gamification[userId] = gamSnap.data();
           core.saveLocalDB(data);
           window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'gamification' } }));
-          console.log('🏆 Gamificação carregada do Firestore');
         }
       }
 
-      if (widgetsSnap && widgetsSnap.exists) {
+      if (widgetsSnap?.exists) {
         const remoteWidgets = widgetsSnap.data()?.widgets;
         if (remoteWidgets) {
           const data = core.getLocalDB();
@@ -1424,47 +1353,97 @@ const FireSync = {
             data.dashboardWidgets = remoteWidgets;
             core.saveLocalDB(data);
             window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'dashboardWidgets' } }));
-            console.log('📊 Dashboard widgets carregados do Firestore');
           }
         }
       }
 
-      // Preferências por usuário (notificações, IA, pomodoro) vêm da nuvem.
       await Promise.allSettled(['notifications', 'ai', 'pomodoro'].map(async section => {
-        try {
-          const pref = await this.getUserPref(section, userId, { source: 'server' });
-          if (pref) this._applyUserPrefSnapshot(section, userId, pref);
-        } catch(e) {
-          console.warn('Pull de preferência', section, 'falhou:', e.code);
-        }
+        const pref = await this.getUserPref(section, userId, { source: 'server' });
+        if (pref) this._applyUserPrefSnapshot(section, userId, pref);
       }));
 
-      console.log('✅ Pull concluído: tarefas=' + tasksCount + ', notas=' + notesCount + ', macros=' + macrosCount);
-      
-      // Notificar que os dados foram carregados para刷新 a interface
+      this._readyUserId = userId;
+      this._lastServerPullAt = Date.now();
+      window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'syncReady' } }));
+      // Compatibilidade com páginas de versões anteriores.
       window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'initialLoad' } }));
+      console.log('✅ Cache confirmado pelo servidor para', userId);
+
+      // Corrige apenas duplicações comprovadas de séries recorrentes antigas.
+      // Tarefas normais com mesmo título/data nunca entram nesta limpeza.
+      this._dedupeRecurringTasks(userId).catch(error => console.warn('dedupe recorrências:', error));
+      return true;
     } catch (err) {
-      console.error('❌ Pull inicial falhou:', err.code, err.message);
-      core.toast('Erro ao carregar dados do banco. Verifique sua conexão.', 'warning');
+      console.error('❌ Pull do servidor falhou:', err.code, err.message);
+      return false;
+    }
+  },
+
+  async _dedupeRecurringTasks(userId) {
+    if (this._dedupeUsers.has(String(userId)) || String(auth.currentUser?.uid || '') !== String(userId)) return;
+    this._dedupeUsers.add(String(userId));
+    try {
+      const snapshot = await db.collection('tasks').where('owner', '==', userId).get({ source: 'server' });
+      const groups = new Map();
+      snapshot.forEach(doc => {
+        const task = this._normalizeRemoteDocument(doc);
+        if (!task.recurrenceRootId || !task.recurrence || task.recurrence === 'none' || !task.date) return;
+        const key = `${task.recurrenceRootId}::${String(task.date).slice(0, 10)}`;
+        if (!groups.has(key)) groups.set(key, []);
+        groups.get(key).push(task);
+      });
+
+      const operations = [];
+      groups.forEach(tasks => {
+        if (tasks.length < 2) return;
+        const sorted = tasks.slice().sort((a, b) => timestampMillis(b.updatedAt || b.createdAt) - timestampMillis(a.updatedAt || a.createdAt));
+        const preferred = sorted[0];
+        const canonicalId = core.recurrenceOccurrenceId(preferred.recurrenceRootId, preferred.date);
+        const canonical = tasks.find(task => String(task.id) === canonicalId);
+        const source = canonical && timestampMillis(canonical.updatedAt || canonical.createdAt) >= timestampMillis(preferred.updatedAt || preferred.createdAt)
+          ? canonical : preferred;
+        operations.push({ canonicalId, source, remove: tasks.filter(task => String(task.id) !== canonicalId) });
+      });
+
+      // Firestore aceita no máximo 500 operações por batch. Um grupo costuma
+      // ter duas cópias, mas o lote é calculado pelo número real de deletes.
+      let batch = db.batch();
+      let batchSize = 0;
+      for (const operation of operations) {
+        const operationSize = 1 + operation.remove.length;
+        if (batchSize && batchSize + operationSize > 450) {
+          await batch.commit();
+          batch = db.batch();
+          batchSize = 0;
+        }
+        const payload = { ...operation.source };
+        delete payload.id;
+        payload.owner = userId;
+        payload.recurrenceRootId = String(operation.source.recurrenceRootId);
+        const createdAt = safeFirestoreTimestamp(payload.createdAt);
+        if (createdAt) payload.createdAt = createdAt;
+        payload.updatedAt = firebase.firestore.FieldValue.serverTimestamp();
+        batch.set(db.collection('tasks').doc(operation.canonicalId), payload, { merge: true });
+        operation.remove.forEach(task => batch.delete(db.collection('tasks').doc(String(task.id))));
+        batchSize += operationSize;
+      }
+      if (batchSize) await batch.commit();
+      if (operations.length) console.info(`🧹 ${operations.length} séries recorrentes duplicadas foram consolidadas.`);
+    } finally {
+      // Só rodar uma vez por sessão; o listener mantém o cache atualizado após a limpeza.
     }
   },
 
   async pushGamification(userId, stats) {
-    if (!userId || userId.includes('local-')) return;
-    try {
-      await db.collection('gamification').doc(userId).set(stats, { merge: true });
-      return true;
-    } catch (err) { console.warn('pushGamification error:', err); return false; }
+    if (!userId || userId.includes('local-')) return false;
+    // Mesmo tratamento write-ahead das tarefas: não perder pontos se o app
+    // ficar offline imediatamente após encerrar uma sessão de foco.
+    return this.pushDocument('gamification', userId, stats);
   },
 
   async pushDashboardWidgets(userId, widgets) {
-    if (!userId || userId.includes('local-')) return;
-    try {
-      await db.collection('dashboardWidgets').doc(userId).set({
-        widgets, updatedAt: firebase.firestore.FieldValue.serverTimestamp()
-      }, { merge: true });
-      return true;
-    } catch (err) { console.warn('pushDashboardWidgets error:', err); return false; }
+    if (!userId || userId.includes('local-')) return false;
+    return this.pushDocument('dashboardWidgets', userId, { widgets });
   },
 
   /* Modos válidos de conexão da IA. 'custom' = usar somente o proxy próprio. */

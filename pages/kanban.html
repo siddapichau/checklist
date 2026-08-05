@@ -146,7 +146,7 @@ const COLUMNS = [
 
 function render() {
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const tasks = core.ownedTasks(data.tasks, page.getUser());
   const search = document.getElementById('search').value.toLowerCase();
   const filterCat = document.getElementById('filterCategory').value;
   const today = core.today();
@@ -195,7 +195,7 @@ function renderCard(t, today) {
   const isLate = t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone';
   return `
     <div class="kanban-card ${t.status === 'finished' ? 'status-finished' : ''} ${isLate ? 'overdue' : ''}"
-         draggable="true" data-id="${t.id}"
+         draggable="true" data-id="${page.esc(t.id)}"
          ondragstart="onDragStart(event)" ondragend="onDragEnd(event)">
       <div class="kanban-title">${page.esc(t.title)}</div>
       <div class="kanban-meta">
@@ -207,9 +207,9 @@ function renderCard(t, today) {
       </div>
       ${t.description ? `<div style="font-size:11px;color:var(--text-secondary);margin-top:4px">${page.esc(t.description).slice(0,80)}</div>` : ''}
       <div class="kanban-actions">
-        <button class="btn-icon" onclick="editCard(${t.id})" title="Editar" style="width:24px;height:24px;font-size:12px">✏️</button>
-        <button class="btn-icon" onclick="deleteCard(${t.id})" title="Excluir" style="width:24px;height:24px;font-size:12px">🗑️</button>
-        <button class="btn-icon" onclick="openComments(${t.id})" title="Comentários" style="width:24px;height:24px;font-size:12px">💬</button>
+        <button class="btn-icon" onclick="editCard('${t.id}')" title="Editar" style="width:24px;height:24px;font-size:12px">✏️</button>
+        <button class="btn-icon" onclick="deleteCard('${t.id}')" title="Excluir" style="width:24px;height:24px;font-size:12px">🗑️</button>
+        <button class="btn-icon" onclick="openComments('${t.id}')" title="Comentários" style="width:24px;height:24px;font-size:12px">💬</button>
       </div>
     </div>
   `;
@@ -249,7 +249,7 @@ function onDrop(e) {
 
   const data = page.getDB();
   const user = page.getUser();
-  const task = data.tasks.find(t => String(t.id) === taskId);
+  const task = core.ownedTasks(data.tasks, user).find(t => String(t.id) === taskId);
   if (!task || task.status === newStatus) return;
 
   const oldStatus = task.status;
@@ -269,7 +269,7 @@ function onDrop(e) {
       }
     }
     // Automação: criar recorrente
-    const autoResults = core.runAutomations('task_finished', { task, userId: user?.id });
+    const autoResults = core.runAutomations('task_finished', { task, userId: user?.uid || user?.id });
     autoResults.forEach(r => {
       if (r.ok && r.newTask) {
         if (!data.tasks.some(existing => String(existing.id) === String(r.newTask.id))) {
@@ -308,7 +308,7 @@ function openAddCard(status) {
 
 function editCard(id) {
   const data = page.getDB();
-  const t = data.tasks.find(t => String(t.id) === String(id));
+  const t = core.ownedTasks(data.tasks, page.getUser()).find(t => String(t.id) === String(id));
   if (!t) return;
   document.getElementById('cardModalTitle').textContent = 'Editar cartão';
   document.getElementById('cardId').value = id;
@@ -340,7 +340,7 @@ function saveCard(e) {
   };
 
   if (id) {
-    const t = data.tasks.find(t => t.id === parseInt(id));
+    const t = core.ownedTasks(data.tasks, user).find(t => String(t.id) === String(id));
     if (t) {
       const wasFinished = t.status === 'finished';
       Object.assign(t, cardData, { updatedAt: core.now() });
@@ -352,9 +352,11 @@ function saveCard(e) {
     core.log('kanban_edit', user?.id, cardData.title);
     page.toast('Cartão atualizado', 'success');
   } else {
-    cardData.id = Date.now();
-    cardData.owner = user?.id || 'unknown';
+    cardData.id = core.genId('task');
+    cardData.owner = user?.uid || user?.id || 'unknown';
+    if (cardData.recurrence && cardData.recurrence !== 'none') cardData.recurrenceRootId = cardData.id;
     cardData.createdAt = core.now();
+    cardData.updatedAt = core.now();
     data.tasks.unshift(cardData);
     if (cardData.status === 'finished') {
       cardData.finishedAt = core.now();
@@ -376,8 +378,9 @@ function saveCard(e) {
 function deleteCard(id) {
   if (!confirm('Excluir este cartão?')) return;
   const data = page.getDB();
-  const t = data.tasks.find(t => String(t.id) === String(id));
-  data.tasks = data.tasks.filter(t => String(t.id) !== String(id));
+  const t = core.ownedTasks(data.tasks, page.getUser()).find(t => String(t.id) === String(id));
+  if (!t) return;
+  data.tasks = data.tasks.filter(task => String(task.id) !== String(id) || String(task.owner || '') !== String(t.owner || ''));
   page.saveDB(data);
   if (t) page.deleteDocument('tasks', t.id);
   core.log('kanban_delete', page.getUser()?.id, t?.title || '');
@@ -496,7 +499,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     const by = (s) => ts.filter(t => t.status === s).length;
     return `Total: ${ts.length} · Pendentes: ${by('pending')} · Em análise: ${by('analyzing')} · Finalizadas: ${by('finished')} · Não realizadas: ${by('notdone')}`;
   },
