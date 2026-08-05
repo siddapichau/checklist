@@ -28,17 +28,23 @@
     .macro-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}
     .macro-card-title{font-size:15px;font-weight:700;color:var(--text,#1E293B);word-break:break-word}
     .macro-shortcut{font-family:monospace;font-size:11px;background:var(--bg-secondary,#F1F5F9);border:1px solid var(--line,#E2E8F0);border-radius:6px;padding:2px 8px;color:var(--primary,#2563EB);white-space:nowrap}
-    .macro-card-body{font-size:13px;color:var(--text-secondary,#64748B);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;word-break:break-word}
+    .macro-card-body{font-size:13px;color:var(--text-secondary,#64748B);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;min-height:36px;word-break:break-word;white-space:pre-line}
     .macro-card-meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:11px;color:var(--muted,#94A3B8)}
     .macro-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:auto}
 
     /* ---------- VARIÁVEIS NA CÓPIA ---------- */
     .var-list label{display:block;margin-bottom:10px}
-    .preview-box{background:var(--bg-secondary,#F8FAFC);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:14px;max-height:280px;overflow-y:auto;font-size:14px;line-height:1.6}
+    .preview-box{background:var(--bg-secondary,#F8FAFC);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:14px;max-height:280px;overflow-y:auto;font-size:14px;line-height:1.6;white-space:pre-wrap}
     .preview-box .var-chip{background:var(--primary-light,#DBEAFE);color:var(--primary,#2563EB);border-radius:6px;padding:0 6px;font-weight:600}
     .chip-row{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0 4px}
     .chip-row button{border:1px dashed var(--line,#E2E8F0);background:transparent;border-radius:20px;padding:4px 10px;font-size:12px;cursor:pointer;color:var(--text-secondary,#64748B);transition:.15s}
     .chip-row button:hover{border-color:var(--primary,#2563EB);color:var(--primary,#2563EB)}
+    .custom-chip-wrap{display:inline-flex;align-items:center;background:var(--bg-secondary,#F1F5F9);border:1px dashed var(--line,#E2E8F0);border-radius:20px;overflow:hidden;margin:2px 0}
+    .custom-chip-wrap button{border:none!important;background:transparent!important;padding:4px 8px!important;font-size:12px;cursor:pointer;color:var(--text-secondary,#64748B)}
+    .custom-chip-wrap button.chip-del{padding:4px 6px!important;color:var(--muted,#94A3B8)!important;font-weight:700;border-left:1px solid var(--line,#E2E8F0)!important;border-radius:0!important}
+    .custom-chip-wrap button.chip-del:hover{color:#EF4444!important;background:rgba(239,68,68,.1)!important}
+    .btn-new-var{background:var(--primary-light,#DBEAFE)!important;color:var(--primary,#2563EB)!important;border:1px dashed var(--primary,#2563EB)!important;border-radius:20px!important;padding:4px 10px!important;font-size:12px!important;font-weight:600!important;cursor:pointer;margin:2px 0;transition:all .2s}
+    .btn-new-var:hover{background:var(--primary,#2563EB)!important;color:#fff!important}
 
     /* ---------- CAMPOS c1–c10 ---------- */
     .c-field-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px;margin:6px 0 4px}
@@ -58,7 +64,10 @@
     <h1>💬 Macros</h1>
     <p>Modelos de mensagem prontos — copie com 1 clique, com variáveis dinâmicas</p>
   </div>
-  <button class="btn btn-primary" onclick="openEditor()">＋ Nova macro</button>
+  <div style="display:flex;gap:8px;flex-wrap:wrap">
+    <button class="btn btn-primary" onclick="openEditor()">＋ Nova macro</button>
+    <button class="btn btn-secondary" onclick="createNewCustomVar(false)" title="Criar variável personalizada para usar em títulos e textos">＋ Nova variável</button>
+  </div>
 </div>
 
 <!-- FILTROS -->
@@ -195,15 +204,22 @@
 
 <!-- MODAL USAR / COPIAR -->
 <div class="modal-overlay hidden" id="useModal" onclick="if(event.target===this)closeUseModal()">
-  <div class="modal" style="width:min(560px,100%)">
-    <h2>📋 Usar macro</h2>
+  <div class="modal" style="width:min(580px,100%)">
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px">
+      <h2 style="margin:0">📋 Usar macro</h2>
+      <button type="button" class="btn btn-secondary btn-sm" onclick="copyMacroTitle()" title="Copiar título resolvido">📋 Copiar título</button>
+    </div>
+    <div id="useTitleBox" style="background:var(--bg-secondary,#F8FAFC);border:1px solid var(--line,#E2E8F0);border-radius:10px;padding:10px 14px;margin-bottom:12px">
+      <small class="text-muted" style="font-size:11px;font-weight:700;text-transform:uppercase;display:block">Título resolvido</small>
+      <div id="useTitlePreview" style="font-size:14px;font-weight:700;color:var(--text,#1E293B);word-break:break-word;margin-top:2px"></div>
+    </div>
     <div id="useEmailBox" style="display:none">
       <label><span>📧 E-mails de destino</span>
-        <input type="text" id="useRecipients" placeholder="ex.: ana@empresa.com, joao@empresa.com">
+        <input type="text" id="useRecipients" placeholder="ex.: ana@empresa.com, joao@empresa.com" oninput="refreshUsePreview()">
         <small class="text-muted">O Gmail abre já com esses destinatários e o assunto.</small>
       </label>
       <label><span>📌 Assunto do e-mail</span>
-        <input type="text" id="useSubject" placeholder="Assunto do e-mail">
+        <input type="text" id="useSubject" placeholder="Assunto do e-mail" oninput="refreshUsePreview()">
       </label>
     </div>
     <div class="var-list" id="useVarInputs"></div>
@@ -253,6 +269,112 @@ const VAR_CHIPS = ['nome', 'cliente', 'data', 'hora', 'usuario', 'saldação', '
 const C_FIELDS = ['c1','c2','c3','c4','c5','c6','c7','c8','c9','c10'];
 const EMOJIS = ['😀','😊','👍','🙏','✅','⚠️','🚨','📦','🚚','⏰','📋','💬','🎉','🤝','❗','💡'];
 
+function getUserCustomVars() {
+  const user = page.getUser() || {};
+  const uid = user.id || user.uid || 'default';
+  const localKey = 'cl-macros-custom-vars-' + uid;
+  try {
+    const cached = localStorage.getItem(localKey);
+    if (cached) {
+      const parsed = JSON.parse(cached);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {
+    // ignorar erro
+  }
+  const db = page.getDB();
+  const settingsList = db.settings?.customMacroVars;
+  if (Array.isArray(settingsList)) return [...settingsList];
+  return [];
+}
+
+function saveUserCustomVars(list) {
+  const user = page.getUser() || {};
+  const uid = user.id || user.uid || 'default';
+  const localKey = 'cl-macros-custom-vars-' + uid;
+  try {
+    localStorage.setItem(localKey, JSON.stringify(list));
+  } catch (e) {
+    // ignorar erro
+  }
+  const db = page.getDB();
+  if (!db.settings) db.settings = {};
+  db.settings.customMacroVars = list;
+  page.saveDB(db);
+  if (typeof page.syncUserPref === 'function') {
+    page.syncUserPref('macros', { customVars: list });
+  }
+}
+
+async function createNewCustomVar(autoInsert = true) {
+  const raw = prompt('Digite o nome da nova variável (ex.: email, telefone, departamento):');
+  if (!raw || !raw.trim()) return;
+  const name = raw.trim().replace(/\s+/g, '_').replace(/[^\wÀ-ÿ.-]/g, '');
+  if (!name) {
+    page.toast('Nome de variável inválido. Use letras, números ou _.', 'warning');
+    return;
+  }
+  const list = getUserCustomVars();
+  if (!list.includes(name)) {
+    list.push(name);
+    saveUserCustomVars(list);
+    page.toast(`Variável {{${name}}} criada e salva! ☁️`, 'success');
+  } else {
+    page.toast(`A variável {{${name}}} já existe.`, 'info');
+  }
+  renderVarChips();
+  if (autoInsert && document.getElementById('editorModal') && !document.getElementById('editorModal').classList.contains('hidden')) {
+    insertVar(name);
+  }
+}
+
+function deleteCustomVar(name) {
+  if (!confirm(`Remover a variável personalizada {{${name}}}?`)) return;
+  let list = getUserCustomVars();
+  list = list.filter(v => v !== name);
+  saveUserCustomVars(list);
+  page.toast(`Variável {{${name}}} removida.`, 'success');
+  renderVarChips();
+}
+
+function renderVarChips() {
+  const customList = getUserCustomVars();
+  const allChips = [...VAR_CHIPS];
+  customList.forEach(c => {
+    if (!allChips.includes(c)) allChips.push(c);
+  });
+  const container = document.getElementById('varChips');
+  if (!container) return;
+  container.innerHTML = allChips.map(v => {
+    const isCustom = customList.includes(v) && !VAR_CHIPS.includes(v);
+    if (isCustom) {
+      return `<span class="custom-chip-wrap">`
+        + `<button type="button" onclick="insertVar('${page.esc(v)}')">{{${page.esc(v)}}}</button>`
+        + `<button type="button" class="chip-del" onclick="deleteCustomVar('${page.esc(v)}'); event.stopPropagation();" title="Remover variável {{${page.esc(v)}}}">×</button>`
+        + `</span>`;
+    }
+    return `<button type="button" onclick="insertVar('${v}')">{{${v}}}</button>`;
+  }).join('') + ` <button type="button" class="btn-new-var" onclick="createNewCustomVar(true)" title="Criar nova variável de usuário (ex: email, setor)">＋ Nova variável</button>`;
+}
+
+async function syncCustomVarsFromCloud() {
+  const user = page.getUser() || {};
+  const uid = user.id || user.uid;
+  if (!uid) return;
+  try {
+    const pref = await page.getUserPref('macros');
+    if (pref && Array.isArray(pref.customVars)) {
+      const cached = localStorage.getItem('cl-macros-custom-vars-' + uid);
+      if (cached !== JSON.stringify(pref.customVars)) {
+        localStorage.setItem('cl-macros-custom-vars-' + uid, JSON.stringify(pref.customVars));
+        renderVarChips();
+      }
+    }
+  } catch (e) {
+    // offline ou erro
+  }
+}
+
 /* ========== INICIALIZAÇÃO ========== */
 (function init() {
   const cats = settings.categories || ['Geral'];
@@ -262,18 +384,21 @@ const EMOJIS = ['😀','😊','👍','🙏','✅','⚠️','🚨','📦','🚚',
     filterCat.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
     catSel.innerHTML += `<option value="${page.esc(c)}">${page.esc(c)}</option>`;
   });
-  document.getElementById('varChips').innerHTML =
-    VAR_CHIPS.map(v => `<button type="button" onclick="insertVar('${v}')">{{${v}}}</button>`).join('');
+  renderVarChips();
   document.getElementById('emojiRow').innerHTML =
     EMOJIS.map(e => `<button type="button" onclick="insertAtCaret('${e}')">${e}</button>`).join('');
   render();
+  syncCustomVarsFromCloud();
+  window.addEventListener('message', (e) => {
+    if (e.data?.type === 'firebaseSync' && (e.data?.collection === 'macros' || e.data?.collection === 'macrosVars' || e.data?.collection === 'settings')) {
+      renderVarChips();
+    }
+  });
 })();
 
 /* ========== LISTAGEM ========== */
 function getMacroText(m) {
-  const tmp = document.createElement('div');
-  tmp.innerHTML = m.content || '';
-  return tmp.textContent || '';
+  return stripHtml(m.content || '');
 }
 
 function render() {
@@ -362,6 +487,7 @@ function openEditor(id) {
   toggleEmailFields();
   buildCFieldChips();
   buildEditorCFields(cfields);
+  renderVarChips();
   document.getElementById('editorModal').classList.remove('hidden');
   document.getElementById('emojiRow').classList.add('hidden');
   updateStats(); updatePreview();
@@ -421,10 +547,30 @@ function insertAtCaret(html) {
   updateStats(); updatePreview();
 }
 
+let lastFocusedMacroInput = null;
+document.addEventListener('focusin', e => {
+  if (['macroTitle', 'macroSubject', 'macroRecipients', 'macroShortcut'].includes(e.target?.id)) {
+    lastFocusedMacroInput = e.target;
+  } else if (e.target?.id === 'macroContent' || e.target?.closest('#macroContent')) {
+    lastFocusedMacroInput = null;
+  }
+});
+
 function insertVar(name) {
   // Campos c1–c10 usam chaves simples {cN}; variáveis usam {{nome}}.
   const isC = /^c([1-9]|10)$/i.test(name);
-  insertAtCaret(`<span class="var-chip">${isC ? '{' + name + '}' : '{{' + name + '}}'}</span>&nbsp;`);
+  const token = isC ? '{' + name + '}' : '{{' + name + '}}';
+  if (lastFocusedMacroInput && ['macroTitle', 'macroSubject', 'macroRecipients'].includes(lastFocusedMacroInput.id)) {
+    const inp = lastFocusedMacroInput;
+    const start = inp.selectionStart || inp.value.length;
+    const end = inp.selectionEnd || inp.value.length;
+    inp.value = inp.value.slice(0, start) + token + inp.value.slice(end);
+    inp.selectionStart = inp.selectionEnd = start + token.length;
+    inp.focus();
+    updatePreview();
+    return;
+  }
+  insertAtCaret(`<span class="var-chip">${token}</span>&nbsp;`);
 }
 
 function updateStats() {
@@ -536,7 +682,7 @@ function deleteMacro(id) {
 /* ========== USAR / COPIAR ========== */
 function extractVars(html) {
   const found = new Set();
-  const re = /\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g;
+  const re = /\{\{\s*([\wÀ-ÿ.-]+)\s*\}\}/g;
   let match;
   while ((match = re.exec(html)) !== null) found.add(match[1]);
   return [...found];
@@ -545,11 +691,11 @@ function extractVars(html) {
 function substituteVars(html, values, highlightEmpty) {
   // Chips do editor voltam a ser texto puro antes da substituição
   const normalized = html
-    .replace(/<span class="var-chip">\s*\{\{\s*([\wÀ-ÿ]+)\s*\}\}\s*<\/span>/g, '{{$1}}')
+    .replace(/<span class="var-chip">\s*\{\{\s*([\wÀ-ÿ.-]+)\s*\}\}\s*<\/span>/gi, '{{$1}}')
     .replace(/<span class="var-chip">\s*(\{\s*c(?:[1-9]|10)\s*\})\s*<\/span>/gi, '$1');
-  // 1º: variáveis {{...}} (nome, data, hora, usuário...)
-  let out = normalized.replace(/\{\{\s*([\wÀ-ÿ]+)\s*\}\}/g, (all, name) => {
-    const v = values[name];
+  // 1º: variáveis {{...}} (nome, data, hora, usuário, email...)
+  let out = normalized.replace(/\{\{\s*([\wÀ-ÿ.-]+)\s*\}\}/gi, (all, name) => {
+    const v = values[name] !== undefined ? values[name] : values[name.toLowerCase()];
     if (v !== undefined && v !== '') return page.esc(v);
     return highlightEmpty ? `<span class="var-chip">{{${name}}}</span>` : `{{${name}}}`;
   });
@@ -580,15 +726,19 @@ function openUseModal(id) {
   if (!m) return page.toast('Macro não encontrada', 'error');
   usingId = String(id);
 
-  const vars = extractVars(m.content || '');
+  const allText = [m.title || '', m.subject || '', m.recipients || '', m.content || ''].join(' ');
+  const vars = extractVars(allText);
   const defaults = builtinVarValues();
   const box = document.getElementById('useVarInputs');
 
   box.innerHTML = vars.length
-    ? vars.map(v => `
+    ? vars.map(v => {
+      const defVal = defaults[v] !== undefined ? defaults[v] : (defaults[v.toLowerCase()] || '');
+      return `
       <label><span>Variável <code>{{${v}}}</code></span>
-        <input type="text" class="use-var-input" data-var="${page.esc(v)}" value="${page.esc(defaults[v] || '')}" oninput="refreshUsePreview()">
-      </label>`).join('')
+        <input type="text" class="use-var-input" data-var="${page.esc(v)}" value="${page.esc(defVal)}" oninput="refreshUsePreview()">
+      </label>`;
+    }).join('')
     : '<p class="text-muted" style="font-size:13px;margin-bottom:8px">Esta macro não usa variáveis — é só copiar.</p>';
 
   // Modelo e-mail: destinatários + assunto + botão "Mandar e-mail"
@@ -601,7 +751,7 @@ function openUseModal(id) {
   // Campos c1–c10: cada macro tem os 10; preencha os usados no texto
   buildUseCFields(m.cfields || {});
   const wrap = document.getElementById('useCFieldsWrap');
-  wrap.open = /{c([1-9]|10)}/i.test(m.content || '');
+  wrap.open = /\{c([1-9]|10)\}/i.test(allText);
 
   document.getElementById('useModal').classList.remove('hidden');
   refreshUsePreview();
@@ -615,9 +765,11 @@ function buildUseCFields(values) {
 }
 
 function getUseValues() {
-  const values = {};
+  const values = Object.assign({}, builtinVarValues());
   document.querySelectorAll('.use-var-input, .use-cfield-input').forEach(inp => {
-    values[inp.dataset.var] = inp.value;
+    const k = inp.dataset.var;
+    values[k] = inp.value;
+    values[k.toLowerCase()] = inp.value;
   });
   return values;
 }
@@ -631,11 +783,12 @@ function sendEmailMacro() {
   if (!m) return;
   const html = renderUseResult();
   const text = stripHtml(html).trim();
-  const to = document.getElementById('useRecipients').value
+  const vals = getUseValues();
+  const rawTo = document.getElementById('useRecipients').value || '';
+  const to = stripHtml(substituteVars(page.esc(rawTo), vals, false))
     .split(/[\s,;]+/).map(s => s.trim()).filter(Boolean).join(',');
-  // Aplicar variáveis também no ASSUNTO do e-mail ({{nome}}, {c1}, etc.)
-  const rawSubject = document.getElementById('useSubject').value.trim();
-  const su = stripHtml(substituteVars(page.esc(rawSubject), getUseValues(), false)).trim();
+  const rawSubject = document.getElementById('useSubject').value || '';
+  const su = stripHtml(substituteVars(page.esc(rawSubject), vals, false)).trim();
   if (!to) return page.toast('Informe ao menos um e-mail de destino.', 'warning');
 
   const url = 'https://mail.google.com/mail/?view=cm&fs=1'
@@ -669,13 +822,21 @@ function renderUseResult() {
 }
 
 function refreshUsePreview() {
-  document.getElementById('usePreview').innerHTML = renderUseResult() || '—';
+  const m = (page.getDB().macros || []).find(x => String(x.id) === usingId);
+  if (!m) return;
+  const vals = getUseValues();
+  // Título resolvido
+  const resolvedTitle = stripHtml(substituteVars(page.esc(m.title || ''), vals, false)).trim();
+  const titleEl = document.getElementById('useTitlePreview');
+  if (titleEl) titleEl.textContent = resolvedTitle || (m.title || '—');
+  // Corpo resolvido
+  document.getElementById('usePreview').innerHTML = substituteVars(m.content || '', vals, false) || '—';
   // Atualizar também o campo de assunto com preview das variáveis resolvidas
   const subjectInput = document.getElementById('useSubject');
   if (subjectInput && subjectInput.offsetParent !== null) {
     const rawSubject = subjectInput.value;
     if (rawSubject && (/\{\{/.test(rawSubject) || /\{c\d/.test(rawSubject))) {
-      const resolved = stripHtml(substituteVars(page.esc(rawSubject), getUseValues(), false)).trim();
+      const resolved = stripHtml(substituteVars(page.esc(rawSubject), vals, false)).trim();
       if (resolved !== rawSubject) {
         subjectInput.title = 'Assunto resolvido: ' + resolved;
       }
@@ -732,6 +893,15 @@ async function copyMacroText() {
   closeUseModal();
 }
 
+async function copyMacroTitle() {
+  const m = (page.getDB().macros || []).find(x => String(x.id) === usingId);
+  if (!m) return;
+  const vals = getUseValues();
+  const resolvedTitle = stripHtml(substituteVars(page.esc(m.title || ''), vals, false)).trim();
+  await copyPlain(resolvedTitle);
+  page.toast('Título copiado! 📋', 'success');
+}
+
 async function copyPlain(text) {
   try {
     await navigator.clipboard.writeText(text);
@@ -747,9 +917,25 @@ async function copyPlain(text) {
 }
 
 function stripHtml(html) {
+  if (!html) return '';
+  let processed = String(html)
+    .replace(/<br\s*[\/]?>/gi, '\n')
+    .replace(/<\/p>\s*<p[^>]*>/gi, '\n\n')
+    .replace(/<\/div>\s*<div[^>]*>/gi, '\n')
+    .replace(/<\/(p|div|h[1-6]|li|tr|blockquote|section|article)>/gi, '\n')
+    .replace(/<(p|div|h[1-6]|li|tr|blockquote|section|article)[^>]*>/gi, (match, tag, offset) => {
+      return offset > 0 ? '\n' : '';
+    })
+    .replace(/<li[^>]*>/gi, '• ')
+    .replace(/&nbsp;/gi, ' ');
   const tmp = document.createElement('div');
-  tmp.innerHTML = html;
-  return tmp.textContent || '';
+  tmp.innerHTML = processed;
+  let text = tmp.textContent || '';
+  return text
+    .replace(/\r\n/g, '\n')
+    .replace(/\n{3,}/g, '\n\n')
+    .replace(/^\n+/, '')
+    .replace(/\n+$/, '');
 }
 </script>
 
@@ -759,15 +945,16 @@ function stripHtml(html) {
 PageHelpAI.mount({
   pageId: 'macros',
   title: 'Macros',
-  intro: 'Modelos de mensagem prontos para copiar com 1 clique. Você cria o texto, usa variáveis ({{nome}}, {{data}}…), campos c1 a c10 e até modelos de e-mail que abrem o Gmail preenchido.',
+  intro: 'Modelos de mensagem prontos para copiar com 1 clique. Você cria o texto, usa variáveis ({{nome}}, {{data}}…), variáveis personalizadas (como {{email}}), campos c1 a c10 e até modelos de e-mail que abrem o Gmail preenchido.',
   sections: [
     { icon: '📄', title: 'Tipos: Mensagem ou E-mail', body: 'Ao criar, escolha o tipo. No tipo E-mail aparecem os campos de destinatários e assunto, e o botão "Mandar e-mail" abre o Gmail já preenchido.' },
-    { icon: '⚙️', title: 'Campos c1–c10', body: 'Cada macro tem 10 campos (c1 a c10). Escreva {c1}, {c2} … {c10} no texto; ao usar a macro, preencha os campos e a informação entra no texto final.' },
+    { icon: '⚙️', title: 'Campos c1–c10 e Personalizados', body: 'Cada macro tem 10 campos (c1 a c10) e você pode criar variáveis próprias (como {{email}}, {{telefone}}) com o botão "＋ Nova variável", que valem para títulos, assuntos e textos.' },
     { icon: '{{}}', title: 'Variáveis dinâmicas', body: 'Use {{nome}}, {{cliente}}, {{data}}, {{hora}}, {{usuario}} e {{saudação}} — preenchidas automaticamente na hora de usar.' },
-    { icon: '📋', title: 'Copiar', body: 'Ao usar a macro, copie como texto puro ou com formatação. Para e-mail, o corpo é copiado automaticamente para colar com Ctrl+V no Gmail.' },
+    { icon: '📋', title: 'Copiar', body: 'Ao usar a macro, copie como texto puro, título resolvido ou com formatação preservando os espaços e quebras de linha. Para e-mail, o corpo é copiado automaticamente para colar com Ctrl+V no Gmail.' },
   ],
   tips: [
     'Campos c1–c10 evitam reescrever: troque nomes, números e pedidos por {c1}, {c2}…',
+    'Clique em "＋ Nova variável" para criar variáveis como {{email}}, {{telefone}} e usar em títulos, assuntos e textos.',
     'No tipo E-mail, defina os destinatários uma vez na macro — na hora de enviar é só conferir.',
     'Gatilhos (/boasvindas) ajudam a achar a macro rápido pela busca.',
     'Use {{saudação}} para cumprimentar conforme o horário automaticamente.',
