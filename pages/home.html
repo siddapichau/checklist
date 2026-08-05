@@ -152,7 +152,7 @@ function sizeClass(size) {
 
 function renderWidgets() {
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const tasks = core.ownedTasks(data.tasks, page.getUser());
   const posts = data.posts || [];
   const today = core.today();
   const user = page.getUser();
@@ -230,7 +230,7 @@ function renderWidgets() {
                   <small>${core.formatDate(t.date)} · ${page.esc(t.category || 'Geral')} · <span class="badge ${t.status}">${statusLabel(t.status)}</span>${t._group === 'late' ? ' · <span style="color:var(--danger)">Atrasada</span>' : ' · <span style="color:var(--warning)">Em aberto</span>'}</small>
                 </div>
                 <div class="item-actions">
-                  <button class="btn-icon" onclick="finishTask(${t.id})" title="Finalizar">✅</button>
+                  <button class="btn-icon" onclick="finishTask('${t.id}')" title="Finalizar">✅</button>
                 </div>
               </div>
             `).join('')
@@ -406,27 +406,32 @@ function saveWidgetOrder() {
 
 function finishTask(id) {
   const data = page.getDB();
-  const task = data.tasks.find(t => t.id === id);
-  if (task) {
-    task.status = 'finished';
-    task.finishedAt = core.now();
-    page.saveDB(data);
-    core.log('task_finished', page.getUser()?.id, task.title);
+  const user = page.getUser();
+  const task = core.ownedTasks(data.tasks, user).find(item => String(item.id) === String(id));
+  if (!task || task.status === 'finished') return;
 
-    // Gamificação
-    const user = page.getUser();
-    if (user) {
-      const result = core.awardPoints(user.id || user.uid, task, 'finish');
-      if (result) {
-        page.toast(`+${result.total} pontos! 🏆`, 'success');
-      }
-    }
-    // Automação
-    core.runAutomations('task_finished', { task, userId: user?.id });
+  task.status = 'finished';
+  task.finishedAt = core.now();
+  task.updatedAt = core.now();
+  page.saveDB(data);
+  core.log('task_finished', user?.uid || user?.id, task.title);
 
-    location.reload();
-    window.parent.postMessage({ type: 'updateBadge' }, '*');
+  if (user) {
+    const result = core.awardPoints(user.uid || user.id, task, 'finish');
+    if (result) page.toast(`+${result.total} pontos! 🏆`, 'success');
   }
+
+  // A automação devolve a ocorrência criada; envie ambas as alterações. O
+  // antigo location.reload() interrompia essa sequência e fazia a tarefa só
+  // existir no cache até uma troca de navegador.
+  const results = core.runAutomations('task_finished', { task, userId: user?.uid || user?.id });
+  const latest = page.getDB();
+  const savedTask = core.ownedTasks(latest.tasks, user).find(item => String(item.id) === String(task.id));
+  if (savedTask) page.syncDocument('tasks', savedTask.id, savedTask);
+  results.filter(result => result?.newTask).forEach(result => page.syncDocument('tasks', result.newTask.id, result.newTask));
+
+  renderWidgets();
+  window.parent.postMessage({ type: 'updateBadge' }, '*');
 }
 
 // Debounce para atualizar widgets sem flickering
@@ -480,7 +485,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB(); const today = core.today();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     return `Hoje: ${today} · Total de atividades: ${ts.length} · Pendentes: ${ts.filter(t => t.status === 'pending').length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length} · De hoje: ${ts.filter(t => t.date === today).length}`;
   },
 });

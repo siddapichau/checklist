@@ -37,7 +37,9 @@
 //       Background Sync, exportação diária e acessibilidade.
 // v20 = 100% Firebase Auth + reCAPTCHA Enterprise (site key 6LfG1HIt...), fluxos completos
 //       de verificação de e-mail, reset de senha, troca de senha via reauth, App Check.
-const CACHE_NAME = 'checklist-ml-v20-firebase-recaptcha-enterprise';
+// v21 = sincronização multiaba segura: atualizações do SW não interrompem a
+//       página aberta nem a outbox do Firestore.
+const CACHE_NAME = 'checklist-ml-v21-cloud-sync-safe';
 const NETWORK_TIMEOUT_MS = 8000;
 const ASSETS = [
   '/',
@@ -99,7 +101,9 @@ self.addEventListener('install', event => {
         console.warn('Asset não cacheado nesta instalação:', asset, err);
       }
     }));
-    await self.skipWaiting();
+    // Não use skipWaiting automático: trocar o controller no meio de uma
+    // edição causava window.location.reload() e podia interromper a outbox.
+    // A atualização é ativada naturalmente quando as abas antigas fecharem.
   })());
 });
 

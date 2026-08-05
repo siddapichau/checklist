@@ -364,6 +364,8 @@ function onTimerComplete() {
       s.weeklyPoints[weekKey] = (s.weeklyPoints[weekKey] || 0) + 20;
       s.lastActiveDate = core.today();
       page.saveDB(data);
+      // Gamificação é dado por usuário: o localStorage é só cache rápido.
+      page.syncGamification(user.uid || user.id, s);
     }
 
     // Próximo modo: pausa curta (ou longa a cada 4 ciclos)
@@ -483,7 +485,7 @@ function exitFocoOverlay() {
 
 function populateTasks() {
   const data = page.getDB();
-  const tasks = (data.tasks || []).filter(t => t.status !== 'finished' && t.status !== 'notdone');
+  const tasks = core.ownedTasks(data.tasks, page.getUser()).filter(t => t.status !== 'finished' && t.status !== 'notdone');
   const sel = document.getElementById('focusTask');
   sel.innerHTML = '<option value="">— Nenhuma atividade específica —</option>';
   tasks.slice(0, 50).forEach(t => {
@@ -523,7 +525,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     return `Atividades disponíveis: ${ts.filter(t => t.status === 'pending' || t.status === 'analyzing').length} pendentes/em análise para focar.`;
   },
 });

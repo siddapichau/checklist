@@ -731,7 +731,7 @@ function saveNote(e) {
     core.log('note_edit', user?.id, noteData.title);
     page.toast('Recadinho atualizado! ✅', 'success');
   } else {
-    noteData.id = Date.now();
+    noteData.id = core.genId('note');
     noteData.owner = user?.id || user?.uid || 'unknown';
     noteData.ownerName = user?.name || user?.username || '';
     noteData.createdAt = core.now();

@@ -167,7 +167,7 @@ function render() {
 
 function renderMonth(locale) {
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const tasks = core.ownedTasks(data.tasks, page.getUser());
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const today = core.today();
@@ -213,7 +213,7 @@ function renderMonth(locale) {
       const isNotdone = t.status === 'notdone';
       const isLateT = t.date < today && !isFinished && !isNotdone;
       const cls = isFinished ? 'finished' : isAnalyzing ? 'analyzing' : isNotdone ? 'notdone' : isLateT ? 'late' : '';
-      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask(${t.id})" title="${page.esc(t.title)} · ${page.t('status.'+t.status, t.status)}">${page.esc(t.title)}</div>`;
+      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask('${t.id}')" title="${page.esc(t.title)} · ${page.t('status.'+t.status, t.status)}">${page.esc(t.title)}</div>`;
     }).join('');
     const more = filtered.length > 3 ? `<div class="cal-more">+${filtered.length - 3} ${page.t('calendar.more', 'mais')}</div>` : '';
 
@@ -239,7 +239,7 @@ function renderMonth(locale) {
 
 function renderWeek(locale, weekStart) {
   const data = page.getDB();
-  const tasks = data.tasks || [];
+  const tasks = core.ownedTasks(data.tasks, page.getUser());
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const today = core.today();
@@ -266,7 +266,7 @@ function renderWeek(locale, weekStart) {
       const isNotdone = t.status === 'notdone';
       const isLateT = t.date < today && !isFinished && !isNotdone;
       const cls = isFinished ? 'finished' : isAnalyzing ? 'analyzing' : isNotdone ? 'notdone' : isLateT ? 'late' : '';
-      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask(${t.id})" title="${page.esc(t.title)}">${page.esc(t.title)}</div>`;
+      return `<div class="cal-event ${cls}" onclick="event.stopPropagation();openTask('${t.id}')" title="${page.esc(t.title)}">${page.esc(t.title)}</div>`;
     }).join('');
 
     html += `
@@ -282,7 +282,7 @@ function renderWeek(locale, weekStart) {
 /* ========== MODAL DIA ========== */
 function openDay(dateStr) {
   const data = page.getDB();
-  const tasks = core.isDayOff(dateStr, page.getUser()) ? [] : (data.tasks || []).filter(t => t.date === dateStr);
+  const tasks = core.isDayOff(dateStr, page.getUser()) ? [] : core.ownedTasks(data.tasks, page.getUser()).filter(t => t.date === dateStr);
   const filterCat = document.getElementById('filterCategory').value;
   const filterStatus = document.getElementById('filterStatus').value;
   const filtered = tasks.filter(t => {
@@ -304,7 +304,7 @@ function openDay(dateStr) {
               <b>${page.esc(t.title)}</b>
               <small>${page.esc(t.category || 'Geral')} · ${page.t('priority.'+t.priority, t.priority || 'medium')}</small>
             </div>
-            <button class="btn-icon" onclick="openTask(${t.id})">👁</button>
+            <button class="btn-icon" onclick="openTask('${t.id}')">👁</button>
           </div>
         `;
       }).join('');
@@ -337,7 +337,7 @@ let currentTaskViewId = null;
 
 function openTask(id) {
   const data = page.getDB();
-  const t = data.tasks.find(t => String(t.id) === String(id));
+  const t = core.ownedTasks(data.tasks, page.getUser()).find(t => String(t.id) === String(id));
   if (!t) return;
   currentTaskViewId = t.id;
 
@@ -432,7 +432,7 @@ PageHelpAI.mount({
   ],
   context: () => {
     const d = page.getDB(); const today = core.today();
-    const ts = d.tasks || [];
+    const ts = core.ownedTasks(d.tasks, page.getUser());
     return `Hoje: ${today} · Atividades de hoje: ${ts.filter(t => t.date === today).length} · Atrasadas: ${ts.filter(t => t.date && t.date < today && t.status !== 'finished' && t.status !== 'notdone').length}`;
   },
 });

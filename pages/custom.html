@@ -438,9 +438,10 @@ function toggleWidget(type) {
 }
 
 function resetWidgets() {
-  const data = page.getDB();
-  data.dashboardWidgets = JSON.parse(JSON.stringify(core._defaults.dashboardWidgets));
-  page.saveDB(data);
+  const widgets = JSON.parse(JSON.stringify(core._defaults.dashboardWidgets));
+  // Salva no cache e em dashboardWidgets/{uid}; não deixe o reset existir só
+  // neste navegador.
+  core.saveDashboardWidgets(widgets);
   renderDashboardConfig();
   page.toast('Widgets restaurados', 'info');
 }

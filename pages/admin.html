@@ -616,7 +616,7 @@ function publishPost() {
 
   data = page.getDB();
   const post = {
-    id: Date.now(),
+    id: core.genId('post'),
     title, body,
     category: document.getElementById('postCategory').value,
     image: document.getElementById('postImage').value.trim(),
@@ -670,7 +670,7 @@ function renderPosts() {
             <b>${page.esc(p.title)}</b>
             <small style="display:block;margin-top:2px">${page.esc(p.category || 'Geral')} · ${core.formatDateTime(p.publishedAt)} · ${page.esc(p.author || '')}</small>
           </div>
-          <button class="btn-icon" onclick="deletePost(${p.id})" title="Excluir">🗑️</button>
+          <button class="btn-icon" onclick="deletePost('${p.id}')" title="Excluir">🗑️</button>
         </div>
         ${p.image ? `<img src="${p.image}" alt="">` : ''}
         <p>${page.esc(p.body || '').slice(0, 200)}${(p.body || '').length > 200 ? '...' : ''}</p>
@@ -682,7 +682,7 @@ function renderPosts() {
 function deletePost(id) {
   if (!confirm('Excluir esta notícia?')) return;
   data = page.getDB();
-  data.posts = data.posts.filter(p => p.id !== id);
+  data.posts = data.posts.filter(p => String(p.id) !== String(id));
   page.saveDB(data);
   page.deleteDocument('posts', id);
   renderPosts();
@@ -733,12 +733,14 @@ function addFile() {
   data = page.getDB();
   const fileType = document.getElementById('fileType').value;
   const fileEntry = {
-    id: Date.now(),
+    id: core.genId('file'),
     title, url,
     category: document.getElementById('fileCategory').value,
     description: document.getElementById('fileDesc').value.trim(),
     image: document.getElementById('fileImage').value.trim(),
     fileType: fileType || '',
+    createdBy: user.uid || user.id || 'unknown',
+    createdAt: core.now(),
     updatedAt: core.now()
   };
   data.files.push(fileEntry);
@@ -769,7 +771,7 @@ function renderFiles() {
           <b>${page.esc(f.title)}</b>
           <small>${typeInfo} · ${page.esc(f.category || 'Geral')}${f.description ? ' · ' + page.esc(f.description) : ''} · <a href="${page.esc(f.url)}" target="_blank">Abrir 🔗</a></small>
         </div>
-        <button class="btn-icon" onclick="deleteFile(${f.id})" title="Excluir">🗑️</button>
+        <button class="btn-icon" onclick="deleteFile('${f.id}')" title="Excluir">🗑️</button>
       </div>
     `;
       }).join('')
@@ -779,7 +781,7 @@ function renderFiles() {
 function deleteFile(id) {
   if (!confirm('Excluir este arquivo?')) return;
   data = page.getDB();
-  data.files = data.files.filter(f => f.id !== id);
+  data.files = data.files.filter(f => String(f.id) !== String(id));
   page.saveDB(data);
   page.deleteDocument('files', id);
   renderFiles();
