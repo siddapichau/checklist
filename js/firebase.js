@@ -525,9 +525,9 @@ const FireSync = {
       this._unsubscribers.push(settingsUnsub);
 
       // 5. Preferências/estado por usuário sincronizados da nuvem:
-      //    notificações, histórico/memória da IA e configuração do Pomodoro vivem em
+      //    notificações, histórico/memória da IA, pomodoro e variáveis de macros vivem em
       //    settings/{section}/user/{uid} no Firestore (regras: só o dono lê/escreve).
-      ['notifications', 'ai', 'pomodoro'].forEach(section => {
+      ['notifications', 'ai', 'pomodoro', 'macros'].forEach(section => {
         const unsub = db.collection('settings').doc(section).collection('user').doc(userId)
           .onSnapshot(doc => {
             if (!this._syncing) return;
@@ -1253,6 +1253,15 @@ const FireSync = {
             window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'pomodoro' } }));
           }
         }
+      } else if (section === 'macros') {
+        if (pref && Array.isArray(pref.customVars)) {
+          const key = 'cl-macros-custom-vars-' + userId;
+          const json = JSON.stringify(pref.customVars);
+          if (safeLocalGet(key) !== json) {
+            safeLocalSet(key, json);
+            window.dispatchEvent(new CustomEvent('firebaseSync', { detail: { type: 'macrosVars', customVars: pref.customVars } }));
+          }
+        }
       }
     } catch (e) {
       console.warn('applyUserPrefSnapshot error:', section, e);
@@ -1357,7 +1366,7 @@ const FireSync = {
         }
       }
 
-      await Promise.allSettled(['notifications', 'ai', 'pomodoro'].map(async section => {
+      await Promise.allSettled(['notifications', 'ai', 'pomodoro', 'macros'].map(async section => {
         const pref = await this.getUserPref(section, userId, { source: 'server' });
         if (pref) this._applyUserPrefSnapshot(section, userId, pref);
       }));
